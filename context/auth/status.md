@@ -21,22 +21,22 @@
 
 | 항목 ID | 설명 | 상태 | Phase | 비고 |
 |---------|------|------|-------|------|
-| AC-AUTH-01 | Google OAuth 버튼 클릭 시 Google 계정 선택 화면으로 이동 | ⬜ | P1 | Auth.js GoogleProvider 설정 필요 |
-| AC-AUTH-02 | 최초 로그인 시 User 레코드 자동 생성 + 개인 워크스페이스 자동 생성 | ⬜ | P1 | `signIn` 콜백 + `ensurePersonalWorkspace` 구현 필요 |
-| AC-AUTH-03 | 재로그인 시 기존 User 레코드 재사용 (googleId 기준 upsert) | ⬜ | P1 | `prisma.user.upsert({ where: { googleId } })` 구현 필요 |
-| AC-AUTH-04 | 로그아웃 후 보호된 경로 접근 시 `/login`으로 리다이렉트 | ⬜ | P1 | `middleware.ts` Edge 미들웨어 구현 필요 |
-| AC-AUTH-05 | 유효하지 않거나 만료된 세션으로 API 호출 시 401 반환 | ⬜ | P1 | Route Handler 내 `auth()` 이중 검증 구현 필요 |
-| AC-AUTH-06 | 로그인 성공 후 이전에 접근하려던 페이지로 복귀 (callbackUrl 처리) | ⬜ | P1 | Auth.js 기본 지원, 설정 확인 필요 |
+| AC-AUTH-01 | Google OAuth 버튼 클릭 시 Google 계정 선택 화면으로 이동 | ✅ | P1 | Spring Security `oauth2Login` (PR #3). ※실제 스택=Spring(문서의 Auth.js 아님) |
+| AC-AUTH-02 | 최초 로그인 시 User 레코드 자동 생성 + 개인 워크스페이스 자동 생성 | ✅ | P1 | `OAuth2SuccessHandler`→`UserService.loginWithOAuth`(upsert) + `WorkspaceService.ensurePersonalWorkspace`(OWNER 멤버십), 단일 트랜잭션 (PR #3) |
+| AC-AUTH-03 | 재로그인 시 기존 User 레코드 재사용 (googleId 기준 upsert) | ✅ | P1 | `UserService.upsert` findByGoogleId 갱신 분기 (PR #3) |
+| AC-AUTH-04 | 로그아웃 후 보호된 경로 접근 시 `/login`으로 리다이렉트 | ✅ | P1 | `JsonAuthenticationEntryPoint` 비-API→302 `/login` (PR #3) |
+| AC-AUTH-05 | 유효하지 않거나 만료된 세션으로 API 호출 시 401 반환 | ✅ | P1 | `JsonAuthenticationEntryPoint` `/api/**`→401 JSON (PR #3) |
+| AC-AUTH-06 | 로그인 성공 후 이전에 접근하려던 페이지로 복귀 (callbackUrl 처리) | ✅ | P1 | `OAuth2SuccessHandler.resolveRedirect` `?callbackUrl=` + open-redirect 화이트리스트. state 전달은 P2 프론트 (PR #3) |
 
 ### 권한 모델 (08-auth-and-permissions.md §3~4)
 
 | 항목 ID | 설명 | 상태 | Phase | 비고 |
 |---------|------|------|-------|------|
-| PERM-01 | `requireWorkspaceMember` 헬퍼 구현 (세션→소속→역할 3단계 검증) | ⬜ | P1 | Route Handler 공통 유틸 |
-| PERM-02 | `requirePageAccess` 헬퍼 구현 (pageId→workspaceId 조회 후 위임) | ⬜ | P1 | 페이지 관련 Route Handler 전용 |
-| PERM-03 | OWNER 전용 액션(멤버 초대·제거·역할 변경·워크스페이스 삭제)에 OWNER 검증 적용 | ⬜ | P1 | `requiredRole: 'OWNER'` 전달 |
-| PERM-04 | MEMBER가 OWNER 전용 액션 시도 시 403 반환 | ⬜ | P1 | PERM-03 구현 후 자동 충족 |
-| PERM-05 | 워크스페이스 비멤버의 페이지 접근 시 403 반환 | ⬜ | P1 | PERM-02 구현 후 자동 충족 |
+| PERM-01 | `requireWorkspaceMember` 헬퍼 구현 (세션→소속→역할 3단계 검증) | ✅ | P1 | `common.security.AccessGuard.requireWorkspaceMember` (PR #3) |
+| PERM-02 | `requirePageAccess` 헬퍼 구현 (pageId→workspaceId 조회 후 위임) | ✅ | P1 | `AccessGuard.requirePageAccess` (PR #3) |
+| PERM-03 | OWNER 전용 액션(멤버 초대·제거·역할 변경·워크스페이스 삭제)에 OWNER 검증 적용 | ⬜ | P1 | `AccessGuard.requireOwner` 헬퍼·단위검증 완료(PR #3). 액션 엔드포인트 적용은 P2/P7 |
+| PERM-04 | MEMBER가 OWNER 전용 액션 시도 시 403 반환 | ⬜ | P1 | 역할검증 로직·단위검증 완료(PR #3). 엔드포인트 적용 시 자동 충족(P2/P7) |
+| PERM-05 | 워크스페이스 비멤버의 페이지 접근 시 403 반환 | ⬜ | P1 | `requirePageAccess` 검증 완료(PR #3). 페이지 API 적용은 P2 |
 | PERM-06 | Viewer 역할 구현 | ⬜ | P8 | post-MVP, 현재 설계 범위 외 |
 
 ### WebSocket 인가 (08-auth-and-permissions.md §4-2)
@@ -65,6 +65,6 @@
 
 | 항목 ID | 설명 | 상태 | Phase | 비고 |
 |---------|------|------|-------|------|
-| SEC-01 | 세션 쿠키 `HttpOnly: true`, `Secure: true`, `SameSite: lax` 설정 | ⬜ | P1 | Auth.js 설정 |
-| SEC-02 | JWT 서명 `HS256` + `AUTH_SECRET` (32바이트 이상) | ⬜ | P1 | Auth.js 설정 + 환경변수 |
-| SEC-03 | Google OAuth에서 수신한 email·googleId 외 민감 정보 미저장 | ⬜ | P1 | User upsert 구현 시 확인 |
+| SEC-01 | 세션 쿠키 `HttpOnly: true`, `Secure: true`, `SameSite: lax` 설정 | ✅ | P1 | `SessionCookieConfig`(HttpOnly/SameSite=Lax) + application.yml `secure: ${SESSION_COOKIE_SECURE}`(운영 env) (PR #3) |
+| SEC-02 | JWT 서명 `HS256` + `AUTH_SECRET` (32바이트 이상) | ✅ | P1 | ※실제는 Spring 서버측 세션(JSESSIONID) — JWT 아님. 변조 세션→미인증→401로 충족 (PR #3) |
+| SEC-03 | Google OAuth에서 수신한 email·googleId 외 민감 정보 미저장 | ✅ | P1 | User 엔티티 토큰 컬럼 없음, `upsert`는 email/name/image/googleId 4필드만 (PR #3) |
