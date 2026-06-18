@@ -36,6 +36,7 @@
 | **협업 엔진** | 자체 RGA CRDT (외부 라이브러리 미사용, Yjs 없음) |
 | **에디터** | in-house contenteditable 블록 에디터 |
 | **테스트** | Vitest (단위·통합·CRDT TDD) + Playwright (e2e, 2-브라우저 협업) |
+| **이메일** | Resend (워크스페이스 초대 메일 발송) |
 | **배포 (후순위)** | Vercel + Railway/Fly + Neon |
 | **권한 모델** | 개인=소유자 전용 / 공유=OWNER·MEMBER (Viewer는 post-MVP) |
 | **페이지 권한** | 워크스페이스 멤버십 상속 (페이지별 공유는 post-MVP) |

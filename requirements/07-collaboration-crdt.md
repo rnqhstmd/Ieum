@@ -31,7 +31,7 @@
 **RGA를 채택한 구체적 이유**:
 1. 요소 id가 불변이라 커서/selection을 문자 id에 앵커링하면 다른 사용자의 편집에도 커서가 올바른 위치를 유지한다.
 2. 수렴성·멱등성·교환법칙이 알고리즘 수준에서 보장되어 TDD로 검증하기 적합하다.
-3. 개행 문자를 블록 경계로 쓰는 텍스트 RGA에서 출발해 2-level 블록 RGA로 점진적 확장이 가능하다.
+3. MVP부터 2-level 블록 RGA(블록 타입 paragraph/heading1~3/bullet 지원)로 시작하며, 이후 인라인 서식(bold/italic)·추가 블록 타입으로 확장이 가능하다.
 
 ---
 
@@ -43,7 +43,11 @@
 // ─── 요소 고유 식별자 ───────────────────────────────────────
 interface RgaId {
   counter: number;   // 사이트 내 단조증가 논리 클락
-  siteId:  string;   // 클라이언트/replica 식별자 (UUID)
+  siteId:  string;   // 편집 세션/탭마다 생성되는 UUID (userId와 별개)
+  // ※ siteId는 CRDT 수렴 정확성을 위한 세션 식별자.
+  //   사용자 신원(userId)은 WebSocket 연결 시 JWT 인증으로 별도 확인하며,
+  //   siteId와 userId를 동일시하지 않는다. 서버는 인증된 연결의 userId를
+  //   op에 태깅/기록하며, 클라이언트 siteId를 신뢰해 신원을 판단하지 않는다.
 }
 
 // ─── RGA 요소 (노드) ────────────────────────────────────────
@@ -511,13 +515,14 @@ export type {
 ### 8-3. MVP → 확장 경로
 
 ```
-[MVP] 텍스트 RGA
-  └── 문자 시퀀스. 개행('\n')이 블록 경계.
-  └── RgaNode<string>
+[MVP] 2-level 블록 RGA
+  └── 외부: 블록 리스트 RGA (블록 단위 요소)
+  └── 내부: 블록별 인라인 텍스트 RGA
+  └── 블록 타입: paragraph / heading1 / heading2 / heading3 / bullet list
+  └── RgaNode<BlockNode> (외부) + RgaNode<string> (내부 인라인)
 
-[v2] 2-level 블록 RGA
-  └── 외부: 블록 RGA (단락·헤딩·리스트 아이템을 RGA 요소로)
-  └── 내부: 각 블록 안에 인라인 텍스트 RGA 포함
-  └── RgaNode<BlockType> + RgaNode<InlineType>
+[v2] 인라인 서식 · 추가 블록 타입 확장
+  └── 인라인 서식: bold / italic 등
+  └── 추가 블록 타입: 이미지 / 코드 블록 등
   └── packages/crdt 인터페이스 변경 최소화 (generic V 파라미터 활용)
 ```

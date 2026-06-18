@@ -25,4 +25,4 @@
 
 ## 스택
 
-TypeScript · Next.js(App Router) · PostgreSQL/Prisma · Auth.js(Google) · 자체 RGA CRDT · Node/ws · Vitest/Playwright
+TypeScript · Next.js(App Router) · PostgreSQL/Prisma · Auth.js(Google) · 자체 RGA CRDT · Node/ws · Vitest/Playwright · Resend(이메일)

@@ -70,7 +70,7 @@ graph TB
 |------|------|
 | **인증** | Auth.js Google OAuth 콜백, 세션 검증 미들웨어 |
 | **워크스페이스** | 개인 워크스페이스 자동 생성, 공유 워크스페이스 CRUD, 멤버십 조회 |
-| **초대** | 이메일 초대 토큰 발급, 수락/취소, 역할 할당 |
+| **초대** | 이메일 초대 토큰 발급, 수락/취소, 역할 할당; Resend SDK를 Route Handler에서 직접 호출하여 초대 메일 발송 |
 | **페이지** | 생성 · 조회 · 이름 변경 · 이동(parentPageId · position) · 아카이브 · 트리 조회 |
 | **권한 검사** | 모든 Route Handler에서 Membership 조회 → OWNER/MEMBER 검증 |
 
