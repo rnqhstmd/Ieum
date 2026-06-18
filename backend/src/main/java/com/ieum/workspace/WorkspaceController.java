@@ -1,5 +1,6 @@
 package com.ieum.workspace;
 
+import com.ieum.common.security.CurrentUserService;
 import com.ieum.workspace.dto.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -19,6 +20,7 @@ import java.util.UUID;
 public class WorkspaceController {
 
     private final WorkspaceService workspaceService;
+    private final CurrentUserService currentUserService;
 
     // ───────────────────────────────────────────────
     // 워크스페이스 CRUD
@@ -30,8 +32,7 @@ public class WorkspaceController {
      */
     @GetMapping
     public ResponseEntity<List<WorkspaceDto>> listMyWorkspaces() {
-        // TODO(현재는 @AuthenticationPrincipal 또는 임시 헤더로 currentUserId 추출)
-        UUID currentUserId = null; // TODO(Phase 1): 인증 컨텍스트에서 추출
+        UUID currentUserId = currentUserService.requireCurrentUserId();
         return ResponseEntity.ok(workspaceService.listMyWorkspaces(currentUserId));
     }
 

@@ -54,9 +54,16 @@ public class WorkspaceService {
      *                      // TODO(현재는 @AuthenticationPrincipal 또는 임시 헤더로 주입)
      */
     public List<WorkspaceDto> listMyWorkspaces(UUID currentUserId) {
-        // TODO(Phase 1): membershipRepository.findByUserId(currentUserId)로 멤버십 조회 후
-        //   workspaceRepository.findAllById(...)로 워크스페이스 목록 조회 → WorkspaceDto 변환
-        throw new UnsupportedOperationException("TODO(Phase 1): listMyWorkspaces");
+        List<UUID> workspaceIds = membershipRepository.findByUserId(currentUserId).stream()
+                .map(Membership::getWorkspaceId)
+                .toList();
+        return workspaceRepository.findAllById(workspaceIds).stream()
+                .map(this::toDto)
+                .toList();
+    }
+
+    private WorkspaceDto toDto(Workspace ws) {
+        return new WorkspaceDto(ws.getId(), ws.getName(), ws.getType(), ws.getOwnerId(), ws.getCreatedAt());
     }
 
     /**

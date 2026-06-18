@@ -1,5 +1,6 @@
 package com.ieum.page;
 
+import com.ieum.common.security.CurrentUserService;
 import com.ieum.page.dto.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -19,6 +20,7 @@ import java.util.UUID;
 public class PageController {
 
     private final PageService pageService;
+    private final CurrentUserService currentUserService;
 
     /**
      * GET /api/workspaces/{wsId}/pages
@@ -26,7 +28,7 @@ public class PageController {
      */
     @GetMapping
     public ResponseEntity<List<PageDto>> getPageTree(@PathVariable UUID wsId) {
-        UUID currentUserId = null; // TODO(Phase 1): 인증 컨텍스트에서 추출
+        UUID currentUserId = currentUserService.requireCurrentUserId();
         return ResponseEntity.ok(pageService.getPageTree(currentUserId, wsId));
     }
 
@@ -38,7 +40,7 @@ public class PageController {
     public ResponseEntity<PageDto> createPage(
             @PathVariable UUID wsId,
             @RequestBody CreatePageRequest request) {
-        UUID currentUserId = null; // TODO(Phase 1): 인증 컨텍스트에서 추출
+        UUID currentUserId = currentUserService.requireCurrentUserId();
         PageDto created = pageService.createPage(currentUserId, wsId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
@@ -52,7 +54,7 @@ public class PageController {
             @PathVariable UUID wsId,
             @PathVariable UUID pageId,
             @RequestBody UpdatePageRequest request) {
-        UUID currentUserId = null; // TODO(Phase 1): 인증 컨텍스트에서 추출
+        UUID currentUserId = currentUserService.requireCurrentUserId();
         return ResponseEntity.ok(pageService.updatePage(currentUserId, wsId, pageId, request));
     }
 
@@ -65,7 +67,7 @@ public class PageController {
             @PathVariable UUID wsId,
             @PathVariable UUID pageId,
             @RequestBody MovePageRequest request) {
-        UUID currentUserId = null; // TODO(Phase 1): 인증 컨텍스트에서 추출
+        UUID currentUserId = currentUserService.requireCurrentUserId();
         return ResponseEntity.ok(pageService.movePage(currentUserId, wsId, pageId, request));
     }
 
@@ -77,7 +79,7 @@ public class PageController {
     public ResponseEntity<Void> archivePage(
             @PathVariable UUID wsId,
             @PathVariable UUID pageId) {
-        UUID currentUserId = null; // TODO(Phase 1): 인증 컨텍스트에서 추출
+        UUID currentUserId = currentUserService.requireCurrentUserId();
         pageService.archivePage(currentUserId, wsId, pageId);
         return ResponseEntity.noContent().build();
     }
