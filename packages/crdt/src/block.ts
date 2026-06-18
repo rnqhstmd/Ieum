@@ -46,9 +46,13 @@ export interface EditorBlockView {
 
 // ─── createDocument ──────────────────────────────────────────────
 
-/** 빈 paragraph 블록 1개로 시작하는 새 문서를 만든다. (AC-1) */
-export function createDocument(siteId: string): DocState {
-  const doc: DocState = {
+/**
+ * 블록이 없는 빈 문서를 만든다.
+ * 기존 문서에 합류하는 클라이언트가 스냅샷 deserialize / op 리플레이로 초기화할 때 사용한다.
+ * (자동 블록이 없어 원격 첫 블록과 중복되지 않음 — P5 조인 경로)
+ */
+export function createEmptyDocument(siteId: string): DocState {
+  return {
     siteId,
     localClock: 0,
     blockRga: createRga<BlockMeta>(siteId),
@@ -56,6 +60,11 @@ export function createDocument(siteId: string): DocState {
     pendingInline: [],
     pendingSetType: [],
   };
+}
+
+/** 빈 paragraph 블록 1개로 시작하는 새 문서를 만든다 (문서 최초 작성자용). (AC-1) */
+export function createDocument(siteId: string): DocState {
+  const doc = createEmptyDocument(siteId);
   const firstId: RgaId = { counter: ++doc.localClock, siteId };
   applyDocOp(doc, makeBlockInsertOp(firstId, null, 'paragraph'));
   return doc;
@@ -174,6 +183,11 @@ export function splitBlock(doc: DocState, blockId: RgaId, cursorIndex: number): 
   const inline = doc.inlineRgas.get(idKey(blockId));
   if (!blockNode || !inline) return [];
 
+  // cursorIndex 범위 가드(상태 변경 전): 음수면 slice(-n)이 끝에서 잘려 의도치 않은 분할이 됨.
+  // 유효 범위는 [0, 가시 길이]. (cursor === 길이 = 줄 끝 Enter → 빈 후행 블록, 정상)
+  const visibleNodes = getVisibleNodes(inline);
+  if (cursorIndex < 0 || cursorIndex > visibleNodes.length) return [];
+
   const newBlockId: RgaId = { counter: ++doc.localClock, siteId: doc.siteId };
   const blockInsert: BlockInsertOp = makeBlockInsertOp(
     newBlockId,
@@ -181,7 +195,7 @@ export function splitBlock(doc: DocState, blockId: RgaId, cursorIndex: number): 
     inheritType(blockNode.value.type),
   );
 
-  const tail = getVisibleNodes(inline).slice(cursorIndex);
+  const tail = visibleNodes.slice(cursorIndex);
   const deleteOps: InlineDeleteOp[] = tail.map((n) => makeInlineDeleteOp(n.id, blockId));
 
   const insertOps: InlineInsertOp[] = [];
@@ -230,6 +244,40 @@ export function mergeBlockWithPrev(doc: DocState, blockId: RgaId): AnyOp[] | nul
 /** 블록 타입 변경(로컬). localClock을 증가시켜 BlockSetTypeOp를 생성·적용. (FR-13) */
 export function setBlockType(doc: DocState, blockId: RgaId, type: BlockType): BlockSetTypeOp {
   const op = makeBlockSetTypeOp(blockId, type, ++doc.localClock, doc.siteId);
+  applyDocOp(doc, op);
+  return op;
+}
+
+/**
+ * 블록 내 가시 index 위치에 문자를 삽입하는 로컬 편집 헬퍼. (P5 클라이언트 편의)
+ * index 0은 블록 맨 앞(originId=null). 클락 증가·originId 탐색·op 생성·적용을 캡슐화.
+ */
+export function localInlineInsert(
+  doc: DocState,
+  blockId: RgaId,
+  index: number,
+  value: string,
+): InlineInsertOp {
+  const inline = doc.inlineRgas.get(idKey(blockId));
+  if (!inline) throw new Error(`localInlineInsert: block not found ${idKey(blockId)}`);
+  const predecessor = index <= 0 ? null : (getVisibleNodes(inline)[index - 1] ?? null);
+  const op = makeInlineInsertOp(
+    { counter: ++doc.localClock, siteId: doc.siteId },
+    predecessor ? predecessor.id : null,
+    value,
+    blockId,
+  );
+  applyDocOp(doc, op);
+  return op;
+}
+
+/** 블록 내 가시 index 위치의 문자를 삭제하는 로컬 편집 헬퍼. (P5 클라이언트 편의) */
+export function localInlineDelete(doc: DocState, blockId: RgaId, index: number): InlineDeleteOp {
+  const inline = doc.inlineRgas.get(idKey(blockId));
+  if (!inline) throw new Error(`localInlineDelete: block not found ${idKey(blockId)}`);
+  const target = getVisibleNodes(inline)[index];
+  if (!target) throw new RangeError(`localInlineDelete: index ${index} out of range`);
+  const op = makeInlineDeleteOp(target.id, blockId);
   applyDocOp(doc, op);
   return op;
 }

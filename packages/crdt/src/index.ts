@@ -17,12 +17,15 @@ export {
 // 2-level 블록 RGA (P4b)
 export {
   createDocument,
+  createEmptyDocument,
   applyDocOp,
   docToBlocks,
   splitBlock,
   mergeBlockWithPrev,
   setBlockType,
   inheritType,
+  localInlineInsert,
+  localInlineDelete,
 } from './block.js';
 
 // wire 봉투 codec

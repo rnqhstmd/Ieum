@@ -1,13 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import {
   createDocument,
+  createEmptyDocument,
   applyDocOp,
   docToBlocks,
   splitBlock,
   mergeBlockWithPrev,
   setBlockType,
   inheritType,
-  createRga,
+  localInlineInsert,
+  localInlineDelete,
   makeBlockInsertOp,
   makeBlockDeleteOp,
   makeBlockSetTypeOp,
@@ -15,21 +17,12 @@ import {
   makeInlineDeleteOp,
 } from '../src/index.js';
 import { idKey } from '../src/id.js';
-import type { DocState, AnyOp, BlockMeta, RgaId } from '../src/index.js';
+import type { DocState, AnyOp, RgaId } from '../src/index.js';
 
 // ─── 테스트 헬퍼 ──────────────────────────────────────────────────
 
-/** createDocument의 자동 블록 없이 빈 문서를 만든다 (수렴 테스트용 공유 베이스). */
-function emptyDoc(siteId: string): DocState {
-  return {
-    siteId,
-    localClock: 0,
-    blockRga: createRga<BlockMeta>(siteId),
-    inlineRgas: new Map(),
-    pendingInline: [],
-    pendingSetType: [],
-  };
-}
+/** 자동 블록 없는 빈 문서 (수렴 테스트용 공유 베이스). createEmptyDocument 공개 API 사용. */
+const emptyDoc = (siteId: string): DocState => createEmptyDocument(siteId);
 
 function applyAll(doc: DocState, ops: AnyOp[]): DocState {
   for (const op of ops) applyDocOp(doc, op);
@@ -361,5 +354,97 @@ describe('CRDT 4속성 (2-level 블록 RGA)', () => {
       expect(r1.pendingSetType.length).toBe(0);
       expect(docToBlocks(r1)).toEqual(docToBlocks(r2));
     }
+  });
+});
+
+// ─── PR #9 / cross-review 수정 항목 ──────────────────────────────
+describe('createEmptyDocument (P5 조인/리플레이 초기화)', () => {
+  it('PR#9-4: createEmptyDocument는 블록이 없는 빈 문서를 만든다', () => {
+    const doc = createEmptyDocument('siteA');
+    expect(docToBlocks(doc)).toHaveLength(0);
+  });
+
+  it('PR#9-4: 빈 문서에 원격 block-insert op를 리플레이하면 중복 없이 초기화된다', () => {
+    // 조인 클라이언트: 원작성자의 첫 블록 op를 그대로 수신·적용 (자동 블록 중복 없음)
+    const firstBlock = { counter: 1, siteId: 'author' };
+    const joiner = createEmptyDocument('joiner');
+    applyDocOp(joiner, makeBlockInsertOp(firstBlock, null, 'paragraph'));
+    applyDocOp(joiner, makeInlineInsertOp({ counter: 2, siteId: 'author' }, null, 'h', firstBlock));
+
+    const blocks = docToBlocks(joiner);
+    expect(blocks).toHaveLength(1); // 중복 블록 없음
+    expect(blocks[0]!.text).toBe('h');
+  });
+});
+
+describe('splitBlock cursorIndex 범위 가드 (PR#9-2)', () => {
+  it('PR#9-2: 음수 cursorIndex는 no-op([])이며 문서가 불변이다', () => {
+    const doc = createDocument('siteA');
+    const b0 = docToBlocks(doc)[0]!.id;
+    typeInto(doc, b0, 'Hello', 'siteA', 10);
+    const before = docToBlocks(doc);
+
+    const ops = splitBlock(doc, b0, -1);
+
+    expect(ops).toEqual([]);
+    expect(docToBlocks(doc)).toEqual(before); // slice(-1) 끝자름 버그 방지
+  });
+
+  it('PR#9-2: 가시 길이 초과 cursorIndex는 no-op([])이다', () => {
+    const doc = createDocument('siteA');
+    const b0 = docToBlocks(doc)[0]!.id;
+    typeInto(doc, b0, 'Hi', 'siteA', 10);
+    const before = docToBlocks(doc);
+
+    const ops = splitBlock(doc, b0, 99);
+
+    expect(ops).toEqual([]);
+    expect(docToBlocks(doc)).toEqual(before);
+  });
+
+  it('PR#9-2: 정확히 끝(cursor===길이) 분할은 빈 후행 블록을 만든다', () => {
+    const doc = createDocument('siteA');
+    const b0 = docToBlocks(doc)[0]!.id;
+    typeInto(doc, b0, 'Hi', 'siteA', 10);
+
+    const ops = splitBlock(doc, b0, 2); // 길이 == 2
+
+    expect(ops.length).toBeGreaterThan(0);
+    expect(docToBlocks(doc).map((b) => b.text)).toEqual(['Hi', '']);
+  });
+});
+
+describe('localInlineInsert / localInlineDelete (PR#9-3)', () => {
+  it('PR#9-3: localInlineInsert는 블록 내 index 위치에 문자를 삽입하고 op를 반환한다', () => {
+    const doc = createDocument('siteA');
+    const b0 = docToBlocks(doc)[0]!.id;
+
+    const op1 = localInlineInsert(doc, b0, 0, 'a');
+    const op2 = localInlineInsert(doc, b0, 1, 'b');
+
+    expect(docToBlocks(doc)[0]!.text).toBe('ab');
+    expect(op1.type).toBe('insert');
+    expect(op1.blockId).toEqual(b0);
+    expect(op2.originId).toEqual(op1.id); // originId 체인
+  });
+
+  it('PR#9-3: localInlineDelete는 블록 내 index 위치 문자를 삭제한다', () => {
+    const doc = createDocument('siteA');
+    const b0 = docToBlocks(doc)[0]!.id;
+    localInlineInsert(doc, b0, 0, 'a');
+    localInlineInsert(doc, b0, 1, 'b');
+
+    const del = localInlineDelete(doc, b0, 0); // 'a' 삭제
+
+    expect(docToBlocks(doc)[0]!.text).toBe('b');
+    expect(del.type).toBe('delete');
+    expect(del.blockId).toEqual(b0);
+  });
+
+  it('PR#9-3: 존재하지 않는 블록에 대한 로컬 편집은 에러를 던진다', () => {
+    const doc = createDocument('siteA');
+    const ghost = { counter: 999, siteId: 'X' };
+    expect(() => localInlineInsert(doc, ghost, 0, 'a')).toThrow();
+    expect(() => localInlineDelete(doc, ghost, 0)).toThrow();
   });
 });
