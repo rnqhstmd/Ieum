@@ -48,6 +48,17 @@ describe('editor/useAutosave — debounce 자동저장 훅', () => {
     expect(save).toHaveBeenCalledWith('v2');
   });
 
+  it('W2: notifyChange 직후 status가 dirty가 된다(미저장 상태 표현)', () => {
+    const save = vi.fn().mockResolvedValue(undefined);
+    const { result } = renderHook(() => useAutosave(save, 500));
+
+    expect(result.current.status).toBe('idle');
+    act(() => {
+      result.current.notifyChange('v1');
+    });
+    expect(result.current.status).toBe('dirty');
+  });
+
   it('AC-19: 저장 상태가 idle → saving → saved로 전이한다', async () => {
     let resolveSave!: () => void;
     const save = vi.fn().mockImplementation(

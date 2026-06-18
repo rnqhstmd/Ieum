@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-export type SaveStatus = 'idle' | 'saving' | 'saved';
+export type SaveStatus = 'idle' | 'dirty' | 'saving' | 'saved';
 
 export interface UseAutosaveResult<T> {
   status: SaveStatus;
@@ -25,6 +25,7 @@ export function useAutosave<T>(
   const notifyChange = useCallback(
     (data: T) => {
       latest.current = data;
+      setStatus('dirty'); // 미저장 변경 발생 — debounce 만료 전까지 'dirty'
       if (timer.current) clearTimeout(timer.current);
       timer.current = setTimeout(() => {
         setStatus('saving');

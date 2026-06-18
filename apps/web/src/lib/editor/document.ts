@@ -58,7 +58,10 @@ export function splitBlock(
   const before = cur.text.slice(0, caret);
   const after = cur.text.slice(caret);
   const id2 = newBlockId();
-  const newType: BlockType = cur.type === 'bullet' ? 'bullet' : 'paragraph';
+  // bullet은 연속 유지. heading 등은 끝에서 분할(뒤가 비면) 본문(paragraph)으로
+  // 전환하되, 중간 분할(뒤에 내용 있음)이면 현재 타입을 유지한다.
+  const newType: BlockType =
+    cur.type === 'bullet' ? 'bullet' : after === '' ? 'paragraph' : cur.type;
 
   const next: EditorDoc = [
     ...doc.slice(0, idx),

@@ -28,6 +28,11 @@ const el = (container: HTMLElement, id: string) =>
   container.querySelector(`[data-block-id="${id}"]`) as HTMLElement;
 
 describe('Editor — controlled 블록 에디터', () => {
+  it('I2: 에디터 영역이 접근성 그룹(role=group, 레이블)을 갖는다', () => {
+    render(<Editor blocks={[{ id: 'b1', type: 'paragraph', text: '' }]} onChange={vi.fn()} />);
+    expect(screen.getByRole('group', { name: '페이지 본문' })).toBeInTheDocument();
+  });
+
   it('AC-13: blocks에서 파생하여 타입별 시맨틱 태그로 렌더한다', () => {
     const blocks: EditorBlock[] = [
       { id: 'h', type: 'heading1', text: 'Title' },

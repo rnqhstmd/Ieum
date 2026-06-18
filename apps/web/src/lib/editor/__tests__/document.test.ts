@@ -60,6 +60,15 @@ describe('editor/document — 순수 블록 도큐먼트 모델', () => {
     expect(next[1]!.type).toBe('bullet');
   });
 
+  it('I1: heading 블록을 중간(비어있지 않은 뒤)에서 분할하면 뒤 블록도 heading 유지', () => {
+    const doc = [block({ id: 'h', type: 'heading1', text: 'Hello World' })];
+    const { doc: next } = splitBlock(doc, 'h', 5);
+    expect(next[0]!.type).toBe('heading1');
+    expect(next[0]!.text).toBe('Hello');
+    expect(next[1]!.type).toBe('heading1'); // 중간 분할 → 타입 유지
+    expect(next[1]!.text).toBe(' World');
+  });
+
   // ── T3 ──
   it('AC-6: mergeWithPrevious는 이전 블록에 병합하고 캐럿 위치를 반환한다', () => {
     const doc = [block({ id: 'a', text: 'foo' }), block({ id: 'b', text: 'bar' })];

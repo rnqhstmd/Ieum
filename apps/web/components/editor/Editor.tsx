@@ -160,7 +160,7 @@ export default function Editor({ blocks, onChange }: EditorProps) {
   };
 
   return (
-    <div className="space-y-1">
+    <div role="group" aria-label="페이지 본문" className="space-y-1">
       {blocks.map((b) => (
         <BlockView
           key={b.id}
