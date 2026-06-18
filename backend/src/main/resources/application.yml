@@ -1,5 +1,10 @@
 server:
   port: 8080
+  servlet:
+    session:
+      timeout: 7d
+      cookie:
+        secure: ${SESSION_COOKIE_SECURE:false}
 
 spring:
   application:

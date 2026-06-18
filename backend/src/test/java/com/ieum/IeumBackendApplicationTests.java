@@ -1,10 +1,9 @@
 package com.ieum;
 
+import com.ieum.support.AbstractIntegrationTest;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
 
-@SpringBootTest
-class IeumBackendApplicationTests {
+class IeumBackendApplicationTests extends AbstractIntegrationTest {
 
 	@Test
 	void contextLoads() {

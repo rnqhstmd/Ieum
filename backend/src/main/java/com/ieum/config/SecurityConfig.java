@@ -1,5 +1,7 @@
 package com.ieum.config;
 
+import com.ieum.common.security.JsonAuthenticationEntryPoint;
+import jakarta.servlet.FilterChain;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
@@ -7,12 +9,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.core.Authentication;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
+import org.springframework.security.web.authentication.logout.LogoutFilter;
 import org.springframework.web.cors.CorsConfigurationSource;
-
-import java.io.IOException;
+import org.springframework.web.filter.OncePerRequestFilter;
 
 @Configuration
 @EnableWebSecurity
@@ -23,12 +23,13 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
-                                                   CorsConfigurationSource corsConfigurationSource) throws Exception {
+                                                   CorsConfigurationSource corsConfigurationSource,
+                                                   OAuth2SuccessHandler oAuth2SuccessHandler,
+                                                   JsonAuthenticationEntryPoint jsonAuthenticationEntryPoint) throws Exception {
         http
-            // CORS 활성화 (CorsConfig의 CorsConfigurationSource 빈 사용)
             .cors(cors -> cors.configurationSource(corsConfigurationSource))
-            // API 서버 + WebSocket 사용 → CSRF 비활성화
             .csrf(csrf -> csrf.disable())
+            .exceptionHandling(e -> e.authenticationEntryPoint(jsonAuthenticationEntryPoint))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(
                     "/api/health",
@@ -40,30 +41,27 @@ public class SecurityConfig {
                 .anyRequest().authenticated()
             )
             .oauth2Login(oauth2 -> oauth2
-                // TODO(Phase 0/1): successHandler 내부에서 User upsert +
-                //   개인 워크스페이스 자동생성 로직 추가 (08 §1-2)
-                .successHandler(oauth2SuccessHandler())
-            );
+                .successHandler(oAuth2SuccessHandler)
+                .failureUrl(frontendUrl + "/login?error=true")
+            )
+            .logout(logout -> logout
+                .logoutRequestMatcher(request ->
+                    "POST".equalsIgnoreCase(request.getMethod()) && "/api/auth/logout".equals(request.getRequestURI()))
+                .invalidateHttpSession(true)
+                .deleteCookies("JSESSIONID")
+                .logoutSuccessHandler((req, res, auth) -> res.setStatus(204)))
+            .addFilterBefore(new OncePerRequestFilter() {
+                @Override
+                protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
+                                                FilterChain filterChain) throws java.io.IOException, jakarta.servlet.ServletException {
+                    if ("GET".equalsIgnoreCase(request.getMethod()) && "/api/auth/logout".equals(request.getRequestURI())) {
+                        response.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+                        return;
+                    }
+                    filterChain.doFilter(request, response);
+                }
+            }, LogoutFilter.class);
 
         return http.build();
-    }
-
-    /**
-     * OAuth2 로그인 성공 시 프론트엔드 대시보드로 리다이렉트하는 스텁 핸들러.
-     * TODO(Phase 0/1): 사용자 정보를 받아 DB upsert 및 개인 워크스페이스 생성 후 리다이렉트
-     */
-    @Bean
-    public AuthenticationSuccessHandler oauth2SuccessHandler() {
-        return new AuthenticationSuccessHandler() {
-            @Override
-            public void onAuthenticationSuccess(HttpServletRequest request,
-                                                HttpServletResponse response,
-                                                Authentication authentication) throws IOException {
-                // TODO(Phase 0/1): authentication.getPrincipal()에서 OAuth2User 추출
-                //   → UserService.upsert(email, name, picture) 호출
-                //   → WorkspaceService.createPersonalWorkspace(userId) 호출
-                response.sendRedirect(frontendUrl + "/dashboard");
-            }
-        };
     }
 }
