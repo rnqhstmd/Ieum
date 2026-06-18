@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { listWorkspaces } from '@/src/lib/workspaces';
 import { getPageTree, createPage } from '@/src/lib/pages';
@@ -36,6 +36,8 @@ export default function Sidebar({ onNavigate }: Props = {}) {
   const [selectedWsId, setSelectedWsId] = useState<string | null>(null);
   const [pages, setPages] = useState<Page[]>([]);
   const [status, setStatus] = useState<Status>('loading');
+  // 진행 중 트리 조회의 워크스페이스 ID — 빠른 전환/언마운트 시 stale 응답 무시용
+  const activeWsIdRef = useRef<string | null>(null);
 
   const handleError = (e: unknown) => {
     if (e instanceof ApiError && e.status === 401) {
@@ -46,12 +48,15 @@ export default function Sidebar({ onNavigate }: Props = {}) {
   };
 
   const loadTree = async (wsId: string) => {
+    activeWsIdRef.current = wsId;
     setStatus('loading');
     try {
       const tree = await getPageTree(wsId);
+      if (activeWsIdRef.current !== wsId) return; // 더 최신 전환이 있었으면 stale 응답 무시
       setPages(tree);
       setStatus('ready');
     } catch (e) {
+      if (activeWsIdRef.current !== wsId) return;
       handleError(e);
     }
   };
@@ -76,6 +81,7 @@ export default function Sidebar({ onNavigate }: Props = {}) {
     })();
     return () => {
       active = false;
+      activeWsIdRef.current = null; // 언마운트 시 진행 중 응답 무시
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

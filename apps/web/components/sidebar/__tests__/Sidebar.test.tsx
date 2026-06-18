@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const { pushMock } = vi.hoisted(() => ({ pushMock: vi.fn() }));
@@ -114,5 +114,37 @@ describe('Sidebar', () => {
     vi.mocked(listWorkspaces).mockRejectedValue(new ApiError(401, 'unauthorized'));
     render(<Sidebar />);
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/login'));
+  });
+
+  it('PR리뷰: 워크스페이스 전환 경쟁 상태 — 늦게 도착한 이전 응답은 무시한다', async () => {
+    const user = userEvent.setup();
+    vi.mocked(listWorkspaces).mockResolvedValue([
+      ws({ id: 'w1', name: '내 워크스페이스', type: 'PERSONAL' }),
+      ws({ id: 'w2', name: 'WS2', type: 'SHARED' }),
+      ws({ id: 'w3', name: 'WS3', type: 'SHARED' }),
+    ]);
+    let resolveW2!: (v: Page[]) => void;
+    const w2Promise = new Promise<Page[]>((r) => {
+      resolveW2 = r;
+    });
+    vi.mocked(getPageTree).mockImplementation((id: string) => {
+      if (id === 'w2') return w2Promise;
+      if (id === 'w3') return Promise.resolve([page({ id: 'p3', title: 'P3-page' })]);
+      return Promise.resolve([]);
+    });
+
+    render(<Sidebar />);
+    await screen.findByText('내 워크스페이스');
+
+    await user.click(screen.getByRole('button', { name: /WS2/ })); // 느린 w2 전환
+    await user.click(screen.getByRole('button', { name: /WS3/ })); // 빠른 w3 전환
+    await screen.findByText('P3-page');
+
+    // w2가 뒤늦게 stale 데이터로 응답 — 무시되어야 함
+    await act(async () => {
+      resolveW2([page({ id: 'p2', title: 'P2-stale' })]);
+    });
+    expect(screen.queryByText('P2-stale')).not.toBeInTheDocument();
+    expect(screen.getByText('P3-page')).toBeInTheDocument();
   });
 });

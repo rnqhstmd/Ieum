@@ -15,8 +15,10 @@ export default function PageTreeNode({ page, depth, onNavigate, onCreateChild }:
   const [expanded, setExpanded] = useState(true);
 
   return (
-    <li>
+    <li role="none">
       <div
+        role="treeitem"
+        aria-expanded={hasChildren ? expanded : undefined}
         className="group flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13.5px] text-body hover:bg-hover"
         style={{ marginLeft: depth * 16 }}
       >
@@ -51,8 +53,8 @@ export default function PageTreeNode({ page, depth, onNavigate, onCreateChild }:
         )}
       </div>
       {hasChildren && expanded && (
-        <ul>
-          {page.children!.map((child) => (
+        <ul role="group">
+          {page.children?.map((child) => (
             <PageTreeNode
               key={child.id}
               page={child}

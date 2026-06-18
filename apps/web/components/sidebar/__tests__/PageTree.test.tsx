@@ -65,4 +65,15 @@ describe('PageTree', () => {
     await user.click(screen.getByRole('button', { name: 'A 하위 추가' }));
     expect(onCreateChild).toHaveBeenCalledWith('a');
   });
+
+  it('PR리뷰: WAI-ARIA Tree 마크업(treeitem/aria-expanded/group)을 따른다', () => {
+    const tree = [node({ id: 'a', title: 'A', children: [node({ id: 'b', parentPageId: 'a', title: 'B' })] })];
+    render(<PageTree pages={tree} onNavigate={vi.fn()} />);
+
+    const items = screen.getAllByRole('treeitem');
+    expect(items).toHaveLength(2); // A, B
+    const a = items.find((el) => el.textContent?.includes('A'));
+    expect(a).toHaveAttribute('aria-expanded', 'true'); // 부모는 펼침 상태
+    expect(screen.getByRole('group')).toBeInTheDocument(); // 하위 ul
+  });
 });
