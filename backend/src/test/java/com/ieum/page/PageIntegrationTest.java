@@ -22,7 +22,9 @@ import java.time.Instant;
 import java.util.UUID;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oauth2Login;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -116,6 +118,66 @@ class PageIntegrationTest extends AbstractIntegrationTest {
                 .googleId("G-OTHER").email("other@test.com").name("외부인").image("img").build());
 
         mockMvc.perform(get("/api/workspaces/{wsId}/pages", workspaceId)
+                        .with(asUser("G-OTHER")))
+                .andExpect(status().isForbidden());
+    }
+
+    // ── AC-I1 e2e: 제목 변경 후 트리에 반영 ────────────────────────────
+    @Test
+    @DisplayName("AC-I1 e2e: 멤버가 PATCH로 제목 변경(200) 후 트리 조회 시 새 제목이 반영된다")
+    void member_updateTitle_reflectedInTree() throws Exception {
+        Page page = pageRepository.save(Page.builder()
+                .workspaceId(workspaceId).title("원제목").position(1000).createdById(userId).build());
+
+        mockMvc.perform(patch("/api/workspaces/{wsId}/pages/{pageId}", workspaceId, page.getId())
+                        .with(asUser(GOOGLE_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"수정됨\",\"icon\":null}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("수정됨"));
+
+        mockMvc.perform(get("/api/workspaces/{wsId}/pages", workspaceId)
+                        .with(asUser(GOOGLE_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].title").value("수정됨"));
+    }
+
+    // ── AC-I2 e2e: 아카이브 시 부모·자식 트리에서 제외 ─────────────────
+    @Test
+    @DisplayName("AC-I2 e2e: 멤버가 부모 페이지 DELETE(204) 시 부모·자식 모두 트리에서 제외된다")
+    void member_archiveParent_excludesSubtree() throws Exception {
+        Page parent = pageRepository.save(Page.builder()
+                .workspaceId(workspaceId).title("부모").position(1000).createdById(userId).build());
+        pageRepository.save(Page.builder()
+                .workspaceId(workspaceId).parentPageId(parent.getId()).title("자식").position(1000).createdById(userId).build());
+
+        mockMvc.perform(delete("/api/workspaces/{wsId}/pages/{pageId}", workspaceId, parent.getId())
+                        .with(asUser(GOOGLE_ID)))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/workspaces/{wsId}/pages", workspaceId)
+                        .with(asUser(GOOGLE_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    // ── AC-I3 e2e: 비멤버 PATCH/DELETE → 403 ──────────────────────────
+    @Test
+    @DisplayName("AC-I3 e2e: 비멤버의 PATCH·DELETE는 403")
+    void nonMember_updateOrArchive_returns403() throws Exception {
+        userRepository.save(User.builder()
+                .googleId("G-OTHER").email("other@test.com").name("외부인").image("img").build());
+        Page page = pageRepository.save(Page.builder()
+                .workspaceId(workspaceId).title("보호됨").position(1000).createdById(userId).build());
+
+        mockMvc.perform(patch("/api/workspaces/{wsId}/pages/{pageId}", workspaceId, page.getId())
+                        .with(asUser("G-OTHER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"해킹\",\"icon\":null}"))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(delete("/api/workspaces/{wsId}/pages/{pageId}", workspaceId, page.getId())
                         .with(asUser("G-OTHER")))
                 .andExpect(status().isForbidden());
     }

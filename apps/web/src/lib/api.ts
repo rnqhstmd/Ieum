@@ -73,6 +73,14 @@ export async function apiPut<T>(path: string, body?: unknown): Promise<T> {
   });
 }
 
+/** PATCH 요청 (부분 갱신) */
+export async function apiPatch<T>(path: string, body?: unknown): Promise<T> {
+  return request<T>(path, {
+    method: 'PATCH',
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+}
+
 /** DELETE 요청 */
 export async function apiDelete<T>(path: string): Promise<T> {
   return request<T>(path, { method: 'DELETE' });

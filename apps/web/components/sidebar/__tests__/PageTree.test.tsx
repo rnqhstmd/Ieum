@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PageTree from '@/components/sidebar/PageTree';
 import type { Page } from '@/src/lib/types';
@@ -64,6 +64,55 @@ describe('PageTree', () => {
 
     await user.click(screen.getByRole('button', { name: 'A 하위 추가' }));
     expect(onCreateChild).toHaveBeenCalledWith('a');
+  });
+
+  it('AC-F3: 인라인 이름 변경 — "이름 변경" 클릭 → 입력 → Enter → onRename(id, newTitle)', async () => {
+    const user = userEvent.setup();
+    const onRename = vi.fn();
+    render(<PageTree pages={[node({ id: 'a', title: 'A' })]} onNavigate={vi.fn()} onRename={onRename} />);
+
+    await user.click(screen.getByRole('button', { name: 'A 이름 변경' }));
+    const input = screen.getByRole('textbox', { name: '페이지 이름' });
+    fireEvent.change(input, { target: { value: 'B' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(onRename).toHaveBeenCalledWith('a', 'B');
+  });
+
+  it('AC-F4: 이름 변경 중 Escape를 누르면 취소되고 onRename이 호출되지 않는다', async () => {
+    const user = userEvent.setup();
+    const onRename = vi.fn();
+    render(<PageTree pages={[node({ id: 'a', title: 'A' })]} onNavigate={vi.fn()} onRename={onRename} />);
+
+    await user.click(screen.getByRole('button', { name: 'A 이름 변경' }));
+    const input = screen.getByRole('textbox', { name: '페이지 이름' });
+    fireEvent.change(input, { target: { value: 'X' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+
+    expect(onRename).not.toHaveBeenCalled();
+    expect(screen.queryByRole('textbox', { name: '페이지 이름' })).not.toBeInTheDocument();
+  });
+
+  it('AC-F5: 아이콘 설정 — "아이콘 변경" 클릭 → 이모지 입력 → Enter → onSetIcon(id, value)', async () => {
+    const user = userEvent.setup();
+    const onSetIcon = vi.fn();
+    render(<PageTree pages={[node({ id: 'a', title: 'A' })]} onNavigate={vi.fn()} onSetIcon={onSetIcon} />);
+
+    await user.click(screen.getByRole('button', { name: 'A 아이콘 변경' }));
+    const input = screen.getByRole('textbox', { name: '페이지 아이콘' });
+    fireEvent.change(input, { target: { value: '🔥' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(onSetIcon).toHaveBeenCalledWith('a', '🔥');
+  });
+
+  it('AC-F6: 아카이브 — "아카이브" 클릭 → onArchive(id)', async () => {
+    const user = userEvent.setup();
+    const onArchive = vi.fn();
+    render(<PageTree pages={[node({ id: 'a', title: 'A' })]} onNavigate={vi.fn()} onArchive={onArchive} />);
+
+    await user.click(screen.getByRole('button', { name: 'A 아카이브' }));
+    expect(onArchive).toHaveBeenCalledWith('a');
   });
 
   it('PR리뷰: WAI-ARIA Tree 마크업(treeitem/aria-expanded/group)을 따른다', () => {

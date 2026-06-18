@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { listWorkspaces } from '@/src/lib/workspaces';
-import { getPageTree, createPage } from '@/src/lib/pages';
+import { getPageTree, createPage, updatePage, archivePage } from '@/src/lib/pages';
 import { ApiError } from '@/src/lib/api';
 import type { Page, Workspace } from '@/src/lib/types';
 import WorkspaceSwitcher from './WorkspaceSwitcher';
@@ -114,6 +114,40 @@ export default function Sidebar({ onNavigate }: Props = {}) {
     }
   };
 
+  /** 페이지 이름 변경 → updatePage 후 트리 재조회 */
+  const handleRename = async (id: string, title: string) => {
+    if (!selectedWsId) return;
+    try {
+      await updatePage(selectedWsId, id, { title });
+      await loadTree(selectedWsId);
+    } catch (e) {
+      handleError(e);
+    }
+  };
+
+  /** 페이지 아이콘 설정 → updatePage 후 트리 재조회 */
+  const handleSetIcon = async (id: string, icon: string) => {
+    if (!selectedWsId) return;
+    try {
+      await updatePage(selectedWsId, id, { icon });
+      await loadTree(selectedWsId);
+    } catch (e) {
+      handleError(e);
+    }
+  };
+
+  /** 페이지 아카이브(재귀 soft delete) — 파괴적이므로 확인 후 실행 */
+  const handleArchive = async (id: string) => {
+    if (!selectedWsId) return;
+    if (!window.confirm('이 페이지와 하위 페이지를 모두 아카이브할까요?')) return;
+    try {
+      await archivePage(selectedWsId, id);
+      await loadTree(selectedWsId);
+    } catch (e) {
+      handleError(e);
+    }
+  };
+
   return (
     <aside
       aria-label="사이드바"
@@ -129,7 +163,14 @@ export default function Sidebar({ onNavigate }: Props = {}) {
           </p>
         )}
         {status === 'ready' && (
-          <PageTree pages={pages} onNavigate={navigate} onCreateChild={(parentId) => handleCreate(parentId)} />
+          <PageTree
+            pages={pages}
+            onNavigate={navigate}
+            onCreateChild={(parentId) => handleCreate(parentId)}
+            onRename={handleRename}
+            onSetIcon={handleSetIcon}
+            onArchive={handleArchive}
+          />
         )}
       </div>
 

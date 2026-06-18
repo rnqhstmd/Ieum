@@ -7,11 +7,16 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -97,8 +102,26 @@ public class PageService {
      */
     @Transactional
     public PageDto updatePage(UUID currentUserId, UUID workspaceId, UUID pageId, UpdatePageRequest request) {
-        // TODO(다음 사이클): updatePage
-        throw new UnsupportedOperationException("TODO: updatePage");
+        accessGuard.requireWorkspaceMember(currentUserId, workspaceId);
+
+        Page page = pageRepository.findById(pageId)
+                .orElseThrow(() -> new EntityNotFoundException("페이지를 찾을 수 없습니다."));
+        if (!page.getWorkspaceId().equals(workspaceId)) {
+            throw new IllegalArgumentException("페이지가 다른 워크스페이스에 속합니다.");
+        }
+
+        // 부분 갱신: null 필드는 변경하지 않는다 (rename은 icon 보존, set-icon은 title 보존).
+        if (request.title() != null) {
+            if (request.title().isBlank()) {
+                throw new IllegalArgumentException("페이지 제목은 비어 있을 수 없습니다.");
+            }
+            page.setTitle(request.title());
+        }
+        if (request.icon() != null) {
+            page.setIcon(request.icon());
+        }
+
+        return toDto(pageRepository.save(page), null);
     }
 
     /**
@@ -115,8 +138,42 @@ public class PageService {
      */
     @Transactional
     public void archivePage(UUID currentUserId, UUID workspaceId, UUID pageId) {
-        // TODO(다음 사이클): archivePage (하위 재귀 아카이브 포함)
-        throw new UnsupportedOperationException("TODO: archivePage");
+        accessGuard.requireWorkspaceMember(currentUserId, workspaceId);
+
+        Page target = pageRepository.findById(pageId)
+                .orElseThrow(() -> new EntityNotFoundException("페이지를 찾을 수 없습니다."));
+        if (!target.getWorkspaceId().equals(workspaceId)) {
+            throw new IllegalArgumentException("페이지가 다른 워크스페이스에 속합니다.");
+        }
+
+        // 활성 페이지로 parentPageId→children 맵 구성 후 대상부터 BFS로 후손 수집(대상 포함).
+        // createPage가 부모 사전 존재를 강제하므로 사이클 없음(유한). seen으로 방어.
+        List<Page> active = pageRepository.findByWorkspaceIdAndArchivedAtIsNull(workspaceId);
+        Map<UUID, List<Page>> byParent = new HashMap<>();
+        Map<UUID, Page> byId = new HashMap<>();
+        for (Page p : active) {
+            byParent.computeIfAbsent(p.getParentPageId(), k -> new ArrayList<>()).add(p);
+            byId.put(p.getId(), p);
+        }
+
+        Instant now = Instant.now();
+        List<Page> toArchive = new ArrayList<>();
+        Set<UUID> seen = new HashSet<>();
+        Deque<UUID> queue = new ArrayDeque<>();
+        queue.add(pageId);
+        while (!queue.isEmpty()) {
+            UUID id = queue.poll();
+            if (!seen.add(id)) continue;
+            Page p = byId.get(id);
+            if (p == null) continue; // 이미 아카이브됐거나 활성 목록에 없음
+            p.setArchivedAt(now);
+            toArchive.add(p);
+            for (Page child : byParent.getOrDefault(id, List.of())) {
+                queue.add(child.getId());
+            }
+        }
+
+        pageRepository.saveAll(toArchive);
     }
 
     private static PageDto toDto(Page p, List<PageDto> children) {

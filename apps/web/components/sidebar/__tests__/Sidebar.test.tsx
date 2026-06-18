@@ -1,15 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { render, screen, waitFor, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const { pushMock } = vi.hoisted(() => ({ pushMock: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: pushMock }) }));
 vi.mock('@/src/lib/workspaces', () => ({ listWorkspaces: vi.fn() }));
-vi.mock('@/src/lib/pages', () => ({ getPageTree: vi.fn(), createPage: vi.fn() }));
+vi.mock('@/src/lib/pages', () => ({
+  getPageTree: vi.fn(),
+  createPage: vi.fn(),
+  updatePage: vi.fn(),
+  archivePage: vi.fn(),
+}));
 
 import Sidebar from '@/components/sidebar/Sidebar';
 import { listWorkspaces } from '@/src/lib/workspaces';
-import { getPageTree, createPage } from '@/src/lib/pages';
+import { getPageTree, createPage, updatePage, archivePage } from '@/src/lib/pages';
 import { ApiError } from '@/src/lib/api';
 import type { Page, Workspace } from '@/src/lib/types';
 
@@ -101,6 +106,41 @@ describe('Sidebar', () => {
     await waitFor(() =>
       expect(createPage).toHaveBeenCalledWith('w1', expect.objectContaining({ parentPageId: 'a', position: 6 })),
     );
+  });
+
+  it('AC-F7: 트리 행 이름 변경 시 updatePage 호출 후 트리를 재조회한다', async () => {
+    const user = userEvent.setup();
+    vi.mocked(listWorkspaces).mockResolvedValue([ws({ id: 'w1', name: '내 워크스페이스', type: 'PERSONAL' })]);
+    vi.mocked(getPageTree).mockResolvedValue([page({ id: 'a', title: 'A' })]);
+    vi.mocked(updatePage).mockResolvedValue(page({ id: 'a', title: 'New' }));
+    render(<Sidebar />);
+    await screen.findByText('A');
+
+    await user.click(screen.getByRole('button', { name: 'A 이름 변경' }));
+    const input = screen.getByRole('textbox', { name: '페이지 이름' });
+    fireEvent.change(input, { target: { value: 'New' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() => expect(updatePage).toHaveBeenCalledWith('w1', 'a', { title: 'New' }));
+    await waitFor(() => expect(getPageTree).toHaveBeenCalledTimes(2)); // 초기 + 재조회
+  });
+
+  it('AC-F8: 아카이브는 confirm 승인 시에만 archivePage 호출 + 재조회한다', async () => {
+    const user = userEvent.setup();
+    vi.mocked(listWorkspaces).mockResolvedValue([ws({ id: 'w1', name: '내 워크스페이스', type: 'PERSONAL' })]);
+    vi.mocked(getPageTree).mockResolvedValue([page({ id: 'a', title: 'A' })]);
+    vi.mocked(archivePage).mockResolvedValue(undefined);
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    render(<Sidebar />);
+    await screen.findByText('A');
+
+    await user.click(screen.getByRole('button', { name: 'A 아카이브' }));
+    expect(archivePage).not.toHaveBeenCalled(); // confirm 취소
+
+    confirmSpy.mockReturnValue(true);
+    await user.click(screen.getByRole('button', { name: 'A 아카이브' }));
+    await waitFor(() => expect(archivePage).toHaveBeenCalledWith('w1', 'a'));
+    await waitFor(() => expect(getPageTree).toHaveBeenCalledTimes(2));
   });
 
   it('AC-12: 트리 조회가 에러면 에러 상태를 표시한다', async () => {
