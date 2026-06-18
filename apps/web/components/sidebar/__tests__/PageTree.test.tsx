@@ -115,6 +115,44 @@ describe('PageTree', () => {
     expect(onArchive).toHaveBeenCalledWith('a');
   });
 
+  it('PR리뷰#3: 편집 중에는 행 액션 버튼(아카이브·하위 추가)이 숨겨진다', async () => {
+    const user = userEvent.setup();
+    render(
+      <PageTree
+        pages={[node({ id: 'a', title: 'A' })]}
+        onNavigate={vi.fn()}
+        onRename={vi.fn()}
+        onSetIcon={vi.fn()}
+        onArchive={vi.fn()}
+        onCreateChild={vi.fn()}
+      />,
+    );
+
+    // 편집 진입 전엔 액션 노출
+    expect(screen.getByRole('button', { name: 'A 아카이브' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'A 이름 변경' }));
+
+    // 편집 중엔 액션 그룹 전체 숨김(오작동 방지)
+    expect(screen.queryByRole('button', { name: 'A 아카이브' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'A 하위 추가' })).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: '페이지 이름' })).toBeInTheDocument();
+  });
+
+  it('PR리뷰#1: Enter 커밋은 onRename을 정확히 1회 호출한다(중복 커밋 가드)', async () => {
+    const user = userEvent.setup();
+    const onRename = vi.fn();
+    render(<PageTree pages={[node({ id: 'a', title: 'A' })]} onNavigate={vi.fn()} onRename={onRename} />);
+
+    await user.click(screen.getByRole('button', { name: 'A 이름 변경' }));
+    const input = screen.getByRole('textbox', { name: '페이지 이름' });
+    fireEvent.change(input, { target: { value: 'B' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(onRename).toHaveBeenCalledTimes(1);
+    expect(onRename).toHaveBeenCalledWith('a', 'B');
+  });
+
   it('PR리뷰: WAI-ARIA Tree 마크업(treeitem/aria-expanded/group)을 따른다', () => {
     const tree = [node({ id: 'a', title: 'A', children: [node({ id: 'b', parentPageId: 'a', title: 'B' })] })];
     render(<PageTree pages={tree} onNavigate={vi.fn()} />);

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { Page } from '@/src/lib/types';
 
 interface Props {
@@ -25,15 +25,33 @@ export default function PageTreeNode({
   const hasChildren = !!page.children && page.children.length > 0;
   const [expanded, setExpanded] = useState(true);
   const [editing, setEditing] = useState<'none' | 'title' | 'icon'>('none');
+  // Enter/Escape 처리 후 언마운트로 인해 onBlur가 한 번 더 트리거되어도
+  // 커밋이 중복/취소무시되지 않도록 가드한다(실브라우저 blur-on-unmount 대응).
+  const finalizedRef = useRef(false);
 
-  const commitRename = (value: string) => {
-    const trimmed = value.trim();
-    if (trimmed && trimmed !== page.title) onRename?.(page.id, trimmed);
+  const startEdit = (mode: 'title' | 'icon') => {
+    finalizedRef.current = false;
+    setEditing(mode);
+  };
+
+  /** commit=true면 변경 적용, false면 취소. 중복 호출(Enter→blur 등)은 1회만 처리. */
+  const finishTitle = (value: string, commit: boolean) => {
+    if (finalizedRef.current) return;
+    finalizedRef.current = true;
+    if (commit) {
+      const trimmed = value.trim();
+      if (trimmed && trimmed !== page.title) onRename?.(page.id, trimmed);
+    }
     setEditing('none');
   };
-  const commitIcon = (value: string) => {
-    const v = value.trim();
-    if (v) onSetIcon?.(page.id, v);
+
+  const finishIcon = (value: string, commit: boolean) => {
+    if (finalizedRef.current) return;
+    finalizedRef.current = true;
+    if (commit) {
+      const v = value.trim();
+      if (v && v !== (page.icon ?? '')) onSetIcon?.(page.id, v);
+    }
     setEditing('none');
   };
 
@@ -67,17 +85,17 @@ export default function PageTreeNode({
             autoFocus
             maxLength={8}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') commitIcon(e.currentTarget.value);
-              else if (e.key === 'Escape') setEditing('none');
+              if (e.key === 'Enter') finishIcon(e.currentTarget.value, true);
+              else if (e.key === 'Escape') finishIcon('', false);
             }}
-            onBlur={(e) => commitIcon(e.currentTarget.value)}
+            onBlur={(e) => finishIcon(e.currentTarget.value, true)}
             className="w-9 flex-none rounded bg-hover px-1 text-[14px] text-ink outline-none"
           />
         ) : onSetIcon ? (
           <button
             type="button"
             aria-label={`${page.title} 아이콘 변경`}
-            onClick={() => setEditing('icon')}
+            onClick={() => startEdit('icon')}
             className="flex-none text-[14px]"
           >
             <span aria-hidden>{page.icon ?? '📄'}</span>
@@ -95,10 +113,10 @@ export default function PageTreeNode({
             defaultValue={page.title}
             autoFocus
             onKeyDown={(e) => {
-              if (e.key === 'Enter') commitRename(e.currentTarget.value);
-              else if (e.key === 'Escape') setEditing('none');
+              if (e.key === 'Enter') finishTitle(e.currentTarget.value, true);
+              else if (e.key === 'Escape') finishTitle('', false);
             }}
-            onBlur={(e) => commitRename(e.currentTarget.value)}
+            onBlur={(e) => finishTitle(e.currentTarget.value, true)}
             className="min-w-0 flex-1 rounded bg-hover px-1 text-[13.5px] text-ink outline-none"
           />
         ) : (
@@ -111,39 +129,41 @@ export default function PageTreeNode({
           </button>
         )}
 
-        {/* 행 액션 (hover 시 노출) */}
-        <div className="flex flex-none items-center gap-1.5 opacity-0 transition group-hover:opacity-100">
-          {onRename && (
-            <button
-              type="button"
-              aria-label={`${page.title} 이름 변경`}
-              onClick={() => setEditing('title')}
-              className="text-faint hover:text-ink"
-            >
-              <span aria-hidden>✎</span>
-            </button>
-          )}
-          {onArchive && (
-            <button
-              type="button"
-              aria-label={`${page.title} 아카이브`}
-              onClick={() => onArchive(page.id)}
-              className="text-faint hover:text-danger"
-            >
-              <span aria-hidden>🗑</span>
-            </button>
-          )}
-          {onCreateChild && (
-            <button
-              type="button"
-              aria-label={`${page.title} 하위 추가`}
-              onClick={() => onCreateChild(page.id)}
-              className="text-faint hover:text-ink"
-            >
-              <span aria-hidden>＋</span>
-            </button>
-          )}
-        </div>
+        {/* 행 액션 (hover 시 노출) — 편집 중에는 숨겨 오작동 방지 */}
+        {editing === 'none' && (
+          <div className="flex flex-none items-center gap-1.5 opacity-0 transition group-hover:opacity-100">
+            {onRename && (
+              <button
+                type="button"
+                aria-label={`${page.title} 이름 변경`}
+                onClick={() => startEdit('title')}
+                className="text-faint hover:text-ink"
+              >
+                <span aria-hidden>✎</span>
+              </button>
+            )}
+            {onArchive && (
+              <button
+                type="button"
+                aria-label={`${page.title} 아카이브`}
+                onClick={() => onArchive(page.id)}
+                className="text-faint hover:text-danger"
+              >
+                <span aria-hidden>🗑</span>
+              </button>
+            )}
+            {onCreateChild && (
+              <button
+                type="button"
+                aria-label={`${page.title} 하위 추가`}
+                onClick={() => onCreateChild(page.id)}
+                className="text-faint hover:text-ink"
+              >
+                <span aria-hidden>＋</span>
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {hasChildren && expanded && (

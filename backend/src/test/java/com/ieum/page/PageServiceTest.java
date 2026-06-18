@@ -310,6 +310,22 @@ class PageServiceTest {
     }
 
     @Test
+    @DisplayName("AC-B12: updatePage — 아카이브된 페이지는 수정 불가(EntityNotFoundException), 저장 안 함")
+    void updatePage_archivedPage_throws() {
+        UUID userId = UUID.randomUUID();
+        UUID wsId = UUID.randomUUID();
+        UUID pageId = UUID.randomUUID();
+        Page page = Page.builder().id(pageId).workspaceId(wsId).title("T").position(0)
+                .createdById(userId).archivedAt(Instant.now()).build();
+        when(pageRepository.findById(pageId)).thenReturn(Optional.of(page));
+
+        assertThatThrownBy(() -> pageService.updatePage(userId, wsId, pageId, new UpdatePageRequest("x", null)))
+                .isInstanceOf(EntityNotFoundException.class);
+
+        verify(pageRepository, never()).save(any());
+    }
+
+    @Test
     @DisplayName("AC-B6: updatePage — 페이지가 다른 워크스페이스면 IllegalArgumentException, 저장 안 함")
     void updatePage_otherWorkspace_throws() {
         UUID userId = UUID.randomUUID();
@@ -368,6 +384,22 @@ class PageServiceTest {
         assertThat(captor.getValue()).hasSize(3);
         assertThat(captor.getValue()).allMatch(pg -> pg.getArchivedAt() != null);
         assertThat(captor.getValue()).extracting(Page::getId).containsExactlyInAnyOrder(p, c, g);
+    }
+
+    @Test
+    @DisplayName("AC-B13: archivePage — 이미 아카이브된 페이지는 즉시 종료(추가 조회·저장 없음)")
+    void archivePage_alreadyArchived_noOp() {
+        UUID userId = UUID.randomUUID();
+        UUID wsId = UUID.randomUUID();
+        UUID pageId = UUID.randomUUID();
+        Page page = Page.builder().id(pageId).workspaceId(wsId).title("T").position(0)
+                .createdById(userId).archivedAt(Instant.now()).build();
+        when(pageRepository.findById(pageId)).thenReturn(Optional.of(page));
+
+        pageService.archivePage(userId, wsId, pageId);
+
+        verify(pageRepository, never()).findByWorkspaceIdAndArchivedAtIsNull(any());
+        verify(pageRepository, never()).saveAll(any());
     }
 
     @Test

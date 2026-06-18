@@ -109,6 +109,10 @@ public class PageService {
         if (!page.getWorkspaceId().equals(workspaceId)) {
             throw new IllegalArgumentException("페이지가 다른 워크스페이스에 속합니다.");
         }
+        // 아카이브된 페이지는 트리에서 숨겨진 삭제 상태 — 수정 불가(404로 취급)
+        if (page.getArchivedAt() != null) {
+            throw new EntityNotFoundException("아카이브된 페이지는 수정할 수 없습니다.");
+        }
 
         // 부분 갱신: null 필드는 변경하지 않는다 (rename은 icon 보존, set-icon은 title 보존).
         if (request.title() != null) {
@@ -144,6 +148,10 @@ public class PageService {
                 .orElseThrow(() -> new EntityNotFoundException("페이지를 찾을 수 없습니다."));
         if (!target.getWorkspaceId().equals(workspaceId)) {
             throw new IllegalArgumentException("페이지가 다른 워크스페이스에 속합니다.");
+        }
+        // 이미 아카이브된 페이지면 불필요한 조회·BFS·저장을 건너뛴다(멱등 no-op).
+        if (target.getArchivedAt() != null) {
+            return;
         }
 
         // 활성 페이지로 parentPageId→children 맵 구성 후 대상부터 BFS로 후손 수집(대상 포함).
