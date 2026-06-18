@@ -49,4 +49,23 @@ describe('pages api', () => {
     expect(JSON.parse(String(init?.body))).toMatchObject({ title: '새 페이지', parentPageId: null, position: 0 });
     expect(result.id).toBe('p9');
   });
+
+  it('PR리뷰: children 필드가 누락된 응답도 파싱한다(children → null)', async () => {
+    const noChildren = {
+      id: 'p',
+      workspaceId: 'w1',
+      parentPageId: null,
+      title: 'T',
+      icon: null,
+      position: 0,
+      createdById: 'u1',
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+      // children 필드 없음
+    };
+    vi.spyOn(global, 'fetch').mockResolvedValue(jsonRes([noChildren]));
+
+    const result = await getPageTree('w1');
+    expect(result[0]?.children).toBeNull();
+  });
 });

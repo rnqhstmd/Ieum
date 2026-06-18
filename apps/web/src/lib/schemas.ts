@@ -12,7 +12,7 @@ export const workspaceSchema = z.object({
 export const workspaceListSchema = z.array(workspaceSchema);
 
 /** 페이지 응답 검증 (children 재귀) */
-export const pageSchema: z.ZodType<Page> = z.lazy(() =>
+export const pageSchema: z.ZodType<Page, z.ZodTypeDef, unknown> = z.lazy(() =>
   z.object({
     id: z.string(),
     workspaceId: z.string(),
@@ -23,7 +23,7 @@ export const pageSchema: z.ZodType<Page> = z.lazy(() =>
     createdById: z.string(),
     createdAt: z.string(),
     updatedAt: z.string(),
-    children: z.array(pageSchema).nullable(),
+    children: z.array(pageSchema).nullable().optional().default(null),
   }),
 );
 export const pageListSchema = z.array(pageSchema);

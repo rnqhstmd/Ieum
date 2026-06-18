@@ -28,6 +28,18 @@ describe('AppShell', () => {
     expect(burger).toHaveAttribute('aria-expanded', 'true');
   });
 
+  it('PR리뷰: 드로어 열림 상태에서 Escape 키로 닫는다', async () => {
+    const user = userEvent.setup();
+    render(<AppShell>{<div>본문</div>}</AppShell>);
+
+    const burger = screen.getByLabelText('사이드바 열기');
+    await user.click(burger);
+    expect(burger).toHaveAttribute('aria-expanded', 'true');
+
+    await user.keyboard('{Escape}');
+    expect(burger).toHaveAttribute('aria-expanded', 'false');
+  });
+
   it('AC-16: 다크 서피스 컨테이너 + 사이드바 landmark + main을 렌더한다', async () => {
     const { container } = render(<AppShell>{<div>본문</div>}</AppShell>);
     expect(await screen.findByLabelText('사이드바')).toBeInTheDocument();

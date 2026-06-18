@@ -10,7 +10,7 @@ export default function AccountArea({ name = '내 계정', email }: Props) {
         aria-hidden
         className="flex h-7 w-7 flex-none items-center justify-center rounded-full bg-[#a99bff] text-[12px] font-bold text-black"
       >
-        {name.slice(0, 1)}
+        {[...name][0] ?? ''}
       </span>
       <div className="min-w-0">
         <div className="truncate text-[13px] font-semibold text-ink">{name}</div>

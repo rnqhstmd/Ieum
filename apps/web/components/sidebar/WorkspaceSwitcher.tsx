@@ -28,7 +28,7 @@ export default function WorkspaceSwitcher({ workspaces, currentId, onSelect }: P
             aria-hidden
             className="flex h-6 w-6 flex-none items-center justify-center rounded-md bg-accent text-[12px] font-bold text-black"
           >
-            {w.name.slice(0, 1)}
+            {[...w.name][0] ?? ''}
           </span>
           <span className="min-w-0 flex-1 truncate">{w.name}</span>
           <span className="flex-none text-[10px] text-faint">{w.type === 'PERSONAL' ? '개인' : '공유'}</span>
