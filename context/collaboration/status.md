@@ -16,8 +16,12 @@
 | US-CRDT-02 | 재연결 후 편집 내용 유실 없음 | 신규 접속 클라이언트가 snapshot 또는 op 재생으로 초기화됨 | ⬜ |
 | US-CRDT-02 | 재연결 후 편집 내용 유실 없음 | 모든 op가 CrdtOp 테이블에 append-only로 저장됨 | ⬜ |
 | US-CRDT-03 | op 로그로 편집 이력 추적 가능 | CrdtOp 테이블 append-only 보장, 감사 추적 가능 | ⬜ |
-| US-CRDT-03 | op 로그로 편집 이력 추적 가능 | RGA INSERT op: `{siteId, seq, afterId, value}` 구조 (value는 블록 또는 인라인 문자) | ⬜ |
-| US-CRDT-03 | op 로그로 편집 이력 추적 가능 | RGA DELETE op: `{targetId}` 구조로 tombstone 처리 | ⬜ |
+| US-CRDT-03 | op 로그로 편집 이력 추적 가능 | wire 봉투: `{siteId, seq, opType, payload}` — payload는 아래 정본 구조 | ⬜ |
+| US-CRDT-03 | op 로그로 편집 이력 추적 가능 | 인라인 INSERT payload: `{id, originId, value, blockId}` (blockId로 블록 스코프) | ⬜ |
+| US-CRDT-03 | op 로그로 편집 이력 추적 가능 | 인라인 DELETE payload: `{targetId, blockId}` — tombstone 처리 | ⬜ |
+| US-CRDT-03 | op 로그로 편집 이력 추적 가능 | 블록 INSERT payload: `{id, originId, blockType}` — 외부 블록 RGA 삽입 | ⬜ |
+| US-CRDT-03 | op 로그로 편집 이력 추적 가능 | 블록 DELETE payload: `{targetId}` — 외부 블록 RGA tombstone | ⬜ |
+| US-CRDT-03 | op 로그로 편집 이력 추적 가능 | 블록 SET-TYPE payload: `{blockId, blockType, clock, siteId}` — LWW 타입 변경 | ⬜ |
 
 ### Presence (PRD §6 — US-PRES)
 

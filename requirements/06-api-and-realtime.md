@@ -256,7 +256,7 @@
 
 ### 2-1. 연결 및 인증
 
-**엔드포인트**: `wss://realtime.mosaic.app` (또는 개발 시 `ws://localhost:3001`)
+**엔드포인트**: `wss://realtime.ieum.app` (또는 개발 시 `ws://localhost:3001`)
 
 **연결 흐름**:
 1. 클라이언트는 WebSocket 연결 시 URL 쿼리 파라미터 또는 첫 메시지로 인증 토큰 전달.
@@ -264,7 +264,7 @@
 3. 검증 실패 시 `4001` 코드로 WebSocket 연결 닫기.
 
 ```
-wss://realtime.mosaic.app?token=<signed-short-lived-token>
+wss://realtime.ieum.app?token=<signed-short-lived-token>
 ```
 
 > 단기 토큰은 `/api/realtime/token` Route Handler에서 발급 (로그인 세션 검증 후 서명, TTL 60초).
@@ -323,7 +323,7 @@ wss://realtime.mosaic.app?token=<signed-short-lived-token>
   "knownVersion": 42
 }
 ```
-- `knownVersion`: 클라이언트가 마지막으로 적용한 op의 seq 번호. 최초 접속 시 `0` 또는 생략.
+- `knownVersion`: 클라이언트가 마지막으로 적용한 op의 **서버 전역 단조 순번(`serverSeq`)**. 클라이언트 로컬 seq와 다른 값임. 최초 접속 시 `0` 또는 생략.
 
 **S → C: sync-response**
 ```json
@@ -340,8 +340,8 @@ wss://realtime.mosaic.app?token=<signed-short-lived-token>
       "seq": 41,
       "opType": "INSERT",
       "payload": {
-        "afterId": { "counter": 5, "siteId": "site_abc" },
-        "newId": { "counter": 6, "siteId": "site_abc" },
+        "originId": { "counter": 5, "siteId": "site_abc" },
+        "id": { "counter": 6, "siteId": "site_abc" },
         "value": "안"
       },
       "createdAt": "2026-06-18T10:31:00.000Z"
@@ -358,7 +358,9 @@ wss://realtime.mosaic.app?token=<signed-short-lived-token>
   ]
 }
 ```
-- `snapshot`이 `null`이면 seq 0부터 op만 존재.
+- `snapshot.version`은 해당 snapshot이 반영한 마지막 `serverSeq`.
+- 서버는 `serverSeq > knownVersion`인 op만 `ops`에 포함하여 전송.
+- `snapshot`이 `null`이면 serverSeq 0부터 op만 존재.
 - 클라이언트는 `snapshot`으로 RGA 초기화 후 `ops`를 순서대로 replay.
 
 ---
@@ -375,8 +377,8 @@ wss://realtime.mosaic.app?token=<signed-short-lived-token>
     "siteId": "site_abc",
     "seq": 43,
     "payload": {
-      "afterId": { "counter": 6, "siteId": "site_abc" },
-      "newId": { "counter": 7, "siteId": "site_abc" },
+      "originId": { "counter": 6, "siteId": "site_abc" },
+      "id": { "counter": 7, "siteId": "site_abc" },
       "value": "녕"
     }
   }
@@ -418,8 +420,8 @@ wss://realtime.mosaic.app?token=<signed-short-lived-token>
     "siteId": "site_abc",
     "seq": 43,
     "payload": {
-      "afterId": { "counter": 6, "siteId": "site_abc" },
-      "newId": { "counter": 7, "siteId": "site_abc" },
+      "originId": { "counter": 6, "siteId": "site_abc" },
+      "id": { "counter": 7, "siteId": "site_abc" },
       "value": "녕"
     }
   }
@@ -539,9 +541,9 @@ cursor의 `anchorId`는 RGA 요소의 id(문자 id)를 앵커로 사용. DOM 오
 - 서버는 `(siteId, seq)` 중복 체크로 이미 영속화된 op를 조용히 무시(ack 재전송).
 
 ### 재접속 동기화
-1. 클라이언트는 `lastKnownVersion`(마지막 적용 seq)을 로컬에 보관.
-2. 재접속 후 `sync-request { knownVersion: N }` 전송.
-3. 서버는 `seq > N`인 op를 최신 Snapshot 기준으로 응답.
+1. 클라이언트는 `lastKnownServerSeq`(마지막으로 적용한 `serverSeq`)를 로컬에 보관.
+2. 재접속 후 `sync-request { knownVersion: N }` 전송 (`N` = `lastKnownServerSeq`).
+3. 서버는 `serverSeq > N`인 op를 최신 Snapshot 기준으로 응답.
 4. 클라이언트는 delta를 replay하여 상태 복원.
 5. 로컬 상태를 완전히 신뢰할 수 없는 경우(첫 접속 또는 로컬 스토리지 없음): `knownVersion: 0` 전송 → 서버가 최신 Snapshot + 이후 op 전체 응답.
 

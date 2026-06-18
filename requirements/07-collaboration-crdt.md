@@ -22,7 +22,7 @@
 
 | 알고리즘 | 아이디어 | 장점 | 단점 | Ieum 적합성 |
 |----------|----------|------|------|--------------|
-| **RGA** (Replicated Growable Array) | 각 요소가 고유 id를 가짐. 삽입 위치는 선행 요소의 id(originId)로 명시. 삭제는 tombstone | id 기반이라 인덱스 이동에 강함. 커서 앵커링 자연스러움 | tombstone 누적 → 주기적 GC 필요 | **채택** |
+| **RGA** (Replicated Growable Array) | 각 요소가 고유 id를 가짐. 삽입 위치는 선행 요소의 id(originId)로 명시. 삭제는 tombstone | id 기반이라 인덱스 이동에 강함. 커서 앵커링 자연스러움 | tombstone 누적 → 주기적 GC 필요 (§5 참조) | **채택** |
 | **Logoot** | 요소마다 실수 범위의 위치 식별자 부여 | 구현 단순 | 삽입이 많을수록 식별자 비트 증가(identifier explosion) | 부적합 |
 | **LSEQ** | Logoot 개선, 가변 식별자 길이 | Logoot보다 공간 효율 | 여전히 식별자 성장 문제 존재. interleaving 이슈 | 부적합 |
 | **Fugue** | RGA 변형, interleaving 방지 보장 추가 | 동시 삽입 interleaving 없음 | 2023년 발표 논문, 생태계 얇음 | post-MVP 검토 |
@@ -32,6 +32,8 @@
 1. 요소 id가 불변이라 커서/selection을 문자 id에 앵커링하면 다른 사용자의 편집에도 커서가 올바른 위치를 유지한다.
 2. 수렴성·멱등성·교환법칙이 알고리즘 수준에서 보장되어 TDD로 검증하기 적합하다.
 3. MVP부터 2-level 블록 RGA(블록 타입 paragraph/heading1~3/bullet 지원)로 시작하며, 이후 인라인 서식(bold/italic)·추가 블록 타입으로 확장이 가능하다.
+
+**tombstone GC 정책 (MVP)**: MVP에서는 tombstone GC를 수행하지 않는다. Snapshot 직렬화 시 tombstone 노드를 포함한 전체 노드 목록을 그대로 직렬화한다. 트레이드오프: 저장 크기가 단조 증가하나, GC로 인한 수렴 복잡도 없이 구현이 단순하다. GC(예: stable tombstone 제거, vector clock 기반 안전 삭제)는 post-MVP 과제다.
 
 ---
 
@@ -72,6 +74,10 @@ interface DeleteOp {
 }
 
 type RgaOp<V = string> = InsertOp<V> | DeleteOp;
+
+// ─── Wire 봉투 (네트워크 전송 단위) ─────────────────────────
+// { siteId: string, seq: number, opType: 'insert'|'delete', payload: InsertOp | DeleteOp }
+// payload가 위 InsertOp/DeleteOp의 정본이며, 봉투는 서버 relay 및 op 로그 저장에 사용된다.
 ```
 
 ### 2-2. RGA 연결 구조 (ASCII 다이어그램)
@@ -248,6 +254,205 @@ function toText(rga: RgaState): string {
 
 ---
 
+## 4-M. 블록 연산 — 2-level 블록 RGA
+
+### 4M-1. 구조 개요
+
+Ieum의 에디터 문서는 단일 인라인 텍스트가 아니라 **블록(paragraph, heading, bullet 등)의 시퀀스**다. 이를 CRDT로 모델링하기 위해 두 단계의 RGA를 중첩한다.
+
+```
+문서
+ └─ 외부 RGA: 블록 리스트  ← RgaNode<BlockMeta> 시퀀스
+      ├─ Block B1 (paragraph)
+      │    └─ 내부 RGA: 인라인 텍스트  ← RgaNode<string> 시퀀스
+      ├─ Block B2 (heading1)
+      │    └─ 내부 RGA
+      └─ Block B3 (bullet)
+           └─ 내부 RGA
+```
+
+```typescript
+// ─── 블록 메타 (외부 RGA 요소) ──────────────────────────────
+type BlockType = 'paragraph' | 'heading1' | 'heading2' | 'heading3' | 'bullet';
+
+interface BlockMeta {
+  id:       RgaId;        // 블록 고유 id (= 외부 RGA 노드의 id)
+  originId: RgaId | null; // 외부 RGA 삽입 위치
+  type:     BlockType;
+  deleted:  boolean;      // tombstone
+}
+
+// 인라인 RGA는 기존 RgaNode<string>을 재사용하되, blockId로 스코프 구분
+interface InlineInsertOp extends InsertOp<string> {
+  blockId: RgaId;   // 어느 블록의 내부 RGA에 삽입할지
+}
+
+interface InlineDeleteOp extends DeleteOp {
+  blockId: RgaId;
+}
+```
+
+### 4M-2. 블록 레벨 Op 타입
+
+```typescript
+// 블록 삽입
+interface BlockInsertOp {
+  type:     'block-insert';
+  id:       RgaId;        // 새 블록의 id
+  originId: RgaId | null; // 이 블록 직전 블록의 id (null = 문서 맨 앞)
+  blockType: BlockType;
+}
+
+// 블록 삭제 (tombstone)
+interface BlockDeleteOp {
+  type:     'block-delete';
+  targetId: RgaId;        // 삭제할 블록의 id
+}
+
+// 블록 타입 변경 — LWW (Last Write Wins, clock 기준)
+interface BlockSetTypeOp {
+  type:      'block-set-type';
+  blockId:   RgaId;
+  blockType: BlockType;
+  clock:     number;      // 논리 클락; (clock, siteId) 쌍으로 LWW 판정
+  siteId:    string;
+}
+
+type BlockOp = BlockInsertOp | BlockDeleteOp | BlockSetTypeOp;
+type AnyOp   = BlockOp | InlineInsertOp | InlineDeleteOp;
+```
+
+**BlockSetType LWW 규칙**: 같은 블록에 대한 동시 타입 변경은 `(clock DESC, siteId DESC)` 순서로 가장 큰 값이 승자다. 패자 op는 무시한다.
+
+### 4M-3. Enter — 블록 분할
+
+커서가 블록 B의 인라인 위치 `p`에 있을 때 Enter를 누르면:
+
+1. 새 블록 B'를 외부 RGA에 삽입 (originId = B.id, type = paragraph 또는 B.type 상속 규칙에 따름)
+2. B의 인라인 RGA에서 위치 `p` 이후 문자를 DeleteOp 시퀀스로 삭제
+3. 삭제한 문자를 B'의 인라인 RGA에 InsertOp 시퀀스로 재삽입
+
+```typescript
+function splitBlock(
+  doc: DocState,
+  blockId: RgaId,
+  cursorIndex: number,   // 가시 텍스트 기준 커서 오프셋
+): AnyOp[] {
+  const block = doc.blockRga.nodeMap.get(idKey(blockId))!;
+  const inlineRga = doc.inlineRgas.get(idKey(blockId))!;
+
+  // 1. 새 블록 생성 op
+  const newBlockId: RgaId = { counter: ++doc.localClock, siteId: doc.siteId };
+  const blockInsert: BlockInsertOp = {
+    type: 'block-insert',
+    id: newBlockId,
+    originId: blockId,                   // B 바로 다음에 삽입
+    blockType: inheritType(block.value.type),
+  };
+
+  // 2. 커서 이후 문자 수집 (가시 노드만, originId 순서 유지)
+  const tailNodes = getVisibleNodesFrom(inlineRga, cursorIndex);
+
+  // 3. 원본 블록에서 삭제 ops
+  const deleteOps: InlineDeleteOp[] = tailNodes.map(n => ({
+    type: 'delete', targetId: n.id, blockId,
+  }));
+
+  // 4. 새 블록에 재삽입 ops (originId 체인 유지)
+  let prevId: RgaId | null = null;
+  const insertOps: InlineInsertOp[] = tailNodes.map(n => {
+    const op: InlineInsertOp = {
+      type: 'insert',
+      id: { counter: ++doc.localClock, siteId: doc.siteId },
+      originId: prevId,
+      value: n.value,
+      blockId: newBlockId,
+    };
+    prevId = op.id;
+    return op;
+  });
+
+  return [blockInsert, ...deleteOps, ...insertOps];
+}
+
+function inheritType(parentType: BlockType): BlockType {
+  // heading → paragraph로 전환, 나머지는 그대로 유지
+  if (parentType === 'heading1' || parentType === 'heading2' || parentType === 'heading3') {
+    return 'paragraph';
+  }
+  return parentType; // paragraph, bullet 유지
+}
+```
+
+### 4M-4. Backspace — 블록 병합
+
+커서가 블록 B(현재)의 맨 앞(index 0)에 있을 때 Backspace를 누르면:
+
+1. 이전 블록 B_prev를 외부 RGA에서 탐색
+2. B의 인라인 내용을 B_prev 인라인 RGA 끝에 삽입 (op 시퀀스)
+3. BlockDeleteOp(B) 발행
+
+```typescript
+function mergeBlockWithPrev(
+  doc: DocState,
+  blockId: RgaId,
+): AnyOp[] | null {
+  const prevBlock = getPrevVisibleBlock(doc.blockRga, blockId);
+  if (!prevBlock) return null; // 첫 블록이면 병합 없음
+
+  const srcInline  = doc.inlineRgas.get(idKey(blockId))!;
+  const destInline = doc.inlineRgas.get(idKey(prevBlock.id))!;
+
+  // B의 인라인 노드를 B_prev 끝에 삽입
+  const srcNodes = getAllVisibleNodes(srcInline);
+  let prevId: RgaId | null = getLastVisibleNodeId(destInline); // B_prev의 마지막 문자 id
+
+  const insertOps: InlineInsertOp[] = srcNodes.map(n => {
+    const op: InlineInsertOp = {
+      type: 'insert',
+      id: { counter: ++doc.localClock, siteId: doc.siteId },
+      originId: prevId,
+      value: n.value,
+      blockId: prevBlock.id,
+    };
+    prevId = op.id;
+    return op;
+  });
+
+  const blockDelete: BlockDeleteOp = { type: 'block-delete', targetId: blockId };
+
+  return [...insertOps, blockDelete];
+}
+```
+
+### 4M-5. 동시 분할 수렴 예시
+
+두 사용자가 같은 블록 B를 동시에 분할하는 경우:
+
+| 사용자 | 발행 op | 결과 블록 |
+|--------|---------|-----------|
+| A | `BlockInsert{ id:(5,A), originId:B }` | B → B'_A |
+| B | `BlockInsert{ id:(5,B), originId:B }` | B → B'_B |
+
+외부 블록 RGA tie-break (`counter` 동일 → `siteId` 역순): `siteId "B" > "A"` → B'_B가 앞, B'_A가 뒤.
+
+```
+수렴 전:   [ B ]
+사용자 A:  [ B ] → [ B'_A ]
+사용자 B:  [ B ] → [ B'_B ]
+
+수렴 후 (양쪽 동일):
+  [ B ] → [ B'_B (siteId=B) ] → [ B'_A (siteId=A) ]
+```
+
+인라인 내용은 각 분할 op의 InsertOp/DeleteOp 시퀀스가 독립적으로 적용되므로, 수렴 후 각 블록의 텍스트도 결정론적으로 확정된다.
+
+### 4M-6. 블록 이동 (MVP 범위 외)
+
+블록 드래그 정렬(reorder)은 P5 우선순위로 MVP 범위 밖이다. MVP에서 블록 이동이 필요한 경우 `BlockDelete(원래 위치) + BlockInsert(새 위치)`의 op 쌍으로 처리하는 것을 최소 전략으로 예약한다. 이 방식은 블록 id가 바뀌므로 인라인 내용을 새 블록 id에 재삽입하는 op가 수반된다.
+
+---
+
 ## 5. Presence / Awareness 설계
 
 ### 5-1. 메시지 구조
@@ -332,9 +537,11 @@ const PRESENCE_COLORS = [
 // 연결이 끊어지면 색상 슬롯 반환 → 재입장 시 재할당
 function assignColor(pageConnections: Map<string, number>, userId: string): string {
   const usedSlots = new Set(pageConnections.values());
-  const slot = PRESENCE_COLORS.findIndex((_, i) => !usedSlots.has(i));
+  let slot = PRESENCE_COLORS.findIndex((_, i) => !usedSlots.has(i));
+  // 빈 슬롯이 없으면(동시 9명+) 모듈로 재사용: 가장 적은 충돌 인덱스를 선택
+  if (slot === -1) slot = pageConnections.size % PRESENCE_COLORS.length;
   pageConnections.set(userId, slot);
-  return PRESENCE_COLORS[slot % PRESENCE_COLORS.length];
+  return PRESENCE_COLORS[slot];
 }
 ```
 

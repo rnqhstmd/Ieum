@@ -130,7 +130,7 @@ sequenceDiagram
 
   C->>WS: WebSocket connect + {"type":"sync-request","pageId":"..."}
   WS->>DB: SELECT 최신 Snapshot (version=N)
-  WS->>DB: SELECT CrdtOp WHERE seq > N ORDER BY seq ASC
+  WS->>DB: SELECT CrdtOp WHERE serverSeq > N ORDER BY serverSeq ASC
   WS-->>C: {"type":"sync-response", "snapshot":{state,version}, "ops":[...]}
   C->>C: RGA 초기화(snapshot) → ops replay → 에디터 렌더링
 ```
@@ -143,10 +143,10 @@ sequenceDiagram
   participant WS as 실시간 서버
   participant DB as PostgreSQL
 
-  Note over C: 로컬에 lastSeenVersion=M 보관
+  Note over C: 로컬에 knownVersion(= 마지막 serverSeq)=M 보관
   C->>WS: WebSocket reconnect
   C->>WS: {"type":"sync-request","pageId":"...","knownVersion":M}
-  WS->>DB: SELECT CrdtOp WHERE seq > M ORDER BY seq ASC
+  WS->>DB: SELECT CrdtOp WHERE serverSeq > M ORDER BY serverSeq ASC
   alt 누락 op 수 ≤ 임계값 (예: 500)
     WS-->>C: {"type":"sync-response","ops":[op_M+1 ... op_N]}
     C->>C: delta replay → 최신 상태 복원
@@ -162,7 +162,7 @@ sequenceDiagram
 ## 4. 모노레포 폴더 구조
 
 ```
-mosaic/                          ← 레포 루트
+ieum/                            ← 레포 루트
 ├── apps/
 │   ├── web/                     ← Next.js App Router (CRUD + UI)
 │   │   ├── app/
@@ -237,7 +237,7 @@ mosaic/                          ← 레포 루트
 ### 보안
 - **인증**: 모든 Route Handler에서 `auth()` 세션 검증. ws 연결 시 세션 쿠키 또는 서명된 단기 토큰 검증.
 - **권한**: 페이지 접근 = Membership 레코드 존재 여부 확인. OWNER 전용 작업(초대, 워크스페이스 삭제) 역할 확인.
-- **초대 토큰**: UUID v4, 만료시간(expiresAt) 적용, 수락 후 즉시 status=ACCEPTED로 소비.
+- **초대 토큰**: `crypto.randomBytes(32).toString('hex')`, 만료시간(expiresAt) 적용, 수락 후 즉시 status=ACCEPTED로 소비.
 - **CORS**: ws 서버는 Next.js 앱 오리진만 허용.
 - **입력 검증**: Zod 스키마로 모든 Route Handler 입력 검증.
 
