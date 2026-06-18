@@ -12,6 +12,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -184,6 +185,27 @@ class PageServiceTest {
         List<PageDto> tree = pageService.getPageTree(userId, wsId);
 
         assertThat(tree).extracting(PageDto::position).containsExactly(1000, 2000, 3000);
+    }
+
+    // ── AC-8 보강(W1): 같은 position 동률 시 결정론적 정렬 ─────────────
+    @Test
+    @DisplayName("W1: getPageTree — 같은 position이면 createdAt 오름차순으로 결정론적 정렬된다")
+    void getPageTree_samePosition_tieBreaksByCreatedAt() {
+        UUID userId = UUID.randomUUID();
+        UUID wsId = UUID.randomUUID();
+        UUID older = UUID.randomUUID();
+        UUID newer = UUID.randomUUID();
+        Instant t1 = Instant.parse("2026-01-01T00:00:00Z");
+        Instant t2 = Instant.parse("2026-01-02T00:00:00Z");
+        // 리포지토리가 의도적으로 newer를 먼저 반환 — 서비스가 createdAt로 재정렬함을 입증
+        when(pageRepository.findByWorkspaceIdAndArchivedAtIsNull(wsId)).thenReturn(List.of(
+                Page.builder().id(newer).workspaceId(wsId).parentPageId(null).title("newer").position(1000).createdById(userId).createdAt(t2).build(),
+                Page.builder().id(older).workspaceId(wsId).parentPageId(null).title("older").position(1000).createdById(userId).createdAt(t1).build()
+        ));
+
+        List<PageDto> tree = pageService.getPageTree(userId, wsId);
+
+        assertThat(tree).extracting(PageDto::id).containsExactly(older, newer);
     }
 
     // ── AC-9: 비멤버 트리 조회 거부 ────────────────────────────────────

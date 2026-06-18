@@ -55,7 +55,9 @@ public class PageService {
      */
     private List<PageDto> buildSubtree(UUID parentId, Map<UUID, List<Page>> byParent) {
         return byParent.getOrDefault(parentId, List.of()).stream()
-                .sorted(Comparator.comparingInt(Page::getPosition))
+                .sorted(Comparator.comparingInt(Page::getPosition)
+                        .thenComparing(Page::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(Page::getId))
                 .map(p -> toDto(p, buildSubtree(p.getId(), byParent)))
                 .toList();
     }
