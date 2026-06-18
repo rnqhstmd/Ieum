@@ -14,14 +14,17 @@ import { idKey, idEquals, compareIds } from './id.js';
 /**
  * 새 RGA 상태를 생성한다.
  * sentinel 노드를 링크드 리스트의 헤드로 초기화한다.
+ *
+ * 제네릭 V: 인라인 텍스트 RGA는 V=string(기본), 외부 블록 RGA는 V=BlockMeta.
+ * sentinel은 항상 deleted=true이고 toText/getVisibleNodes에서 제외되므로
+ * value가 절대 읽히지 않는다 → '' 캐스트는 안전(블록 RGA에서도 동일).
  */
-export function createRga(siteId: string): RgaState {
-  // sentinel: id=(0, '') 는 절대 충돌하지 않는 특수 노드
-  const sentinel: RgaNode = {
+export function createRga<V = string>(siteId: string): RgaState<V> {
+  const sentinel: RgaNode<V> = {
     id: { counter: 0, siteId: '' },
     originId: null,
-    value: '',
-    deleted: true, // sentinel은 항상 삭제 상태 — toText()에서 제외
+    value: '' as unknown as V, // 절대 읽히지 않음 (deleted=true sentinel)
+    deleted: true,
     next: null,
   };
 
@@ -45,7 +48,7 @@ export function createRga(siteId: string): RgaState {
  * - insert: 이미 적용된 id면 무시(멱등). originId 미도착이면 pendingBuffer에 보관.
  *   삽입 후 drainBuffer로 풀린 op를 재적용.
  */
-export function applyOp(rga: RgaState, op: RgaOp): void {
+export function applyOp<V = string>(rga: RgaState<V>, op: RgaOp<V>): void {
   if (op.type === 'delete') {
     const key = idKey(op.targetId);
     const node = rga.nodeMap.get(key);
@@ -70,7 +73,7 @@ export function applyOp(rga: RgaState, op: RgaOp): void {
 }
 
 /** InsertOp로부터 새 활성 노드(tombstone 아님)를 만든다. */
-function nodeFromInsert(op: InsertOp): RgaNode {
+function nodeFromInsert<V>(op: InsertOp<V>): RgaNode<V> {
   return {
     id: op.id,
     originId: op.originId,
@@ -132,6 +135,22 @@ export function toText(rga: RgaState): string {
   return chars.join('');
 }
 
+// ─── getVisibleNodes (제네릭) ─────────────────────────────────────
+
+/**
+ * 가시(tombstone 아님) 노드를 링크드 리스트 순서대로 반환한다.
+ * 인라인 RGA(V=string)와 블록 RGA(V=BlockMeta) 모두에서 사용한다.
+ */
+export function getVisibleNodes<V = string>(rga: RgaState<V>): RgaNode<V>[] {
+  const out: RgaNode<V>[] = [];
+  let cursor = rga.sentinel.next;
+  while (cursor) {
+    if (!cursor.deleted) out.push(cursor);
+    cursor = cursor.next;
+  }
+  return out;
+}
+
 // ─── serializeRga ────────────────────────────────────────────────
 
 /**
@@ -189,7 +208,7 @@ function sameOrigin(a: RgaId | null, b: RgaId | null): boolean {
 }
 
 /**
- * 가시 텍스트 기준 index번째 노드를 반환한다. 범위 밖이면 null.
+ * 가시 텍스트 기준 index번째 노드를 반환한다. 범위 밖이면 null. (인라인 전용)
  */
 function getVisibleNodeAt(rga: RgaState, index: number): RgaNode | null {
   if (index < 0) return null;
@@ -206,7 +225,7 @@ function getVisibleNodeAt(rga: RgaState, index: number): RgaNode | null {
 }
 
 /** id로 노드를 찾는다. null이면 sentinel을 반환한다. */
-function findNodeById(rga: RgaState, id: RgaId | null): RgaNode {
+function findNodeById<V>(rga: RgaState<V>, id: RgaId | null): RgaNode<V> {
   if (id === null) return rga.sentinel;
   return rga.nodeMap.get(idKey(id)) ?? rga.sentinel;
 }
@@ -215,7 +234,7 @@ function findNodeById(rga: RgaState, id: RgaId | null): RgaNode {
  * DFS 평면 리스트에서 node의 서브트리(node + 모든 후손)의 마지막 노드를 반환한다.
  * 같은 originId 형제 사이에 끼어 있는 후손을 건너뛰기 위해 사용한다 (정확한 RGA 삽입).
  */
-function endOfSubtree(node: RgaNode): RgaNode {
+function endOfSubtree<V>(node: RgaNode<V>): RgaNode<V> {
   const subtreeIds = new Set<string>([idKey(node.id)]);
   let last = node;
   let cursor = node.next;
@@ -232,7 +251,7 @@ function endOfSubtree(node: RgaNode): RgaNode {
  * 같은 originId 형제들과 compareIds로 tie-break 정렬하되,
  * newNode보다 앞서는 형제의 서브트리 전체를 건너뛴다 (중첩 정확성).
  */
-function insertNode(rga: RgaState, newNode: RgaNode): void {
+function insertNode<V>(rga: RgaState<V>, newNode: RgaNode<V>): void {
   let insertAfter = findNodeById(rga, newNode.originId);
   let cursor = insertAfter.next;
 
@@ -260,7 +279,7 @@ function insertNode(rga: RgaState, newNode: RgaNode): void {
 }
 
 /** 인과적으로 준비된 op인지 확인한다. (07 §6-1) */
-function isCausallyReady(rga: RgaState, op: InsertOp): boolean {
+function isCausallyReady<V>(rga: RgaState<V>, op: InsertOp<V>): boolean {
   return op.originId === null || rga.nodeMap.has(idKey(op.originId));
 }
 
@@ -268,7 +287,7 @@ function isCausallyReady(rga: RgaState, op: InsertOp): boolean {
  * pendingBuffer에서 이제 적용 가능한 op를 꺼내 순서대로 적용한다. (07 §6-1)
  * 적용으로 새 노드가 생기면 또 다른 op가 풀릴 수 있으므로 진행이 멈출 때까지 반복한다.
  */
-function drainBuffer(rga: RgaState): void {
+function drainBuffer<V>(rga: RgaState<V>): void {
   let progress = true;
   while (progress) {
     progress = false;

@@ -7,6 +7,8 @@ import type {
   BlockDeleteOp,
   BlockSetTypeOp,
   BlockType,
+  InlineInsertOp,
+  InlineDeleteOp,
 } from './types.js';
 
 // ─── 타입 가드 ────────────────────────────────────────────────────
@@ -83,8 +85,7 @@ export function makeBlockDeleteOp(targetId: RgaId): BlockDeleteOp {
 }
 
 /**
- * BlockSetTypeOp를 생성한다.
- * TODO(Phase 2): LWW 판정 로직 통합
+ * BlockSetTypeOp를 생성한다. LWW 판정은 applyDocOp(block.ts)에서 수행한다.
  */
 export function makeBlockSetTypeOp(
   blockId: RgaId,
@@ -92,6 +93,24 @@ export function makeBlockSetTypeOp(
   clock: number,
   siteId: string,
 ): BlockSetTypeOp {
-  // TODO: Phase 2 (TDD) — LWW 판정 통합
   return { type: 'block-set-type', blockId, blockType, clock, siteId };
+}
+
+/**
+ * InlineInsertOp를 생성한다 — blockId 스코프가 추가된 인라인 삽입.
+ */
+export function makeInlineInsertOp(
+  id: RgaId,
+  originId: RgaId | null,
+  value: string,
+  blockId: RgaId,
+): InlineInsertOp {
+  return { type: 'insert', id, originId, value, blockId };
+}
+
+/**
+ * InlineDeleteOp를 생성한다 — blockId 스코프가 추가된 인라인 삭제.
+ */
+export function makeInlineDeleteOp(targetId: RgaId, blockId: RgaId): InlineDeleteOp {
+  return { type: 'delete', targetId, blockId };
 }

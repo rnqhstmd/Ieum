@@ -2,8 +2,31 @@
 // 07 §8-2 public API 재export.
 // 외부 런타임 의존성 0 — 순수 TypeScript.
 
-// 함수
-export { createRga, applyOp, localInsert, localDelete, toText, serializeRga, deserializeRga } from './rga.js';
+// 함수 (인라인 RGA 코어 + 제네릭 getVisibleNodes)
+export {
+  createRga,
+  applyOp,
+  localInsert,
+  localDelete,
+  toText,
+  getVisibleNodes,
+  serializeRga,
+  deserializeRga,
+} from './rga.js';
+
+// 2-level 블록 RGA (P4b)
+export {
+  createDocument,
+  applyDocOp,
+  docToBlocks,
+  splitBlock,
+  mergeBlockWithPrev,
+  setBlockType,
+  inheritType,
+} from './block.js';
+
+// wire 봉투 codec
+export { toWire, fromWire } from './wire.js';
 
 // id 유틸
 export { compareIds, idEquals, idKey } from './id.js';
@@ -20,6 +43,8 @@ export {
   makeBlockInsertOp,
   makeBlockDeleteOp,
   makeBlockSetTypeOp,
+  makeInlineInsertOp,
+  makeInlineDeleteOp,
 } from './op.js';
 
 // 타입
@@ -42,3 +67,7 @@ export type {
   InlineDeleteOp,
   AnyOp,
 } from './types.js';
+
+// 2-level 블록 RGA 타입 (P4b)
+export type { DocState, EditorBlockView } from './block.js';
+export type { WireEnvelope } from './wire.js';
