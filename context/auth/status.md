@@ -36,7 +36,7 @@
 | PERM-02 | `requirePageAccess` 헬퍼 구현 (pageId→workspaceId 조회 후 위임) | ✅ | P1 | `AccessGuard.requirePageAccess` (PR #3) |
 | PERM-03 | OWNER 전용 액션(멤버 초대·제거·역할 변경·워크스페이스 삭제)에 OWNER 검증 적용 | ⬜ | P1 | `AccessGuard.requireOwner` 헬퍼·단위검증 완료(PR #3). 액션 엔드포인트 적용은 P2/P7 |
 | PERM-04 | MEMBER가 OWNER 전용 액션 시도 시 403 반환 | ⬜ | P1 | 역할검증 로직·단위검증 완료(PR #3). 엔드포인트 적용 시 자동 충족(P2/P7) |
-| PERM-05 | 워크스페이스 비멤버의 페이지 접근 시 403 반환 | ⬜ | P1 | `requirePageAccess` 검증 완료(PR #3). 페이지 API 적용은 P2 |
+| PERM-05 | 워크스페이스 비멤버의 페이지 접근 시 403 반환 | ✅ | P2 | `requireWorkspaceMember`를 `PageService.createPage`/`getPageTree`에 적용 → 비멤버 403 (PR #4). 단건 페이지 `requirePageAccess` 적용은 updatePage/archivePage 구현 시(다음 사이클) |
 | PERM-06 | Viewer 역할 구현 | ⬜ | P8 | post-MVP, 현재 설계 범위 외 |
 
 ### WebSocket 인가 (08-auth-and-permissions.md §4-2)
