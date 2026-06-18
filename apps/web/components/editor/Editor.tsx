@@ -34,12 +34,13 @@ function getCaretOffset(el: HTMLElement, fallback: number): number {
   return fallback;
 }
 
+// whitespace-pre-wrap: Shift+Enter 등으로 들어온 줄바꿈(\n)이 축소되지 않고 보존됨.
 const BLOCK_CLASS: Record<EditorBlock['type'], string> = {
-  paragraph: 'text-[15px] leading-7 text-body',
-  heading1: 'text-3xl font-bold text-ink mt-4',
-  heading2: 'text-2xl font-semibold text-ink mt-3',
-  heading3: 'text-xl font-semibold text-ink mt-2',
-  bullet: 'text-[15px] leading-7 text-body',
+  paragraph: 'text-[15px] leading-7 text-body whitespace-pre-wrap',
+  heading1: 'text-3xl font-bold text-ink mt-4 whitespace-pre-wrap',
+  heading2: 'text-2xl font-semibold text-ink mt-3 whitespace-pre-wrap',
+  heading3: 'text-xl font-semibold text-ink mt-2 whitespace-pre-wrap',
+  bullet: 'text-[15px] leading-7 text-body whitespace-pre-wrap',
 };
 
 interface BlockViewProps {
@@ -110,7 +111,9 @@ export default function Editor({ blocks, onChange }: EditorProps) {
     try {
       const sel = window.getSelection();
       const range = document.createRange();
-      if (el.firstChild) {
+      // firstChild가 텍스트 노드(nodeType 3)일 때만 offset 설정. 그 외(빈 블록·<br>
+      // 등 요소 노드)는 IndexSizeError 위험이 있어 블록 시작으로 폴백한다.
+      if (el.firstChild && el.firstChild.nodeType === Node.TEXT_NODE) {
         const max = (el.textContent ?? '').length;
         range.setStart(el.firstChild, Math.min(p.offset, max));
       } else {

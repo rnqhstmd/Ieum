@@ -18,6 +18,7 @@ export function useAutosave<T>(
   const [status, setStatus] = useState<SaveStatus>('idle');
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latest = useRef<T | null>(null);
+  const isMounted = useRef(true);
   // save 콜백의 최신 참조를 유지(notifyChange 재생성 없이 최신 클로저 사용).
   const saveRef = useRef(save);
   saveRef.current = save;
@@ -28,22 +29,29 @@ export function useAutosave<T>(
       setStatus('dirty'); // 미저장 변경 발생 — debounce 만료 전까지 'dirty'
       if (timer.current) clearTimeout(timer.current);
       timer.current = setTimeout(() => {
+        if (!isMounted.current) return;
         setStatus('saving');
         void Promise.resolve(saveRef.current(latest.current as T))
-          .then(() => setStatus('saved'))
-          .catch(() => setStatus('idle')); // 실패 시 idle 복귀(에러 처리 강화는 P5)
+          // 언마운트 후 비동기 완료 시 setStatus 호출을 막는다(누수/경고 방지).
+          .then(() => {
+            if (isMounted.current) setStatus('saved');
+          })
+          .catch(() => {
+            if (isMounted.current) setStatus('idle'); // 실패 시 idle 복귀(에러 처리 강화는 P5)
+          });
       }, delayMs);
     },
     [delayMs],
   );
 
-  // 언마운트 시 보류 중인 타이머 정리.
-  useEffect(
-    () => () => {
+  // 언마운트 시 마운트 플래그 해제 + 보류 중인 타이머 정리.
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
       if (timer.current) clearTimeout(timer.current);
-    },
-    [],
-  );
+    };
+  }, []);
 
   return { status, notifyChange };
 }

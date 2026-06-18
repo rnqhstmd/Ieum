@@ -14,7 +14,9 @@ export default async function PageEditor({ params }: PageEditorProps) {
 
   return (
     <div className="mx-auto max-w-3xl px-8 py-12">
-      <EditorContainer pageId={pageId} />
+      {/* key={pageId}: 페이지 이동 시 EditorContainer를 remount하여 이전 페이지
+          상태(제목·블록)가 남지 않도록 강제한다. */}
+      <EditorContainer key={pageId} pageId={pageId} />
     </div>
   );
 }

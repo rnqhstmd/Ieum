@@ -59,6 +59,33 @@ describe('editor/useAutosave — debounce 자동저장 훅', () => {
     expect(result.current.status).toBe('dirty');
   });
 
+  it('PR#8-4: 저장 진행 중 언마운트되어도 안전하다(setStatus 가드)', async () => {
+    let resolveSave!: () => void;
+    const save = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
+    const { result, unmount } = renderHook(() => useAutosave(save, 500));
+
+    act(() => {
+      result.current.notifyChange('v1');
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500); // 타이머 발화 → save 시작(pending)
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+
+    unmount();
+    // 언마운트 후 save 완료 — isMounted 가드로 setStatus 미호출, 에러 없이 통과
+    await act(async () => {
+      resolveSave();
+      await Promise.resolve();
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
   it('AC-19: 저장 상태가 idle → saving → saved로 전이한다', async () => {
     let resolveSave!: () => void;
     const save = vi.fn().mockImplementation(

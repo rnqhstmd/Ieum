@@ -33,6 +33,14 @@ describe('Editor — controlled 블록 에디터', () => {
     expect(screen.getByRole('group', { name: '페이지 본문' })).toBeInTheDocument();
   });
 
+  it('PR#8-2: 블록에 whitespace-pre-wrap이 적용되어 줄바꿈이 보존된다', () => {
+    const { container } = render(
+      <Editor blocks={[{ id: 'b1', type: 'paragraph', text: '' }]} onChange={vi.fn()} />,
+    );
+    const node = container.querySelector('[data-block-id="b1"]') as HTMLElement;
+    expect(node.className).toContain('whitespace-pre-wrap');
+  });
+
   it('AC-13: blocks에서 파생하여 타입별 시맨틱 태그로 렌더한다', () => {
     const blocks: EditorBlock[] = [
       { id: 'h', type: 'heading1', text: 'Title' },
