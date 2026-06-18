@@ -9,7 +9,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.ieum.user.UserRepository;
+import com.ieum.workspace.dto.WorkspaceDto;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -111,5 +113,46 @@ class WorkspaceServiceTest {
 
         // Then: 기존 워크스페이스 반환
         assertThat(result).isSameAs(existing);
+    }
+
+    // ── AC-10: 멤버십 기반 워크스페이스 목록 ───────────────────────────
+    @Test
+    @DisplayName("AC-10: listMyWorkspaces — 사용자 멤버십 기반으로 소속 워크스페이스 목록을 반환한다")
+    void listMyWorkspaces_returnsWorkspacesFromMemberships() {
+        // Given
+        UUID userId = UUID.randomUUID();
+        UUID ws1Id = UUID.randomUUID();
+        UUID ws2Id = UUID.randomUUID();
+
+        when(membershipRepository.findByUserId(userId)).thenReturn(List.of(
+                Membership.builder().userId(userId).workspaceId(ws1Id).role(MemberRole.OWNER).build(),
+                Membership.builder().userId(userId).workspaceId(ws2Id).role(MemberRole.MEMBER).build()
+        ));
+        when(workspaceRepository.findAllById(List.of(ws1Id, ws2Id))).thenReturn(List.of(
+                Workspace.builder().id(ws1Id).name("내 워크스페이스").type(WorkspaceType.PERSONAL).ownerId(userId).build(),
+                Workspace.builder().id(ws2Id).name("팀").type(WorkspaceType.SHARED).ownerId(UUID.randomUUID()).build()
+        ));
+
+        // When
+        List<WorkspaceDto> result = workspaceService.listMyWorkspaces(userId);
+
+        // Then
+        assertThat(result).hasSize(2);
+        assertThat(result).extracting(WorkspaceDto::id).containsExactlyInAnyOrder(ws1Id, ws2Id);
+    }
+
+    // ── AC-11: 멤버십 없으면 빈 목록 ───────────────────────────────────
+    @Test
+    @DisplayName("AC-11: listMyWorkspaces — 멤버십이 0건이면 빈 목록을 반환한다")
+    void listMyWorkspaces_noMemberships_returnsEmpty() {
+        // Given
+        UUID userId = UUID.randomUUID();
+        when(membershipRepository.findByUserId(userId)).thenReturn(List.of());
+
+        // When
+        List<WorkspaceDto> result = workspaceService.listMyWorkspaces(userId);
+
+        // Then
+        assertThat(result).isEmpty();
     }
 }

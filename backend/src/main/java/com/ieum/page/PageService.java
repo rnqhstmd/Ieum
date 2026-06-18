@@ -1,12 +1,17 @@
 package com.ieum.page;
 
+import com.ieum.common.security.AccessGuard;
 import com.ieum.page.dto.*;
-import com.ieum.workspace.WorkspaceService;
+import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -14,7 +19,7 @@ import java.util.UUID;
  *
  * 도메인 규칙 요약:
  *  - 워크스페이스 MEMBER 이상이면 페이지 생성·편집·이동 가능
- *  - 아카이브는 soft delete (archivedAt 설정), 복구 API는 Phase 2
+ *  - 아카이브는 soft delete (archivedAt 설정), 복구 API는 다음 사이클
  *  - 트리 구조: parentPageId 자기참조, position으로 순서 관리
  */
 @Service
@@ -23,7 +28,7 @@ import java.util.UUID;
 public class PageService {
 
     private final PageRepository pageRepository;
-    private final WorkspaceService workspaceService; // 권한 검사 헬퍼 재사용
+    private final AccessGuard accessGuard; // 권한 검사 헬퍼 재사용
 
     // ───────────────────────────────────────────────
     // 페이지 CRUD
@@ -31,16 +36,30 @@ public class PageService {
 
     /**
      * 워크스페이스 페이지 트리 조회 (아카이브 제외)
-     *
-     * @param currentUserId // TODO(현재는 @AuthenticationPrincipal 또는 임시)
      */
     public List<PageDto> getPageTree(UUID currentUserId, UUID workspaceId) {
-        // TODO(Phase 1):
-        //   1. workspaceService.requireWorkspaceMember(currentUserId, workspaceId)
-        //   2. pageRepository.findByWorkspaceIdAndArchivedAtIsNull(workspaceId)
-        //   3. 플랫 리스트 → 트리 구조 변환 (parentPageId 기준, position 정렬)
-        //   4. List<PageDto> 반환 (최상위 페이지만, children 재귀 설정)
-        throw new UnsupportedOperationException("TODO(Phase 1): getPageTree");
+        accessGuard.requireWorkspaceMember(currentUserId, workspaceId);
+        List<Page> pages = pageRepository.findByWorkspaceIdAndArchivedAtIsNull(workspaceId);
+
+        // parentPageId 기준 그룹핑 (null 키 = 최상위). HashMap은 null 키 허용.
+        Map<UUID, List<Page>> byParent = new HashMap<>();
+        for (Page p : pages) {
+            byParent.computeIfAbsent(p.getParentPageId(), k -> new ArrayList<>()).add(p);
+        }
+        return buildSubtree(null, byParent);
+    }
+
+    /**
+     * 부모 id 하위 트리를 position 오름차순으로 조립한다 (순수 in-memory 재귀).
+     * createPage가 부모 사전 존재를 강제하므로 데이터는 DAG → 무한재귀 없음.
+     */
+    private List<PageDto> buildSubtree(UUID parentId, Map<UUID, List<Page>> byParent) {
+        return byParent.getOrDefault(parentId, List.of()).stream()
+                .sorted(Comparator.comparingInt(Page::getPosition)
+                        .thenComparing(Page::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(Page::getId))
+                .map(p -> toDto(p, buildSubtree(p.getId(), byParent)))
+                .toList();
     }
 
     /**
@@ -48,12 +67,29 @@ public class PageService {
      */
     @Transactional
     public PageDto createPage(UUID currentUserId, UUID workspaceId, CreatePageRequest request) {
-        // TODO(Phase 1):
-        //   1. workspaceService.requireWorkspaceMember(currentUserId, workspaceId)
-        //   2. request.parentPageId() != null이면 부모 페이지가 동일 workspaceId인지 검증
-        //   3. Page 저장 (createdById=currentUserId)
-        //   4. PageDto 반환 (children=null)
-        throw new UnsupportedOperationException("TODO(Phase 1): createPage");
+        accessGuard.requireWorkspaceMember(currentUserId, workspaceId);
+
+        if (request.title() == null || request.title().isBlank()) {
+            throw new IllegalArgumentException("페이지 제목은 비어 있을 수 없습니다.");
+        }
+
+        if (request.parentPageId() != null) {
+            Page parent = pageRepository.findById(request.parentPageId())
+                    .orElseThrow(() -> new EntityNotFoundException("부모 페이지를 찾을 수 없습니다."));
+            if (!parent.getWorkspaceId().equals(workspaceId)) {
+                throw new IllegalArgumentException("부모 페이지가 다른 워크스페이스에 속합니다.");
+            }
+        }
+
+        Page saved = pageRepository.save(Page.builder()
+                .workspaceId(workspaceId)
+                .parentPageId(request.parentPageId())
+                .title(request.title())
+                .icon(request.icon())
+                .position(request.position())
+                .createdById(currentUserId)
+                .build());
+        return toDto(saved, null);
     }
 
     /**
@@ -61,13 +97,8 @@ public class PageService {
      */
     @Transactional
     public PageDto updatePage(UUID currentUserId, UUID workspaceId, UUID pageId, UpdatePageRequest request) {
-        // TODO(Phase 1):
-        //   1. workspaceService.requireWorkspaceMember(currentUserId, workspaceId)
-        //   2. pageRepository.findById(pageId) → 없으면 EntityNotFoundException
-        //   3. 페이지의 workspaceId가 일치하는지 검증
-        //   4. title/icon 변경 저장
-        //   5. PageDto 반환
-        throw new UnsupportedOperationException("TODO(Phase 1): updatePage");
+        // TODO(다음 사이클): updatePage
+        throw new UnsupportedOperationException("TODO: updatePage");
     }
 
     /**
@@ -75,13 +106,8 @@ public class PageService {
      */
     @Transactional
     public PageDto movePage(UUID currentUserId, UUID workspaceId, UUID pageId, MovePageRequest request) {
-        // TODO(Phase 1):
-        //   1. workspaceService.requireWorkspaceMember(currentUserId, workspaceId)
-        //   2. 순환 참조 방지: request.parentPageId()가 pageId의 자손이 아닌지 검증
-        //   3. page.setParentPageId(request.parentPageId())
-        //   4. page.setPosition(request.position()) 저장
-        //   5. PageDto 반환
-        throw new UnsupportedOperationException("TODO(Phase 1): movePage");
+        // TODO(다음 사이클): movePage (순환 참조 방지 포함)
+        throw new UnsupportedOperationException("TODO: movePage");
     }
 
     /**
@@ -89,11 +115,14 @@ public class PageService {
      */
     @Transactional
     public void archivePage(UUID currentUserId, UUID workspaceId, UUID pageId) {
-        // TODO(Phase 1):
-        //   1. workspaceService.requireWorkspaceMember(currentUserId, workspaceId)
-        //   2. pageRepository.findById(pageId) → 없으면 EntityNotFoundException
-        //   3. page.setArchivedAt(Instant.now()) 저장
-        //   4. 하위 페이지 재귀 아카이브 여부는 Phase 2 정책 결정 필요 → 주석 남김
-        throw new UnsupportedOperationException("TODO(Phase 1): archivePage");
+        // TODO(다음 사이클): archivePage (하위 재귀 아카이브 포함)
+        throw new UnsupportedOperationException("TODO: archivePage");
+    }
+
+    private static PageDto toDto(Page p, List<PageDto> children) {
+        return new PageDto(
+                p.getId(), p.getWorkspaceId(), p.getParentPageId(), p.getTitle(),
+                p.getIcon(), p.getPosition(), p.getCreatedById(),
+                p.getCreatedAt(), p.getUpdatedAt(), children);
     }
 }
