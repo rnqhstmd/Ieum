@@ -6,7 +6,30 @@ const config: Config = {
     './components/**/*.{js,ts,jsx,tsx,mdx}',
   ],
   theme: {
-    extend: {},
+    extend: {
+      colors: {
+        surface: 'var(--c-surface)',
+        deep: 'var(--c-deep)',
+        hover: 'var(--c-hover)',
+        hair: {
+          DEFAULT: 'var(--c-hair)',
+          2: 'var(--c-hair-2)',
+          3: 'var(--c-hair-3)',
+        },
+        ink: 'var(--c-text)',
+        body: 'var(--c-body)',
+        dim: 'var(--c-dim)',
+        faint: 'var(--c-faint)',
+        label: 'var(--c-label)',
+        accent: 'var(--c-accent)',
+        ok: 'var(--c-ok)',
+        warn: 'var(--c-warn)',
+        danger: 'var(--c-error)',
+      },
+      fontFamily: {
+        sans: ['Pretendard', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+      },
+    },
   },
   plugins: [],
 };

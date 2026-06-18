@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'Pretendard', -apple-system, sans-serif; -webkit-font-smoothing: antialiased; }
+  :root{
+    --c-surface:#0a0a0a; --c-deep:#000000; --c-hover:#16161b;
+    --c-hair:#3a3a3f; --c-hair-2:#242429; --c-hair-3:#1d1d22;
+    --c-fill-a:#26262b; --c-fill-b:#17171c;
+    --c-text:#f0f0fa; --c-body:#c8c8ce; --c-dim:#9a9aa0; --c-faint:#6a6a70; --c-fainter:#5a5a5f; --c-label:#4a4a50;
+    --c-accent:#6fd6e8; --c-error:#c98b8b; --c-ok:#79e0a0; --c-warn:#e8c06f;
+  }
+  [data-theme="light"]{
+    --c-surface:#ffffff; --c-deep:#ffffff; --c-hover:#f1f1f4;
+    --c-hair:#dcdce3; --c-hair-2:#e8e8ef; --c-hair-3:#eef0f4;
+    --c-fill-a:#e6e6ec; --c-fill-b:#eef0f4;
+    --c-text:#15151a; --c-body:#3c3c44; --c-dim:#6a6a72; --c-faint:#8a8a94; --c-fainter:#a2a2ac; --c-label:#b0b0b8;
+    --c-accent:#1f8fa3; --c-error:#b3534f; --c-ok:#1f8a5b; --c-warn:#9a6a12;
+  }
+</style>
+</helmet>
+
+<div data-theme="{{ theme }}" style="width: max-content; min-width: 100%; min-height: 100vh; box-sizing: border-box; padding: 48px; background: #e7e5df; font-family: 'Pretendard', sans-serif;">
+
+  <div style="max-width: 880px; margin-bottom: 40px;">
+    <div style="font-weight: 800; font-size: 24px; letter-spacing: 2.5px; color: #111;">IEUM <span style="font-weight: 500; color: var(--c-faint); letter-spacing: 0;">— 초대 수락</span></div>
+    <div style="font-size: 13px; line-height: 1.6; color: #44444a; margin-top: 10px; max-width: 720px;">초대 링크 진입 화면. 검정 캔버스 중앙 카드. 기본(수락) + 상태 3종: 만료된 초대 / 이미 멤버 / 유효하지 않은 토큰. 오류 상태는 미세 색만 사용.</div>
+  </div>
+
+  <div style="font: 600 11px/1 Pretendard; letter-spacing: 1.6px; text-transform: uppercase; color: #1a1a1a; margin-bottom: 18px;">데스크탑 · 상태 4종 · 520px</div>
+  <div style="display: flex; gap: 48px; align-items: flex-start;">
+
+    <!-- VALID -->
+    <div style="flex: none; width: 520px;">
+      <div style="font: 600 11px/1 Pretendard; letter-spacing: 1.5px; text-transform: uppercase; color: #44444a; margin-bottom: 12px;">기본 · 수락</div>
+      <div style="width: 520px; height: 620px; background: var(--c-deep); border-radius: 2px; box-shadow: 0 1px 3px rgba(0,0,0,.12); overflow: hidden; display: flex; align-items: center; justify-content: center; padding: 40px;">
+        <div style="text-align: center; max-width: 380px;">
+          <div style="width: 64px; height: 64px; border-radius: 16px; background: #6fd6e8; color: #000; display: flex; align-items: center; justify-content: center; font: 800 26px Pretendard; margin: 0 auto;">이</div>
+          <h1 style="font: 700 26px/1.35 Pretendard; letter-spacing: -0.5px; color: var(--c-text); margin: 26px 0 0;">이음 팀 워크스페이스에<br>초대되었습니다</h1>
+          <div style="display: flex; align-items: center; justify-content: center; gap: 8px; margin: 18px 0 0;">
+            <div style="width: 24px; height: 24px; border-radius: 50%; background: #e8c06f; color: #000; display: flex; align-items: center; justify-content: center; font: 700 10px Pretendard;">준</div>
+            <span style="font: 400 14px/1.5 Pretendard; color: var(--c-dim);"><span style="color:#c8c8ce;">준</span>님이 회원님을 <span style="color:#c8c8ce;">멤버</span>로 초대했습니다</span>
+          </div>
+          <a style="display: inline-flex; align-items: center; justify-content: center; padding: 16px 36px; border: 1px solid var(--c-text); border-radius: 32px; color: var(--c-text); font: 700 14px/1 Pretendard; text-decoration: none; margin: 34px 0 0;">수락하고 참여</a>
+          <div style="font: 500 13px/1 Pretendard; color: var(--c-faint); text-decoration: underline; text-underline-offset: 3px; margin-top: 22px;">초대 거절</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- EXPIRED -->
+    <div style="flex: none; width: 520px;">
+      <div style="font: 600 11px/1 Pretendard; letter-spacing: 1.5px; text-transform: uppercase; color: #44444a; margin-bottom: 12px;">만료된 초대</div>
+      <div style="width: 520px; height: 620px; background: var(--c-deep); border-radius: 2px; box-shadow: 0 1px 3px rgba(0,0,0,.12); overflow: hidden; display: flex; align-items: center; justify-content: center; padding: 40px;">
+        <div style="text-align: center; max-width: 380px;">
+          <div style="width: 64px; height: 64px; border-radius: 50%; border: 1px solid var(--c-hair); color: var(--c-error); display: flex; align-items: center; justify-content: center; font: 300 30px Pretendard; margin: 0 auto;"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex:none"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3.5 2"/></svg></div>
+          <h1 style="font: 700 26px/1.35 Pretendard; letter-spacing: -0.5px; color: var(--c-text); margin: 26px 0 0;">초대가 만료되었습니다</h1>
+          <p style="font: 400 15px/1.65 Pretendard; color: var(--c-dim); margin: 16px 0 0;">이 초대 링크는 7일이 지나 만료되었습니다. 관리자에게 새 초대를 요청하세요.</p>
+          <a style="display: inline-flex; align-items: center; justify-content: center; padding: 16px 32px; border: 1px solid var(--c-hair); border-radius: 32px; color: var(--c-body); font: 700 14px/1 Pretendard; text-decoration: none; margin: 34px 0 0;">관리자에게 요청</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- ALREADY MEMBER -->
+    <div style="flex: none; width: 520px;">
+      <div style="font: 600 11px/1 Pretendard; letter-spacing: 1.5px; text-transform: uppercase; color: #44444a; margin-bottom: 12px;">이미 멤버</div>
+      <div style="width: 520px; height: 620px; background: var(--c-deep); border-radius: 2px; box-shadow: 0 1px 3px rgba(0,0,0,.12); overflow: hidden; display: flex; align-items: center; justify-content: center; padding: 40px;">
+        <div style="text-align: center; max-width: 380px;">
+          <div style="width: 64px; height: 64px; border-radius: 50%; border: 1px solid #79e0a0; color: var(--c-ok); display: flex; align-items: center; justify-content: center; font: 300 28px Pretendard; margin: 0 auto;"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex:none"><path d="M5 13l4 4L19 7"/></svg></div>
+          <h1 style="font: 700 26px/1.35 Pretendard; letter-spacing: -0.5px; color: var(--c-text); margin: 26px 0 0;">이미 멤버입니다</h1>
+          <p style="font: 400 15px/1.65 Pretendard; color: var(--c-dim); margin: 16px 0 0;">회원님은 이미 이음 팀 워크스페이스의 멤버입니다. 바로 이동할 수 있습니다.</p>
+          <a style="display: inline-flex; align-items: center; justify-content: center; padding: 16px 32px; border: 1px solid var(--c-text); border-radius: 32px; color: var(--c-text); font: 700 14px/1 Pretendard; text-decoration: none; margin: 34px 0 0;">워크스페이스 열기</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- INVALID -->
+    <div style="flex: none; width: 520px;">
+      <div style="font: 600 11px/1 Pretendard; letter-spacing: 1.5px; text-transform: uppercase; color: #44444a; margin-bottom: 12px;">유효하지 않은 토큰</div>
+      <div style="width: 520px; height: 620px; background: var(--c-deep); border-radius: 2px; box-shadow: 0 1px 3px rgba(0,0,0,.12); overflow: hidden; display: flex; align-items: center; justify-content: center; padding: 40px;">
+        <div style="text-align: center; max-width: 380px;">
+          <div style="width: 64px; height: 64px; border-radius: 50%; border: 1px solid var(--c-hair); color: var(--c-error); display: flex; align-items: center; justify-content: center; font: 300 30px Pretendard; margin: 0 auto;"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex:none"><path d="M6 6l12 12M18 6L6 18"/></svg></div>
+          <h1 style="font: 700 26px/1.35 Pretendard; letter-spacing: -0.5px; color: var(--c-text); margin: 26px 0 0;">유효하지 않은 초대</h1>
+          <p style="font: 400 15px/1.65 Pretendard; color: var(--c-dim); margin: 16px 0 0;">이 링크가 올바르지 않거나 이미 취소되었습니다. 링크를 다시 확인해 주세요.</p>
+          <a style="display: inline-flex; align-items: center; justify-content: center; padding: 16px 32px; border: 1px solid var(--c-hair); border-radius: 32px; color: var(--c-body); font: 700 14px/1 Pretendard; text-decoration: none; margin: 34px 0 0;">홈으로 가기</a>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- MOBILE -->
+  <div style="font: 600 11px/1 Pretendard; letter-spacing: 1.6px; text-transform: uppercase; color: #1a1a1a; margin: 56px 0 18px;">모바일웹 · 390px · 풀폭</div>
+  <div style="display: flex; gap: 48px; align-items: flex-start;">
+    <div style="flex: none; width: 390px;">
+      <div style="width: 390px; height: 720px; background: var(--c-deep); border-radius: 2px; box-shadow: 0 1px 3px rgba(0,0,0,.12); overflow: hidden; display: flex; align-items: center; justify-content: center; padding: 28px;">
+        <div style="text-align: center; width: 100%;">
+          <div style="width: 60px; height: 60px; border-radius: 15px; background: #6fd6e8; color: #000; display: flex; align-items: center; justify-content: center; font: 800 24px Pretendard; margin: 0 auto;">이</div>
+          <h1 style="font: 700 23px/1.35 Pretendard; letter-spacing: -0.4px; color: var(--c-text); margin: 24px 0 0;">이음 팀 워크스페이스에<br>초대되었습니다</h1>
+          <div style="display: flex; align-items: center; justify-content: center; gap: 8px; margin: 16px 0 0;">
+            <div style="width: 22px; height: 22px; border-radius: 50%; background: #e8c06f; color: #000; display: flex; align-items: center; justify-content: center; font: 700 9px Pretendard;">준</div>
+            <span style="font: 400 13.5px/1.5 Pretendard; color: var(--c-dim);"><span style="color:#c8c8ce;">준</span>님이 멤버로 초대했습니다</span>
+          </div>
+          <a style="display: flex; align-items: center; justify-content: center; padding: 16px 32px; border: 1px solid var(--c-text); border-radius: 32px; color: var(--c-text); font: 700 14px/1 Pretendard; text-decoration: none; margin: 30px 0 0;">수락하고 참여</a>
+          <div style="font: 500 13px/1 Pretendard; color: var(--c-faint); text-decoration: underline; text-underline-offset: 3px; margin-top: 20px;">초대 거절</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;dark&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;tsType&quot;:&quot;string&quot;}}">class Component extends DCLogic {
+  renderVals() { return { theme: this.props.theme ?? 'dark' }; }
+}</script>
+</body>
+</html>

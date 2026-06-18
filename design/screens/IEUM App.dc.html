@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'Pretendard', -apple-system, sans-serif; -webkit-font-smoothing: antialiased; }
+  :root{
+    --c-surface:#0a0a0a; --c-deep:#000000; --c-hover:#16161b;
+    --c-hair:#3a3a3f; --c-hair-2:#242429; --c-hair-3:#1d1d22;
+    --c-fill-a:#26262b; --c-fill-b:#17171c;
+    --c-text:#f0f0fa; --c-body:#c8c8ce; --c-dim:#9a9aa0; --c-faint:#6a6a70; --c-fainter:#5a5a5f; --c-label:#4a4a50;
+    --c-accent:#6fd6e8; --c-error:#c98b8b; --c-ok:#79e0a0; --c-warn:#e8c06f;
+  }
+  [data-theme="light"]{
+    --c-surface:#ffffff; --c-deep:#ffffff; --c-hover:#f1f1f4;
+    --c-hair:#dcdce3; --c-hair-2:#e8e8ef; --c-hair-3:#eef0f4;
+    --c-fill-a:#e6e6ec; --c-fill-b:#eef0f4;
+    --c-text:#15151a; --c-body:#3c3c44; --c-dim:#6a6a72; --c-faint:#8a8a94; --c-fainter:#a2a2ac; --c-label:#b0b0b8;
+    --c-accent:#1f8fa3; --c-error:#b3534f; --c-ok:#1f8a5b; --c-warn:#9a6a12;
+  }
+</style>
+</helmet>
+
+<div data-theme="{{ theme }}" style="width: max-content; min-width: 100%; min-height: 100vh; box-sizing: border-box; padding: 48px; background: #e7e5df; font-family: 'Pretendard', sans-serif;">
+
+  <!-- HEADER STRIP -->
+  <div style="max-width: 880px; margin-bottom: 40px;">
+    <div style="font-weight: 800; font-size: 24px; letter-spacing: 2.5px; color: #111;">IEUM <span style="font-weight: 500; color: var(--c-faint); letter-spacing: 0;">— 메인 앱</span></div>
+    <div style="font-size: 13px; line-height: 1.6; color: #44444a; margin-top: 10px; max-width: 720px;">로그인 후 핵심 화면. 좌측 고정 사이드바(워크스페이스 스위처·중첩 페이지 트리·계정) + 우측 페이지 에디터(블록·자동저장·라이브 presence)의 2-pane. 데스크탑 + 모바일(드로어 닫힘/열림). 랜딩과 동일 시스템 — #0a0a0a 서피스, 헤어라인 #3a3a3f, presence 5색.</div>
+  </div>
+
+  <!-- ============ DESKTOP ============ -->
+  <div style="font: 600 11px/1 Pretendard; letter-spacing: 1.6px; text-transform: uppercase; color: #1a1a1a; margin-bottom: 18px;">데스크탑 · 1440 × 900 · 2-pane</div>
+  <div style="display: flex; gap: 48px; align-items: flex-start;">
+    <div style="flex: none; width: 1440px;">
+      <div style="width: 1440px; height: 900px; background: var(--c-surface); border-radius: 2px; box-shadow: 0 1px 3px rgba(0,0,0,.12); overflow: hidden; display: flex;">
+
+        <!-- ============ SIDEBAR ============ -->
+        <aside style="width: 300px; flex: none; background: var(--c-deep); border-right: 1px solid var(--c-hair-2); display: flex; flex-direction: column; padding: 18px 14px 14px;">
+          <!-- workspace switcher -->
+          <div style="display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 7px; cursor: pointer;" style-hover="background:var(--c-hover)">
+            <div style="width: 28px; height: 28px; border-radius: 7px; background: #6fd6e8; color: #000; display: flex; align-items: center; justify-content: center; font: 800 13px Pretendard; flex: none;">이</div>
+            <div style="min-width: 0;">
+              <div style="font: 600 14px/1.2 Pretendard; color: var(--c-text);">이음 팀</div>
+              <div style="font: 400 11px/1.2 Pretendard; color: var(--c-faint);">공유 워크스페이스 · 6명</div>
+            </div>
+            <span style="font: 400 11px/1 Pretendard; color: var(--c-faint); margin-left: auto;"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex:none"><path d="M6 9l6 6 6-6"/></svg></span>
+          </div>
+          <!-- search -->
+          <div style="display: flex; align-items: center; gap: 9px; padding: 8px 10px; margin-top: 6px; border: 1px solid var(--c-hair-2); border-radius: 7px;">
+            <span style="font-size: 13px; color: var(--c-fainter);"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex:none"><circle cx="11" cy="11" r="7"/><path d="M20.5 20.5L16 16"/></svg></span>
+            <span style="font: 400 13px/1 Pretendard; color: var(--c-fainter);">검색</span>
+            <span style="font: 500 10px/1 Pretendard; letter-spacing: 0.5px; color: var(--c-fainter); margin-left: auto; border: 1px solid var(--c-hair-2); border-radius: 4px; padding: 3px 5px;">⌘K</span>
+          </div>
+
+          <!-- tree scroll area -->
+          <div style="flex: 1; overflow: hidden; margin-top: 16px;">
+            <div style="font: 600 10px/1 Pretendard; letter-spacing: 1.6px; text-transform: uppercase; color: var(--c-label); padding: 0 10px; margin-bottom: 6px;">개인</div>
+            <div style="display: flex; align-items: center; gap: 7px; padding: 7px 10px; border-radius: 8px; font: 500 13.5px/1 Pretendard; color: var(--c-body);"><span style="width:12px;"></span><span style="font-size:14px;">📥</span> 빠른 메모</div>
+            <div style="display: flex; align-items: center; gap: 7px; padding: 7px 10px; border-radius: 8px; font: 500 13.5px/1 Pretendard; color: var(--c-body);"><span style="width:12px;"></span><span style="font-size:14px;">📌</span> 읽을거리</div>
+
+            <div style="font: 600 10px/1 Pretendard; letter-spacing: 1.6px; text-transform: uppercase; color: var(--c-label); padding: 0 10px; margin: 18px 0 6px;">공유 · 이음 팀</div>
+
+            <!-- 미션 운영 (expanded) -->
+            <div style="display: flex; align-items: center; gap: 7px; padding: 7px 10px; border-radius: 8px; font: 500 13.5px/1 Pretendard; color: var(--c-text);"><span style="color:var(--c-faint); font-size:10px; width:12px;"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex:none"><path d="M6 9l6 6 6-6"/></svg></span><span style="font-size:14px;">🚀</span> 미션 운영</div>
+            <!-- active page WITH hover affordances -->
+            <div style="display: flex; align-items: center; gap: 7px; padding: 7px 10px; border-radius: 8px; font: 500 13.5px/1 Pretendard; color: var(--c-text); background: var(--c-hover); margin-left: 16px;">
+              <span style="color:var(--c-faint); font-size:10px; width:12px;"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex:none"><path d="M9 6l6 6-6 6"/></svg></span><span style="font-size:14px;">📄</span>
+              <span style="flex:1;">Q3 발사 준비 리뷰</span>
+              <span style="display:flex; gap:9px; align-items:center;"><span style="color:var(--c-fainter); font-size:13px;"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="display:inline-block;vertical-align:middle;flex:none"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg></span><span style="color:var(--c-fainter); font-size:14px;">+</span></span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 7px; padding: 7px 10px; border-radius: 8px; font: 500 13.5px/1 Pretendard; color: var(--c-body); margin-left: 16px;"><span style="width:12px;"></span><span style="font-size:14px;">📊</span> 텔레메트리</div>
+            <div style="display: flex; align-items: center; gap: 7px; padding: 7px 10px; border-radius: 8px; font: 500 13.5px/1 Pretendard; color: var(--c-body); margin-left: 16px;"><span style="color:var(--c-faint); font-size:10px; width:12px;"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex:none"><path d="M9 6l6 6-6 6"/></svg></span><span style="font-size:14px;">🗂</span> 포스트모템</div>
+
+            <div style="display: flex; align-items: center; gap: 7px; padding: 7px 10px; border-radius: 8px; font: 500 13.5px/1 Pretendard; color: var(--c-text);"><span style="color:var(--c-faint); font-size:10px; width:12px;"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex:none"><path d="M6 9l6 6 6-6"/></svg></span><span style="font-size:14px;">📘</span> 팀 핸드북</div>
+            <div style="display: flex; align-items: center; gap: 7px; padding: 7px 10px; border-radius: 8px; font: 500 13.5px/1 Pretendard; color: var(--c-body); margin-left: 16px;"><span style="width:12px;"></span><span style="font-size:14px;">📄</span> 온보딩</div>
+            <div style="display: flex; align-items: center; gap: 7px; padding: 7px 10px; border-radius: 8px; font: 500 13.5px/1 Pretendard; color: var(--c-body); margin-left: 16px;"><span style="width:12px;"></span><span style="font-size:14px;">📄</span> 엔지니어링 원칙</div>
+            <div style="display: flex; align-items: center; gap: 7px; padding: 7px 10px; border-radius: 8px; font: 500 13.5px/1 Pretendard; color: var(--c-body);"><span style="color:var(--c-faint); font-size:10px; width:12px;"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex:none"><path d="M9 6l6 6-6 6"/></svg></span><span style="font-size:14px;">🎯</span> OKR</div>
+          </div>
+
+          <!-- new buttons -->
+          <div style="display: flex; flex-direction: column; gap: 8px; padding-top: 12px;">
+            <div style="display: flex; align-items: center; justify-content: center; gap: 8px; padding: 11px; border: 1px solid var(--c-hair); border-radius: 32px; font: 600 12px/1 Pretendard; letter-spacing: 0.4px; color: var(--c-text);"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex:none"><path d="M12 5v14M5 12h14"/></svg> 새 페이지</div>
+            <div style="text-align: center; font: 500 12px/1 Pretendard; color: var(--c-faint); padding: 4px;">새 워크스페이스</div>
+          </div>
+
+          <!-- account -->
+          <div style="display: flex; align-items: center; gap: 9px; padding: 11px 8px 4px; margin-top: 10px; border-top: 1px solid var(--c-hair-3);">
+            <div style="width: 30px; height: 30px; border-radius: 50%; background: #a99bff; color: #000; display: flex; align-items: center; justify-content: center; font: 700 12px Pretendard; flex: none;">지</div>
+            <div style="min-width:0;">
+              <div style="font: 600 13px/1.2 Pretendard; color: var(--c-text);">지민</div>
+              <div style="font: 400 11px/1.2 Pretendard; color: var(--c-faint);">jimin<span>@</span>ieum.app</div>
+            </div>
+            <span style="font: 400 12px/1 Pretendard; color: var(--c-faint); margin-left: auto;"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex:none"><path d="M6 9l6 6 6-6"/></svg></span>
+          </div>
+        </aside>
+
+        <!-- ============ EDITOR ============ -->
+        <main style="flex: 1; display: flex; flex-direction: column; min-width: 0;">
+          <!-- editor topbar -->
+          <div style="display: flex; align-items: center; padding: 20px 32px; border-bottom: 1px solid var(--c-hair-3);">
+            <div style="font: 400 13px/1 Pretendard; color: var(--c-faint);">미션 운영 <span style="color:#3a3a3f; margin: 0 6px;">/</span> <span style="color:#c2c2c8;">Q3 발사 준비 리뷰</span></div>
+            <div style="display: flex; align-items: center; gap: 18px; margin-left: auto;">
+              <span style="font: 400 12px/1 Pretendard; color: var(--c-ok);">● 저장됨</span>
+              <sc-if value="{{ showPresence }}" hint-placeholder-val="{{ true }}">
+              <div style="display: flex; align-items: center;">
+                <div style="width: 30px; height: 30px; border-radius: 50%; background: #6fd6e8; color: #000; display: flex; align-items: center; justify-content: center; font: 700 12px Pretendard; border: 2px solid var(--c-surface);">민</div>
+                <div style="width: 30px; height: 30px; border-radius: 50%; background: #e8c06f; color: #000; display: flex; align-items: center; justify-content: center; font: 700 12px Pretendard; border: 2px solid var(--c-surface); margin-left: -10px;">준</div>
+                <div style="width: 30px; height: 30px; border-radius: 50%; background: #79e0a0; color: #000; display: flex; align-items: center; justify-content: center; font: 700 12px Pretendard; border: 2px solid var(--c-surface); margin-left: -10px;">도</div>
+              </div>
+              <span style="font: 500 12px/1 Pretendard; color: var(--c-dim);">3명 보는 중</span>
+              </sc-if>
+              <div style="display: inline-flex; align-items: center; padding: 9px 18px; border: 1px solid var(--c-text); border-radius: 32px; color: var(--c-text); font: 700 11px/1 Pretendard; letter-spacing: 0.6px; text-transform: uppercase;">공유</div>
+            </div>
+          </div>
+
+          <!-- editor body -->
+          <div style="flex: 1; overflow: hidden; padding: 76px 0 0;">
+            <div style="max-width: 744px; margin: 0 auto; padding: 0 48px; position: relative;">
+              <div style="font-size: 56px; line-height: 1;">📄</div>
+              <h1 style="font: 700 40px/1.2 Pretendard; letter-spacing: -1px; color: var(--c-text); margin: 14px 0 4px;">Q3 발사 준비 리뷰</h1>
+              <div style="font: 400 12.5px/1 Pretendard; color: var(--c-fainter); margin-bottom: 36px;">마지막 편집 3분 전 · 준</div>
+
+              <h2 style="font: 700 24px/1.3 Pretendard; letter-spacing: -0.5px; color: var(--c-text); margin: 0 0 12px;">준비 현황</h2>
+              <p style="font: 400 16px/1.75 Pretendard; color: var(--c-body); margin: 0 0 28px; position: relative;">모든 핵심 시스템이 Q3 마일스톤에 대해 정상입니다. 통합 창은 14일에 열리며, 48시간 전에 하드 프리즈가 적용됩니다.
+                <sc-if value="{{ showPresence }}" hint-placeholder-val="{{ true }}">
+                <span style="position: absolute; left: 300px; top: 26px; display: inline-block;">
+                  <span style="display: inline-block; width: 2px; height: 18px; background: #e8c06f; vertical-align: middle;"></span>
+                  <span style="position: absolute; top: -16px; left: -1px; background: #e8c06f; color: #000; font: 700 9.5px/1 Pretendard; padding: 3px 6px; border-radius: 3px; white-space: nowrap;">준</span>
+                </span>
+                </sc-if>
+              </p>
+
+              <!-- block with hover handles -->
+              <div style="position: relative;">
+                <sc-if value="{{ showBlockHandles }}" hint-placeholder-val="{{ true }}">
+                <div style="position: absolute; left: -48px; top: 2px; display: flex; gap: 4px; color: var(--c-fainter); font-size: 15px;"><span>+</span><span>⋮⋮</span></div>
+                </sc-if>
+                <h3 style="font: 700 19px/1.4 Pretendard; color: var(--c-text); margin: 0 0 10px;">체크리스트</h3>
+              </div>
+              <div style="font: 400 16px/1.95 Pretendard; color: var(--c-body); margin: 0 0 28px; position: relative;">
+                <div>•&nbsp;&nbsp;텔레메트리 파이프라인을 새 스키마로 마이그레이션</div>
+                <div style="position: relative;">•&nbsp;&nbsp;부하 테스트가 예상 피크의 3배에서 통과
+                  <sc-if value="{{ showPresence }}" hint-placeholder-val="{{ true }}">
+                  <span style="position: absolute; left: 360px; top: 2px; display: inline-block;">
+                    <span style="display: inline-block; width: 2px; height: 18px; background: #6fd6e8; vertical-align: middle;"></span>
+                    <span style="position: absolute; top: -16px; left: -1px; background: #6fd6e8; color: #000; font: 700 9.5px/1 Pretendard; padding: 3px 6px; border-radius: 3px; white-space: nowrap;">민지</span>
+                  </span>
+                  </sc-if>
+                </div>
+                <div>•&nbsp;&nbsp;롤백 계획 검토 및 승인 완료</div>
+              </div>
+
+              <p style="font: 400 16px/1.75 Pretendard; color: var(--c-body); margin: 0 0 28px;">남은 항목은 아래 스레드에서 추적합니다. 담당자별로 확정되었으니 블로커가 있으면 표시해 주세요.</p>
+
+              <h2 style="font: 700 24px/1.3 Pretendard; letter-spacing: -0.5px; color: var(--c-text); margin: 0 0 12px;">다음 단계</h2>
+              <div style="font: 400 16px/1.95 Pretendard; color: var(--c-body);">
+                <div>•&nbsp;&nbsp;14일 09:00 통합 리허설</div>
+                <div>•&nbsp;&nbsp;의존성 동결 및 최종 사인오프</div>
+              </div>
+            </div>
+          </div>
+        </main>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ MOBILE ============ -->
+  <div style="font: 600 11px/1 Pretendard; letter-spacing: 1.6px; text-transform: uppercase; color: #1a1a1a; margin: 56px 0 18px;">모바일웹 · 390px · 드로어 닫힘 / 열림</div>
+  <div style="display: flex; gap: 48px; align-items: flex-start;">
+
+    <!-- mobile : editor (drawer closed) -->
+    <div style="flex: none; width: 390px;">
+      <div style="font: 600 11px/1 Pretendard; letter-spacing: 1.5px; text-transform: uppercase; color: #44444a; margin-bottom: 12px;">에디터 (사이드바 숨김)</div>
+      <div style="width: 390px; height: 760px; background: var(--c-surface); border-radius: 2px; box-shadow: 0 1px 3px rgba(0,0,0,.12); overflow: hidden; display: flex; flex-direction: column;">
+        <!-- top bar -->
+        <div style="display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-bottom: 1px solid var(--c-hair-3);">
+          <div style="display: flex; flex-direction: column; gap: 4px;">
+            <span style="width: 20px; height: 2px; background: #f0f0fa;"></span>
+            <span style="width: 20px; height: 2px; background: #f0f0fa;"></span>
+            <span style="width: 20px; height: 2px; background: #f0f0fa;"></span>
+          </div>
+          <span style="font: 600 14px/1 Pretendard; color: var(--c-text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Q3 발사 준비 리뷰</span>
+          <sc-if value="{{ showPresence }}" hint-placeholder-val="{{ true }}">
+          <div style="display: flex; align-items: center;">
+            <div style="width: 26px; height: 26px; border-radius: 50%; background: #6fd6e8; color: #000; display: flex; align-items: center; justify-content: center; font: 700 11px Pretendard; border: 2px solid var(--c-surface);">민</div>
+            <div style="width: 26px; height: 26px; border-radius: 50%; background: #e8c06f; color: #000; display: flex; align-items: center; justify-content: center; font: 700 11px Pretendard; border: 2px solid var(--c-surface); margin-left: -9px;">준</div>
+            <div style="width: 26px; height: 26px; border-radius: 50%; background: var(--c-deep); border: 1px solid var(--c-hair); color: var(--c-body); display: flex; align-items: center; justify-content: center; font: 700 10px Pretendard; margin-left: -9px;">+1</div>
+          </div>
+          </sc-if>
+        </div>
+        <!-- body -->
+        <div style="flex: 1; overflow: hidden; padding: 30px 22px;">
+          <div style="font-size: 44px; line-height: 1;">📄</div>
+          <h1 style="font: 700 30px/1.2 Pretendard; letter-spacing: -0.8px; color: var(--c-text); margin: 12px 0 4px;">Q3 발사 준비 리뷰</h1>
+          <div style="font: 400 12px/1 Pretendard; color: var(--c-fainter); margin-bottom: 28px;">마지막 편집 3분 전 · 준</div>
+          <h2 style="font: 700 20px/1.3 Pretendard; letter-spacing: -0.4px; color: var(--c-text); margin: 0 0 10px;">준비 현황</h2>
+          <p style="font: 400 15px/1.7 Pretendard; color: var(--c-body); margin: 0 0 18px;">모든 핵심 시스템이 Q3 마일스톤에 대해 정상입니다. 통합 창은 14일에 열립니다.</p>
+          <h3 style="font: 700 16px/1.4 Pretendard; color: var(--c-text); margin: 0 0 8px;">체크리스트</h3>
+          <div style="font: 400 15px/1.9 Pretendard; color: var(--c-body); position: relative;">
+            <div>•&nbsp;&nbsp;텔레메트리 파이프라인 마이그레이션</div>
+            <div style="position: relative;">•&nbsp;&nbsp;부하 테스트 3배 피크 통과
+              <sc-if value="{{ showPresence }}" hint-placeholder-val="{{ true }}">
+              <span style="position: absolute; left: 175px; top: 1px; display: inline-block;">
+                <span style="display: inline-block; width: 2px; height: 16px; background: #6fd6e8; vertical-align: middle;"></span>
+                <span style="position: absolute; top: -15px; left: -1px; background: #6fd6e8; color: #000; font: 700 9px/1 Pretendard; padding: 3px 5px; border-radius: 3px; white-space: nowrap;">민지</span>
+              </span>
+              </sc-if>
+            </div>
+            <div>•&nbsp;&nbsp;롤백 계획 승인 완료</div>
+          </div>
+        </div>
+        <!-- bottom save bar -->
+        <div style="padding: 12px 22px; border-top: 1px solid var(--c-hair-3); font: 400 12px/1 Pretendard; color: var(--c-ok);">● 저장됨</div>
+      </div>
+    </div>
+
+    <!-- mobile : drawer open -->
+    <div style="flex: none; width: 390px;">
+      <div style="font: 600 11px/1 Pretendard; letter-spacing: 1.5px; text-transform: uppercase; color: #44444a; margin-bottom: 12px;">사이드바 드로어 (열림)</div>
+      <div style="width: 390px; height: 760px; background: var(--c-surface); border-radius: 2px; box-shadow: 0 1px 3px rgba(0,0,0,.12); overflow: hidden; position: relative;">
+        <!-- dimmed editor behind -->
+        <div style="position: absolute; inset: 0; padding: 30px 22px; opacity: 0.25;">
+          <div style="font-size: 44px;">📄</div>
+          <h1 style="font: 700 30px/1.2 Pretendard; color: var(--c-text); margin: 12px 0 0;">Q3 발사 준비 리뷰</h1>
+        </div>
+        <div style="position: absolute; inset: 0; background: rgba(0,0,0,0.55);"></div>
+        <!-- drawer -->
+        <aside style="position: absolute; left: 0; top: 0; bottom: 0; width: 312px; background: var(--c-deep); border-right: 1px solid var(--c-hair-2); display: flex; flex-direction: column; padding: 18px 14px 14px;">
+          <div style="display: flex; align-items: center; gap: 10px; padding: 9px 10px;">
+            <div style="width: 28px; height: 28px; border-radius: 7px; background: #6fd6e8; color: #000; display: flex; align-items: center; justify-content: center; font: 800 13px Pretendard;">이</div>
+            <div>
+              <div style="font: 600 14px/1.2 Pretendard; color: var(--c-text);">이음 팀</div>
+              <div style="font: 400 11px/1.2 Pretendard; color: var(--c-faint);">공유 · 6명</div>
+            </div>
+            <span style="font: 400 14px/1 Pretendard; color: var(--c-dim); margin-left: auto;"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex:none"><path d="M6 6l12 12M18 6L6 18"/></svg></span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 9px; padding: 8px 10px; margin-top: 6px; border: 1px solid var(--c-hair-2); border-radius: 7px;">
+            <span style="font-size: 13px; color: var(--c-fainter);"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex:none"><circle cx="11" cy="11" r="7"/><path d="M20.5 20.5L16 16"/></svg></span>
+            <span style="font: 400 13px/1 Pretendard; color: var(--c-fainter);">검색</span>
+          </div>
+          <div style="flex: 1; margin-top: 16px;">
+            <div style="font: 600 10px/1 Pretendard; letter-spacing: 1.6px; text-transform: uppercase; color: var(--c-label); padding: 0 10px; margin-bottom: 6px;">개인</div>
+            <div style="display: flex; align-items: center; gap: 7px; padding: 8px 10px; font: 500 14px/1 Pretendard; color: var(--c-body);"><span style="font-size:14px;">📥</span> 빠른 메모</div>
+            <div style="font: 600 10px/1 Pretendard; letter-spacing: 1.6px; text-transform: uppercase; color: var(--c-label); padding: 0 10px; margin: 16px 0 6px;">공유 · 이음 팀</div>
+            <div style="display: flex; align-items: center; gap: 7px; padding: 8px 10px; font: 500 14px/1 Pretendard; color: var(--c-text);"><span style="color:var(--c-faint); font-size:10px;"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex:none"><path d="M6 9l6 6 6-6"/></svg></span><span style="font-size:14px;">🚀</span> 미션 운영</div>
+            <div style="display: flex; align-items: center; gap: 7px; padding: 8px 10px; font: 500 14px/1 Pretendard; color: var(--c-text); background: var(--c-hover); border-radius: 8px; margin-left: 16px;"><span style="font-size:14px;">📄</span> Q3 발사 준비 리뷰</div>
+            <div style="display: flex; align-items: center; gap: 7px; padding: 8px 10px; font: 500 14px/1 Pretendard; color: var(--c-body); margin-left: 16px;"><span style="font-size:14px;">📊</span> 텔레메트리</div>
+            <div style="display: flex; align-items: center; gap: 7px; padding: 8px 10px; font: 500 14px/1 Pretendard; color: var(--c-body);"><span style="color:var(--c-faint); font-size:10px;"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex:none"><path d="M6 9l6 6 6-6"/></svg></span><span style="font-size:14px;">📘</span> 팀 핸드북</div>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px; border: 1px solid var(--c-hair); border-radius: 32px; font: 600 12px/1 Pretendard; color: var(--c-text); margin-bottom: 12px;"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex:none"><path d="M12 5v14M5 12h14"/></svg> 새 페이지</div>
+          <div style="display: flex; align-items: center; gap: 9px; padding: 11px 8px 4px; border-top: 1px solid var(--c-hair-3);">
+            <div style="width: 30px; height: 30px; border-radius: 50%; background: #a99bff; color: #000; display: flex; align-items: center; justify-content: center; font: 700 12px Pretendard;">지</div>
+            <div>
+              <div style="font: 600 13px/1.2 Pretendard; color: var(--c-text);">지민</div>
+              <div style="font: 400 11px/1.2 Pretendard; color: var(--c-faint);">jimin<span>@</span>ieum.app</div>
+            </div>
+            <span style="font: 400 12px/1 Pretendard; color: var(--c-faint); margin-left: auto;"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex:none"><path d="M6 9l6 6 6-6"/></svg></span>
+          </div>
+        </aside>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;dark&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;tsType&quot;:&quot;string&quot;},&quot;showPresence&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;},&quot;showBlockHandles&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      theme: this.props.theme ?? 'dark',
+      showPresence: this.props.showPresence ?? true,
+      showBlockHandles: this.props.showBlockHandles ?? true,
+    };
+  }
+}
+</script>
+</body>
+</html>

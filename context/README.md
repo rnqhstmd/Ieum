@@ -20,3 +20,7 @@
 ## 관련 기획 문서
 
 - [requirements/](../requirements/README.md) — 제품 개요·PRD·MVP 로드맵·아키텍처·데이터 모델·API·CRDT·인증/권한·TDD·차별화
+
+## 디자인
+
+- [design/](../design/README.md) — UI 디자인 SSOT. 원본은 **Claude Design** 프로젝트 "Design system for productivity app"(SpaceX-inspired). 화면 `.dc.html`은 `design/screens/`에 임포트되어 있다.

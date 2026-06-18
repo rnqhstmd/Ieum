@@ -12,10 +12,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="ko">
-      <body className="min-h-screen bg-white text-gray-900 antialiased">
-        {children}
-      </body>
+    <html lang="ko" data-theme="dark">
+      <head>
+        <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+        <link
+          rel="stylesheet"
+          href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css"
+        />
+      </head>
+      <body className="min-h-screen bg-deep font-sans text-ink antialiased">{children}</body>
     </html>
   );
 }
