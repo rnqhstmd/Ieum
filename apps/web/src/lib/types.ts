@@ -30,3 +30,9 @@ export interface CreatePageInput {
   icon?: string | null;
   position: number;
 }
+
+/** 페이지 부분 갱신 입력 — 미전달 필드는 변경하지 않음(PATCH) */
+export interface UpdatePageInput {
+  title?: string;
+  icon?: string | null;
+}
