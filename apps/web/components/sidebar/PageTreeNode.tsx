@@ -7,9 +7,10 @@ interface Props {
   page: Page;
   depth: number;
   onNavigate: (id: string) => void;
+  onCreateChild?: (parentId: string) => void;
 }
 
-export default function PageTreeNode({ page, depth, onNavigate }: Props) {
+export default function PageTreeNode({ page, depth, onNavigate, onCreateChild }: Props) {
   const hasChildren = !!page.children && page.children.length > 0;
   const [expanded, setExpanded] = useState(true);
 
@@ -38,11 +39,27 @@ export default function PageTreeNode({ page, depth, onNavigate }: Props) {
         <button type="button" onClick={() => onNavigate(page.id)} className="flex-1 truncate text-left">
           {page.title}
         </button>
+        {onCreateChild && (
+          <button
+            type="button"
+            aria-label={`${page.title} 하위 추가`}
+            onClick={() => onCreateChild(page.id)}
+            className="flex-none text-faint opacity-0 transition group-hover:opacity-100"
+          >
+            <span aria-hidden>＋</span>
+          </button>
+        )}
       </div>
       {hasChildren && expanded && (
         <ul>
           {page.children!.map((child) => (
-            <PageTreeNode key={child.id} page={child} depth={depth + 1} onNavigate={onNavigate} />
+            <PageTreeNode
+              key={child.id}
+              page={child}
+              depth={depth + 1}
+              onNavigate={onNavigate}
+              onCreateChild={onCreateChild}
+            />
           ))}
         </ul>
       )}

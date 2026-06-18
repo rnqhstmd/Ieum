@@ -56,4 +56,13 @@ describe('PageTree', () => {
     render(<PageTree pages={[]} onNavigate={vi.fn()} />);
     expect(screen.getByText(/페이지가 없습니다/)).toBeInTheDocument();
   });
+
+  it('W2: 행의 "하위 추가" 버튼 클릭 시 onCreateChild(pageId)가 호출된다', async () => {
+    const user = userEvent.setup();
+    const onCreateChild = vi.fn();
+    render(<PageTree pages={[node({ id: 'a', title: 'A' })]} onNavigate={vi.fn()} onCreateChild={onCreateChild} />);
+
+    await user.click(screen.getByRole('button', { name: 'A 하위 추가' }));
+    expect(onCreateChild).toHaveBeenCalledWith('a');
+  });
 });

@@ -70,6 +70,39 @@ describe('Sidebar', () => {
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/page/new1'));
   });
 
+  it('I1: 새 페이지 position은 기존 루트 형제의 최대 position + 1이다', async () => {
+    const user = userEvent.setup();
+    vi.mocked(listWorkspaces).mockResolvedValue([ws({ id: 'w1', name: '내 워크스페이스', type: 'PERSONAL' })]);
+    vi.mocked(getPageTree).mockResolvedValue([
+      page({ id: 'r1', title: 'R1', position: 0 }),
+      page({ id: 'r2', title: 'R2', position: 1000 }),
+    ]);
+    vi.mocked(createPage).mockResolvedValue(page({ id: 'new1' }));
+    render(<Sidebar />);
+    await screen.findByText('R1');
+
+    await user.click(screen.getByRole('button', { name: /새 페이지/ }));
+    await waitFor(() =>
+      expect(createPage).toHaveBeenCalledWith('w1', expect.objectContaining({ parentPageId: null, position: 1001 })),
+    );
+  });
+
+  it('W2: 트리 행 "하위 추가" 클릭 시 parentPageId + 형제 max+1 position으로 생성한다', async () => {
+    const user = userEvent.setup();
+    vi.mocked(listWorkspaces).mockResolvedValue([ws({ id: 'w1', name: '내 워크스페이스', type: 'PERSONAL' })]);
+    vi.mocked(getPageTree).mockResolvedValue([
+      page({ id: 'a', title: 'A', children: [page({ id: 'c1', parentPageId: 'a', title: 'C1', position: 5 })] }),
+    ]);
+    vi.mocked(createPage).mockResolvedValue(page({ id: 'newc' }));
+    render(<Sidebar />);
+    await screen.findByText('A');
+
+    await user.click(screen.getByRole('button', { name: 'A 하위 추가' }));
+    await waitFor(() =>
+      expect(createPage).toHaveBeenCalledWith('w1', expect.objectContaining({ parentPageId: 'a', position: 6 })),
+    );
+  });
+
   it('AC-12: 트리 조회가 에러면 에러 상태를 표시한다', async () => {
     vi.mocked(listWorkspaces).mockResolvedValue([ws({ id: 'w1', name: '내 워크스페이스', type: 'PERSONAL' })]);
     vi.mocked(getPageTree).mockRejectedValue(new Error('boom'));

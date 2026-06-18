@@ -13,7 +13,24 @@ import AccountArea from './AccountArea';
 
 type Status = 'loading' | 'ready' | 'error';
 
-export default function Sidebar() {
+/** 트리에서 id에 해당하는 노드를 재귀 탐색 */
+function findNode(pages: Page[], id: string): Page | null {
+  for (const p of pages) {
+    if (p.id === id) return p;
+    if (p.children) {
+      const found = findNode(p.children, id);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+interface Props {
+  /** 네비게이션/생성 후 호출 — 모바일 드로어 닫기 등에 사용 */
+  onNavigate?: () => void;
+}
+
+export default function Sidebar({ onNavigate }: Props = {}) {
   const router = useRouter();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [selectedWsId, setSelectedWsId] = useState<string | null>(null);
@@ -68,16 +85,24 @@ export default function Sidebar() {
     void loadTree(id);
   };
 
-  const handleCreate = async () => {
+  const navigate = (pageId: string) => {
+    onNavigate?.();
+    router.push(`/page/${pageId}`);
+  };
+
+  /** parentId=null → 최상위, 그 외 → 하위. position은 형제 최대값 + 1(없으면 0). */
+  const handleCreate = async (parentId: string | null = null) => {
     if (!selectedWsId) return;
+    const siblings = parentId === null ? pages : (findNode(pages, parentId)?.children ?? []);
+    const nextPosition = siblings.length ? Math.max(...siblings.map((s) => s.position)) + 1 : 0;
     try {
       const created = await createPage(selectedWsId, {
-        parentPageId: null,
+        parentPageId: parentId,
         title: '제목 없음',
-        position: pages.length,
+        position: nextPosition,
       });
       await loadTree(selectedWsId);
-      router.push(`/page/${created.id}`);
+      navigate(created.id);
     } catch (e) {
       handleError(e);
     }
@@ -98,12 +123,12 @@ export default function Sidebar() {
           </p>
         )}
         {status === 'ready' && (
-          <PageTree pages={pages} onNavigate={(id) => router.push(`/page/${id}`)} />
+          <PageTree pages={pages} onNavigate={navigate} onCreateChild={(parentId) => handleCreate(parentId)} />
         )}
       </div>
 
       <div className="flex flex-col gap-2">
-        <NewPageButton onCreate={handleCreate} />
+        <NewPageButton onCreate={() => handleCreate(null)} />
         <AccountArea />
       </div>
     </aside>
