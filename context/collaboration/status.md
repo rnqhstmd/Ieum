@@ -9,6 +9,8 @@
 ## Phase 매핑
 
 > 이 매핑은 requirements 구현 phase 계획 기준: CRDT 코어(수렴/멱등/교환/인과버퍼·op 구조·블록 op) → **P4**, WebSocket relay·op 영속화·sync·2탭 수렴 → **P5**, Presence(US-PRES) → **P6**, 재접속 delta·Snapshot → **P8**.
+>
+> **P4 진행 (PR #6, `@ieum/crdt` 인라인 RGA 코어)**: 인라인 문자 RGA(createRga/localInsert/localDelete/applyOp/toText/serialize·deserialize) + 4속성(수렴·멱등·교환·인과버퍼) 구현·검증 완료. **P4b 잔여**: 2-level 블록 RGA(block-insert/delete/set-type·splitBlock/mergeBlock), 인라인 op의 blockId 스코프, wire 봉투 `{siteId, seq, opType, payload}`.
 
 ---
 
@@ -20,7 +22,7 @@
 |------|------|--------------|------|-------|
 | US-CRDT-01 | 편집이 상대방 화면에 즉시 반영 | 2인 이상 동시 편집 시 모든 클라이언트가 동일한 최종 텍스트로 수렴 | ⬜ | P5 |
 | US-CRDT-01 | 편집이 상대방 화면에 즉시 반영 | op가 WebSocket relay로 전송되고 같은 페이지의 다른 클라이언트에 broadcast됨 | ⬜ | P5 |
-| US-CRDT-01 | 편집이 상대방 화면에 즉시 반영 | 동일 위치 동시 삽입이 siteId 기준 결정론적 순서로 해소됨 | ⬜ | P4 |
+| US-CRDT-01 | 편집이 상대방 화면에 즉시 반영 | 동일 위치 동시 삽입이 siteId 기준 결정론적 순서로 해소됨 | ✅ | P4 |
 | US-CRDT-02 | 재연결 후 편집 내용 유실 없음 | 신규 접속 클라이언트가 snapshot 또는 op 재생으로 초기화됨 | ⬜ | P8 |
 | US-CRDT-02 | 재연결 후 편집 내용 유실 없음 | 모든 op가 CrdtOp 테이블에 append-only로 저장됨 | ⬜ | P5 |
 | US-CRDT-03 | op 로그로 편집 이력 추적 가능 | CrdtOp 테이블 append-only 보장, 감사 추적 가능 | ⬜ | P5 |
@@ -47,10 +49,10 @@
 
 | 속성 | 정의 | 테스트 방식 | 상태 | Phase |
 |------|------|------------|------|-------|
-| 수렴성 (Convergence) | 같은 op 집합을 다른 순서로 적용해도 최종 상태 동일 | 두 사이트에서 op를 교차 적용 후 `toText()` 결과 비교; property-based 1,000회 반복 | ⬜ | P4 |
-| 멱등성 (Idempotency) | 같은 op를 여러 번 적용해도 한 번 적용과 동일 | insert op 2~3회 반복 적용 후 nodeMap 크기·`toText()` 불변 확인 | ⬜ | P4 |
-| 교환법칙 (Commutativity) | op 적용 순서를 바꿔도 최종 상태 동일 | 독립 op 2개 순열(2가지), 3개 순열(6가지) 모두 수렴 확인 | ⬜ | P4 |
-| 인과 버퍼링 (Causal Buffering) | originId 없는 op는 originId 도착 후 자동 적용 | originId op보다 의존 op를 먼저 도착시켜 pendingBuffer → drainBuffer 동작 확인; 체인 역순 도착 테스트 | ⬜ | P4 |
+| 수렴성 (Convergence) | 같은 op 집합을 다른 순서로 적용해도 최종 상태 동일 | 두 사이트에서 op를 교차 적용 후 `toText()` 결과 비교; 시드 PRNG property 300회 + 순열 검증 | ✅ | P4 |
+| 멱등성 (Idempotency) | 같은 op를 여러 번 적용해도 한 번 적용과 동일 | insert op 2~3회 반복 적용 후 nodeMap 크기·`toText()` 불변 확인 | ✅ | P4 |
+| 교환법칙 (Commutativity) | op 적용 순서를 바꿔도 최종 상태 동일 | 독립 op 2개 순열(2가지), 3개 순열(6가지) 모두 수렴 확인 | ✅ | P4 |
+| 인과 버퍼링 (Causal Buffering) | originId 없는 op는 originId 도착 후 자동 적용 | originId op보다 의존 op를 먼저 도착시켜 pendingBuffer → drainBuffer 동작 확인; 체인 역순 도착 테스트 | ✅ | P4 |
 
 ### 통합 테스트 항목 (07-collaboration-crdt.md §7-2)
 

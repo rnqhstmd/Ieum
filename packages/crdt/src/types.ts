@@ -38,8 +38,11 @@ export interface RgaState<V = string> {
   nodeMap: Map<string, RgaNode<V>>;
   // 링크드 리스트의 sentinel 헤드 (value 없음, 항상 맨 앞)
   sentinel: RgaNode<V>;
-  // 인과적으로 아직 적용할 수 없는 op를 보관하는 버퍼
+  // 인과적으로 아직 적용할 수 없는 insert op를 보관하는 버퍼
   pendingBuffer: InsertOp<V>[];
+  // target insert보다 먼저 도착한 delete의 targetId(idKey 문자열) 집합.
+  // 해당 노드가 삽입되는 시점에 즉시 tombstone 처리된다 (delete 인과 버퍼링).
+  pendingDeletes: Set<string>;
 }
 
 // ─── 직렬화 스냅샷 (Snapshot) ────────────────────────────────────
