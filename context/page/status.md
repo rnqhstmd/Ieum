@@ -26,16 +26,16 @@
 | US-PAGE-02 | 페이지 안에 하위 페이지를 만들고 싶다 | 페이지 트리 깊이 제한 없음 (무한 중첩 허용) | ✅ | P2 | `getPageTree` parentPageId 자기참조 무한 중첩 + position 정렬 트리 조립 (PR #4) |
 | US-PAGE-03 | 사이드바에서 페이지 트리를 탐색하고 싶다 | 부모 페이지 펼침 시 하위 페이지 목록 표시 | ✅ | P2 | 프론트 `Sidebar`/`PageTree` 중첩 펼침·접힘·네비 + 새 페이지 생성 (PR #5). 이름변경·아카이브 트리 액션 추가 (PR #7) |
 | US-PAGE-04 | 페이지를 삭제(아카이브)하고 싶다 | soft delete(archivedAt 설정), 하위 페이지 재귀 아카이브, 트리에서 숨김 | ✅ | P2 | `PageService.archivePage` 재귀 soft delete + 사이드바 아카이브 버튼(confirm) (PR #7). 복원 UI는 MVP 선택적 |
-| US-PAGE-05 | 페이지 제목과 아이콘을 설정하고 싶다 | 제목 변경은 에디터 상단 인라인, 아이콘은 이모지 문자열로 저장 (직접 입력) | ✅ | P2 | `PageService.updatePage` 부분 갱신 + 사이드바 인라인 이름변경·이모지 직접입력 (PR #7). 에디터 상단 인라인 편집은 P3, 이모지 피커는 post-MVP |
+| US-PAGE-05 | 페이지 제목과 아이콘을 설정하고 싶다 | 제목 변경은 에디터 상단 인라인, 아이콘은 이모지 문자열로 저장 (직접 입력) | ✅ | P2/P3 | `PageService.updatePage` 부분 갱신 + 사이드바 인라인 이름변경·이모지 직접입력 (PR #7). 에디터 상단 제목 인라인 편집 `TitleEditor` 구현 (PR #8, 영속화는 P5). 이모지 피커는 post-MVP |
 | US-PAGE-05 (position) | — | 페이지 순서(position) 변경 UI | ⬜ | P8 | 드래그앤드롭 UI = post-MVP 연기. MVP는 position 기반 기본 정렬 유지, position 필드는 유지 |
 
 ### §4 에디터 (US-EDIT)
 
 | 항목 | 사용자 스토리 | 핵심 수용 기준 | 상태 | Phase | 비고 |
 |------|-------------|--------------|------|-------|------|
-| US-EDIT-01 | 페이지에서 텍스트를 입력하고 수정하고 싶다 | contenteditable 기반 블록 단위 에디터 동작, Enter 새 블록·Backspace 빈 블록 삭제 | ⬜ | P3 | |
-| US-EDIT-02 | 편집 내용이 자동으로 저장되길 원한다 | debounce 500ms 후 자동저장 (협업 시 CRDT op 즉시 전송) | ⬜ | P3 | |
-| US-EDIT-03 | 기본 블록 타입을 사용하고 싶다 | paragraph / heading1~3 / bullet list 지원, 추가 타입은 post-MVP | ⬜ | P3 | 슬래시(/) 메뉴·이미지·파일 블록은 Out-of-Scope |
+| US-EDIT-01 | 페이지에서 텍스트를 입력하고 수정하고 싶다 | contenteditable 기반 블록 단위 에디터 동작, Enter 새 블록·Backspace 빈 블록 삭제 | ✅ | P3 | controlled 블록 에디터 `Editor.tsx` + 순수 모델 `document.ts`(분할/병합) (PR #8). 캐럿 복원 best-effort |
+| US-EDIT-02 | 편집 내용이 자동으로 저장되길 원한다 | debounce 500ms 후 자동저장 (협업 시 CRDT op 즉시 전송) | ⬜ | P3/P5 | 자동저장 **메커니즘**(`useAutosave` debounce 500ms + 상태표시)은 P3 완료(PR #8). 실제 영속화는 save-port 뒤로 격리 → P5(CrdtOp/Snapshot)에서 연결 |
+| US-EDIT-03 | 기본 블록 타입을 사용하고 싶다 | paragraph / heading1~3 / bullet list 지원, 추가 타입은 post-MVP | ✅ | P3 | 타입별 시맨틱 렌더(h1~3/p/li) + 마크다운 단축(`# ## ### -`) (PR #8). 슬래시 메뉴·이미지/파일 블록은 Out-of-Scope |
 | US-EDIT (CRDT) | — | 에디터 내용은 RGA CRDT 상태로 관리, 렌더링은 CRDT 상태에서 파생 | ⬜ | P4 | 단일 사용자 모드에서도 동일하게 동작 |
 
 ---
@@ -45,4 +45,4 @@
 | 항목 | 목표 | 상태 | Phase | 비고 |
 |------|------|------|-------|------|
 | 페이지 초기 로드 | < 2초 (로컬 환경, 에디터 표시까지) | ⬜ | P3 | Playwright 타이밍으로 측정 |
-| 키보드 탐색 지원 | 에디터 및 주요 인터랙션 키보드 접근 가능 | ⬜ | P3 | 접근성 요구사항 |
+| 키보드 탐색 지원 | 에디터 및 주요 인터랙션 키보드 접근 가능 | ⬜ | P3 | 에디터 영역 ARIA 그룹(role=group)·제목 textbox 추가 (PR #8). 블록 간 화살표 탐색은 후속 |
