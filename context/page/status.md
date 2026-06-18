@@ -36,7 +36,7 @@
 | US-EDIT-01 | 페이지에서 텍스트를 입력하고 수정하고 싶다 | contenteditable 기반 블록 단위 에디터 동작, Enter 새 블록·Backspace 빈 블록 삭제 | ✅ | P3 | controlled 블록 에디터 `Editor.tsx` + 순수 모델 `document.ts`(분할/병합) (PR #8). 캐럿 복원 best-effort |
 | US-EDIT-02 | 편집 내용이 자동으로 저장되길 원한다 | debounce 500ms 후 자동저장 (협업 시 CRDT op 즉시 전송) | ⬜ | P3/P5 | 자동저장 **메커니즘**(`useAutosave` debounce 500ms + 상태표시)은 P3 완료(PR #8). 실제 영속화는 save-port 뒤로 격리 → P5(CrdtOp/Snapshot)에서 연결 |
 | US-EDIT-03 | 기본 블록 타입을 사용하고 싶다 | paragraph / heading1~3 / bullet list 지원, 추가 타입은 post-MVP | ✅ | P3 | 타입별 시맨틱 렌더(h1~3/p/li) + 마크다운 단축(`# ## ### -`) (PR #8). 슬래시 메뉴·이미지/파일 블록은 Out-of-Scope |
-| US-EDIT (CRDT) | — | 에디터 내용은 RGA CRDT 상태로 관리, 렌더링은 CRDT 상태에서 파생 | ⬜ | P4 | 단일 사용자 모드에서도 동일하게 동작 |
+| US-EDIT (CRDT) | — | 에디터 내용은 RGA CRDT 상태로 관리, 렌더링은 CRDT 상태에서 파생 | ⬜ | P4b/P5 | CRDT 블록 모델·`docToBlocks` 도출은 P4b 완료(PR #9, `@ieum/crdt`). P3 에디터(`Editor.tsx`)를 CRDT(DocState)에 배선하는 작업은 P5 |
 
 ---
 
