@@ -28,6 +28,22 @@ public class WorkspaceService {
     private final UserRepository userRepository;
 
     // ───────────────────────────────────────────────
+    // 개인 워크스페이스 보장
+    // ───────────────────────────────────────────────
+
+    @Transactional
+    public Workspace ensurePersonalWorkspace(UUID userId) {
+        if (workspaceRepository.existsByOwnerIdAndType(userId, WorkspaceType.PERSONAL)) {
+            return workspaceRepository.findFirstByOwnerIdAndType(userId, WorkspaceType.PERSONAL).orElseThrow();
+        }
+        Workspace ws = workspaceRepository.save(Workspace.builder()
+                .type(WorkspaceType.PERSONAL).ownerId(userId).name("내 워크스페이스").build());
+        membershipRepository.save(Membership.builder()
+                .userId(userId).workspaceId(ws.getId()).role(MemberRole.OWNER).build());
+        return ws;
+    }
+
+    // ───────────────────────────────────────────────
     // 워크스페이스 CRUD
     // ───────────────────────────────────────────────
 
@@ -124,26 +140,4 @@ public class WorkspaceService {
         throw new UnsupportedOperationException("TODO(Phase 1): updateMemberRole");
     }
 
-    // ───────────────────────────────────────────────
-    // 권한 검사 헬퍼 (패키지 내부 공유, InvitationService에서도 사용)
-    // ───────────────────────────────────────────────
-
-    /**
-     * 현재 사용자가 해당 워크스페이스의 멤버인지 확인
-     * // TODO(requireWorkspaceMember): membershipRepository.findByUserIdAndWorkspaceId 조회 후
-     *    없으면 AccessDeniedException 또는 403 응답
-     */
-    Membership requireWorkspaceMember(UUID userId, UUID workspaceId) {
-        // TODO(Phase 1): 구현
-        throw new UnsupportedOperationException("TODO(Phase 1): requireWorkspaceMember");
-    }
-
-    /**
-     * 현재 사용자가 해당 워크스페이스의 OWNER인지 확인
-     * // TODO(requireOwner): requireWorkspaceMember 호출 후 role != OWNER이면 AccessDeniedException
-     */
-    Membership requireOwner(UUID userId, UUID workspaceId) {
-        // TODO(Phase 1): 구현
-        throw new UnsupportedOperationException("TODO(Phase 1): requireOwner");
-    }
 }

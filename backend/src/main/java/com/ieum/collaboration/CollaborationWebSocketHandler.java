@@ -1,7 +1,7 @@
 package com.ieum.collaboration;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.ieum.collaboration.dto.WsMessages;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
