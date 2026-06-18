@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'Pretendard', -apple-system, sans-serif; -webkit-font-smoothing: antialiased; }
+  :root{
+    --c-surface:#0a0a0a; --c-deep:#000000; --c-hover:#16161b;
+    --c-hair:#3a3a3f; --c-hair-2:#242429; --c-hair-3:#1d1d22;
+    --c-fill-a:#26262b; --c-fill-b:#17171c;
+    --c-text:#f0f0fa; --c-body:#c8c8ce; --c-dim:#9a9aa0; --c-faint:#6a6a70; --c-fainter:#5a5a5f; --c-label:#4a4a50;
+    --c-accent:#6fd6e8; --c-error:#c98b8b; --c-ok:#79e0a0; --c-warn:#e8c06f;
+  }
+  [data-theme="light"]{
+    --c-surface:#ffffff; --c-deep:#ffffff; --c-hover:#f1f1f4;
+    --c-hair:#dcdce3; --c-hair-2:#e8e8ef; --c-hair-3:#eef0f4;
+    --c-fill-a:#e6e6ec; --c-fill-b:#eef0f4;
+    --c-text:#15151a; --c-body:#3c3c44; --c-dim:#6a6a72; --c-faint:#8a8a94; --c-fainter:#a2a2ac; --c-label:#b0b0b8;
+    --c-accent:#1f8fa3; --c-error:#b3534f; --c-ok:#1f8a5b; --c-warn:#9a6a12;
+  }
+</style>
+</helmet>
+
+<div data-theme="{{ theme }}" style="width: max-content; min-width: 100%; min-height: 100vh; box-sizing: border-box; padding: 48px; background: #e7e5df; font-family: 'Pretendard', sans-serif;">
+
+  <div style="max-width: 880px; margin-bottom: 40px;">
+    <div style="font-weight: 800; font-size: 24px; letter-spacing: 2.5px; color: #111;">IEUM <span style="font-weight: 500; color: var(--c-faint); letter-spacing: 0;">— 로그인</span></div>
+    <div style="font-size: 13px; line-height: 1.6; color: #44444a; margin-top: 10px; max-width: 720px;">미니멀 로그인. 검정 캔버스 중앙에 워드마크 + 한 줄 카피 + 고스트 pill "Google로 로그인" 1개 + 약관 caption. 백엔드 OAuth2로 이동.</div>
+  </div>
+
+  <div style="font: 600 11px/1 Pretendard; letter-spacing: 1.6px; text-transform: uppercase; color: #1a1a1a; margin-bottom: 18px;">데스크탑 · 1280 / 모바일 · 390</div>
+  <div style="display: flex; gap: 48px; align-items: flex-start;">
+
+    <!-- desktop -->
+    <div style="flex: none; width: 1280px;">
+      <div style="width: 1280px; height: 760px; background: var(--c-deep); border-radius: 2px; box-shadow: 0 1px 3px rgba(0,0,0,.12); overflow: hidden; position: relative; display: flex; align-items: center; justify-content: center;">
+        {{ field }}
+        <div style="position: relative; z-index: 2; text-align: center;">
+          <div style="font: 800 30px/1 Pretendard; letter-spacing: 5px; color: var(--c-text);">IEUM</div>
+          <div style="font: 600 11px/1 Pretendard; letter-spacing: 2.4px; text-transform: uppercase; color: var(--c-accent); margin-top: 18px;">Real-time collaborative docs</div>
+          <p style="font: 400 17px/1.6 Pretendard; color: var(--c-body); margin: 22px 0 40px;">함께 쓰는 문서, 하나의 워크스페이스.</p>
+          <a style="display: inline-flex; align-items: center; gap: 11px; padding: 16px 28px; border: 1px solid var(--c-text); border-radius: 32px; color: var(--c-text); font: 700 14px/1 Pretendard; text-decoration: none;">
+            <span style="display: inline-flex; width: 18px; height: 18px; border-radius: 50%; background: #f0f0fa; color: #000; align-items: center; justify-content: center; font: 800 11px Pretendard;">G</span>
+            Google로 로그인
+          </a>
+          <div style="font: 400 12.5px/1.6 Pretendard; color: var(--c-fainter); margin-top: 34px; max-width: 320px;">계속하면 이음의 <span style="color:#9a9aa0; text-decoration: underline; text-underline-offset: 3px;">서비스 약관</span>과 <span style="color:#9a9aa0; text-decoration: underline; text-underline-offset: 3px;">개인정보 처리방침</span>에 동의하게 됩니다.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- mobile -->
+    <div style="flex: none; width: 390px;">
+      <div style="width: 390px; height: 760px; background: var(--c-deep); border-radius: 2px; box-shadow: 0 1px 3px rgba(0,0,0,.12); overflow: hidden; position: relative; display: flex; align-items: center; justify-content: center; padding: 0 28px;">
+        {{ fieldM }}
+        <div style="position: relative; z-index: 2; text-align: center; width: 100%;">
+          <div style="font: 800 26px/1 Pretendard; letter-spacing: 4px; color: var(--c-text);">IEUM</div>
+          <div style="font: 600 10px/1 Pretendard; letter-spacing: 2px; text-transform: uppercase; color: var(--c-accent); margin-top: 14px;">Real-time docs</div>
+          <p style="font: 400 15px/1.6 Pretendard; color: var(--c-body); margin: 18px 0 32px;">함께 쓰는 문서,<br>하나의 워크스페이스.</p>
+          <a style="display: flex; align-items: center; justify-content: center; gap: 11px; padding: 16px 24px; border: 1px solid var(--c-text); border-radius: 32px; color: var(--c-text); font: 700 14px/1 Pretendard; text-decoration: none;">
+            <span style="display: inline-flex; width: 18px; height: 18px; border-radius: 50%; background: #f0f0fa; color: #000; align-items: center; justify-content: center; font: 800 11px Pretendard;">G</span>
+            Google로 로그인
+          </a>
+          <div style="font: 400 12px/1.6 Pretendard; color: var(--c-fainter); margin-top: 28px;">계속하면 <span style="color:#9a9aa0; text-decoration: underline;">서비스 약관</span>과 <span style="color:#9a9aa0; text-decoration: underline;">개인정보 처리방침</span>에 동의하게 됩니다.</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;dark&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  buildField(opacity) {
+    const h = React.createElement;
+    const light = (this.props.theme ?? 'dark') === 'light';
+    const lstroke = light ? '#e3e3ea' : '#26262b';
+    const lbase = light ? '#c6c6cf' : '#54545a';
+    const N = (x, y, r, c) => ({ x, y, r, c });
+    const nodes = [
+      N(16, 18), N(33, 11), N(50, 24, 1.5, '#6fd6e8'), N(67, 13), N(85, 22), N(103, 15),
+      N(11, 45), N(29, 39), N(48, 51), N(65, 43, 1.5, '#e8c06f'), N(83, 53), N(104, 45),
+      N(23, 67), N(43, 73, 1.4, '#79e0a0'), N(61, 64), N(79, 72), N(98, 65),
+    ];
+    const edges = [
+      [0,1],[1,2],[2,3],[3,4],[4,5],[0,6],[1,7],[2,8],[3,9],[4,10],[5,11],
+      [6,7],[7,8],[8,9],[9,10],[10,11],[6,12],[7,13],[8,14],[9,14],[10,15],[11,16],
+      [12,13],[13,14],[14,15],[15,16],[7,2],[8,13],[9,15],[2,9],
+    ];
+    const lines = edges.map((e, i) => {
+      const a = nodes[e[0]], b = nodes[e[1]];
+      return h('line', { key: 'l' + i, x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: lstroke, strokeWidth: 0.16 });
+    });
+    const dots = nodes.map((n, i) => {
+      const els = [h('circle', { key: 'c' + i, cx: n.x, cy: n.y, r: n.r || 0.85, fill: n.c || lbase })];
+      if (n.c) els.push(h('circle', { key: 'r' + i, cx: n.x, cy: n.y, r: (n.r || 1.4) + 1.6, fill: 'none', stroke: n.c, strokeWidth: 0.14, opacity: 0.5 }));
+      return els;
+    });
+    return h('svg', { viewBox: '0 0 120 80', preserveAspectRatio: 'xMidYMid slice',
+      style: { position: 'absolute', inset: 0, width: '100%', height: '100%', opacity, pointerEvents: 'none' } },
+      h('g', null, lines), h('g', null, dots.flat()));
+  }
+  renderVals() {
+    return { theme: this.props.theme ?? 'dark', field: this.buildField(0.4), fieldM: this.buildField(0.45) };
+  }
+}
+</script>
+</body>
+</html>
