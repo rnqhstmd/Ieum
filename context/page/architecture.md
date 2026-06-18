@@ -1,0 +1,74 @@
+# 페이지·에디터 아키텍처
+
+## 시스템 구조
+
+### Page 자기참조 트리
+
+Page 엔티티는 `parentPageId`(FK → Page.id, nullable)로 자신을 참조하는 트리 구조를 형성한다. `parentPageId = null`이면 워크스페이스 루트 페이지다. 트리 탐색 쿼리는 `(workspaceId, parentPageId, position)` 복합 인덱스를 사용한다.
+
+```
+Workspace
+└── Page A  (parentPageId = null, position = 1000)
+    ├── Page B  (parentPageId = A.id, position = 1000)
+    │   └── Page D  (parentPageId = B.id, position = 1000)
+    └── Page C  (parentPageId = A.id, position = 2000)
+```
+
+### gap-based position 정렬 전략
+
+| 시나리오 | 처리 |
+|----------|------|
+| 초기 생성 | 1000 단위 증가 (1000, 2000, 3000…) |
+| 두 페이지 사이 삽입 | 두 position 값의 평균 (예: 1000·2000 사이 → 1500) |
+| 간격 소진 | 해당 부모의 자식 목록 전체를 1000 단위로 rebalance |
+
+position은 정수(Int)를 사용해 CRDT 레이어의 부동소수점 문자 위치와 혼동을 방지한다.
+
+> **드래그앤드롭 정렬 UI**: P5(post-MVP로 연기). MVP에서는 position 기반 기본 정렬만 제공하며 수동 재정렬 UI는 없다.
+
+### soft delete (archivedAt) 재귀 아카이브
+
+- 페이지 삭제 = `archivedAt = NOW()` 설정. 행은 유지.
+- 하위 페이지도 재귀적으로 archivedAt 설정 (애플리케이션 레이어 또는 재귀 UPDATE).
+- 기본 쿼리 필터: `WHERE archivedAt IS NULL`.
+- 복구: `archivedAt = NULL`로 되돌림.
+- 영구 삭제: 명시적 액션 시에만 실행, 연관 CrdtOp·Snapshot도 cascade 삭제.
+
+### 블록 기반 contenteditable 에디터
+
+- 에디터는 외부 라이브러리 없이 브라우저 contenteditable을 직접 활용한 블록 단위 구조로 구현.
+- 블록 타입: paragraph, heading1~3, bullet list (MVP). 추가 타입은 post-MVP.
+- Enter 키 → 새 블록 생성, Backspace → 빈 블록 삭제.
+- 에디터 콘텐츠는 CRDT 상태(`packages/crdt`)에서 파생되어 렌더링됨. DOM이 진실 원천이 아니라 RGA 상태가 진실 원천.
+- 페이지 콘텐츠는 collaboration 도메인의 **2-level 블록 RGA**로 실시간 동기화된다: 상위 RGA가 블록 순서를 관리하고, 각 블록 내부는 별도 하위 RGA가 문자 수준 편집을 관리한다.
+- 이모지 피커 UI: P5(post-MVP로 연기). MVP에서는 `icon` 필드에 이모지를 직접 입력하는 방식만 지원한다.
+- 에디터 모듈 위치: `apps/web/components/editor/`.
+
+### 자동저장 vs 협업 op 전송
+
+| 모드 | 동작 |
+|------|------|
+| 단일 사용자 (협업 없음) | 편집 이벤트 debounce 500ms 후 자동저장 |
+| 협업 모드 (WebSocket 연결) | 타이핑 즉시 RGA INSERT/DELETE op 생성 → WebSocket으로 실시간 서버에 전송 |
+
+두 모드 모두 동일한 contenteditable 에디터 위에서 동작한다.
+
+### 페이지 초기 로드 흐름
+
+```
+클라이언트
+  → GET /api/pages/:pageId  (Next.js Route Handler)
+    → Page 메타데이터 (title, icon, workspaceId 등) 반환
+  → WebSocket sync-request (실시간 서버)
+    → 최신 Snapshot + 이후 CrdtOp 목록 수신
+    → RGA 초기화 → ops replay → 에디터 렌더링
+```
+
+## 주제 문서
+
+| 주제 | 설명 |
+|------|------|
+| [PRD §3·§4](../../requirements/02-prd.md) | 페이지·에디터 요구사항 (US-PAGE-01~05, US-EDIT-01~03) |
+| [데이터 모델](../../requirements/05-data-model.md) | Page 스키마·트리·정렬·soft delete (§2.5, §3.2, §4.2, §4.3) |
+| [아키텍처](../../requirements/04-architecture.md) | 전체 시스템 구조, 모노레포 폴더 구조, 에디터 컴포넌트 위치 |
+| [협업 CRDT](../../requirements/07-collaboration-crdt.md) | 에디터 콘텐츠의 실시간 동기화 (collaboration 도메인 소관) |

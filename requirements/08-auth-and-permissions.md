@@ -63,7 +63,7 @@ async function ensurePersonalWorkspace(userId: string): Promise<void> {
     data: {
       type:    'PERSONAL',
       ownerId: userId,
-      members: { create: { userId, role: 'OWNER' } },
+      memberships: { create: { userId, role: 'OWNER' } },
     },
   });
 }
@@ -148,7 +148,7 @@ export async function GET(req: Request) {
 | 역할 | 컨텍스트 | 설명 |
 |------|----------|------|
 | **개인 소유자** | 개인 워크스페이스 | 해당 워크스페이스의 유일한 접근자. 멤버십 테이블에 OWNER로 저장 |
-| **OWNER** | 공유 워크스페이스 | 워크스페이스 생성자 또는 관리자. 구조 변경·삭제·멤버 관리 권한 |
+| **OWNER** | 공유 워크스페이스 | 워크스페이스 **관리자**(admin). 생성자가 기본 OWNER이며, 구조 변경·삭제·멤버 관리 권한 전담 |
 | **MEMBER** | 공유 워크스페이스 | 초대받은 협업자. 페이지 열람·편집 가능. 워크스페이스 구조 변경 불가 |
 | **Viewer** | *(post-MVP)* | 읽기 전용. MVP에서는 구현하지 않음 |
 
@@ -245,9 +245,9 @@ async function requirePageAccess(userId: string, pageId: string): Promise<void> 
   │
   ▼
 [메시지 수신 시 검증]
-  - 모든 인바운드 메시지에서 userId를 쿠키/토큰에서 추출 (클라이언트 전달값 신뢰 금지)
-  - CrdtOp의 siteId가 인증된 userId와 일치하는지 확인
-  - 불일치 시 메시지 폐기, 연결 종료 가능
+  - 인바운드 op는 인증된 연결을 통해서만 수신 (연결 시 1회 JWT 검증으로 신원 확정)
+  - 서버가 연결 컨텍스트의 userId를 op에 태깅/기록 (클라이언트 전달 siteId·userId는 신원 판단에 사용 금지)
+  - siteId는 CRDT 세션/탭 구분용 UUID로만 활용; siteId === userId 동일성 비교 불필요
 ```
 
 ```typescript
@@ -270,12 +270,13 @@ wss.on('connection', async (ws, req) => {
 
   ws.on('message', (raw) => {
     const msg = parseMessage(raw);
-    // siteId 위변조 방지
-    if (msg.type === 'op' && msg.op.siteId !== payload.userId) {
-      ws.close(4003, 'siteId mismatch'); return;
+    if (msg.type === 'op') {
+      // 신원은 연결 인증의 userId로 확정 — 클라이언트 siteId를 userId와 비교하지 않음
+      // siteId는 세션/탭별 UUID이므로 그대로 유지하고, 서버가 userId를 op에 태깅
+      const taggedOp = { ...msg.op, _userId: payload.userId };
+      broadcast(pageId, msg, ws); // 발신자 제외 브로드캐스트
+      persistOp(pageId, taggedOp);
     }
-    broadcast(pageId, msg, ws); // 발신자 제외 브로드캐스트
-    persistOp(pageId, msg.op);
   });
 });
 ```
@@ -328,7 +329,7 @@ async function createInvitation(
 
   // 4. 새 초대 생성
   const token = crypto.randomBytes(32).toString('hex'); // 256-bit 무작위 토큰
-  return prisma.invitation.create({
+  const invitation = await prisma.invitation.create({
     data: {
       email:       body.email,
       workspaceId,
@@ -339,7 +340,19 @@ async function createInvitation(
       expiresAt:  new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7일
     },
   });
-  // 5. TODO: 이메일 전송 (초대 링크: /invite/accept?token=<token>)
+
+  // 5. 초대 이메일 발송 (Resend)
+  try {
+    await sendInvitationEmail({
+      to: body.email,
+      inviteUrl: `${APP_URL}/invite/accept?token=${token}`,
+      workspaceName,
+    });
+  } catch (e) {
+    // 발송 실패해도 초대는 PENDING으로 유지 → OWNER가 링크를 수동 복사/전달 가능 (fallback)
+    logger.warn('invitation email send failed', e);
+  }
+  return invitation;
 }
 ```
 
@@ -409,12 +422,16 @@ async function revokeInvitation(
 | **단일 사용** | 수락 즉시 `status: 'ACCEPTED'`로 전환. 재사용 불가 |
 | **만료** | 7일 후 `EXPIRED`. lazy 처리 + 스케줄러 병행 |
 
-### 6-2. 이미 멤버인 경우
+### 6-2. 초대 이메일 발송 실패 처리 (fallback)
+
+Resend 발송 실패 시 초대는 PENDING 상태로 유지된다. OWNER는 `GET /api/invitations/:token` 공개 조회 엔드포인트로 초대 링크를 확인한 뒤 직접 복사해 피초대자에게 전달할 수 있다.
+
+### 6-3. 이미 멤버인 경우
 
 - 초대 생성 시: 대상 이메일이 이미 해당 워크스페이스 멤버이면 `409 Conflict` 반환.
 - 초대 수락 시: DB 트랜잭션 내에서 Membership 존재 여부를 재확인하여 경쟁 조건(race condition) 방지.
 
-### 6-3. 권한 상승 방지
+### 6-4. 권한 상승 방지
 
 | 시나리오 | 대응 |
 |----------|------|
@@ -423,16 +440,16 @@ async function revokeInvitation(
 | OWNER가 초대 시 role을 임의 값으로 전달 | `role: z.enum(['OWNER', 'MEMBER'])` Zod 스키마 검증 |
 | 초대 이메일과 다른 계정으로 수락 시도 | `user.email !== invitation.email` 검사 → 403 |
 
-### 6-4. WebSocket 메시지 위변조 방지
+### 6-5. WebSocket 메시지 위변조 방지
 
 | 위험 | 대응 |
 |------|------|
-| 클라이언트가 타인 userId를 siteId에 넣어 op 전송 | 서버에서 `op.siteId !== jwtPayload.userId` 검사 → 연결 종료 |
+| 클라이언트가 타인 userId를 siteId에 넣어 op 전송 | 신원은 연결 인증의 userId로 판단, op엔 서버가 userId 태깅 → 클라이언트 siteId 위조는 무의미 |
 | 연결 유지 중 멤버십 제거 | 멤버 제거 API 호출 시 해당 userId의 ws 연결을 강제 종료 (`ws.close(4003)`) |
 | 만료된 JWT로 ws 재연결 시도 | `verifyJwt` 실패 → `ws.close(4001)`. Auth.js maxAge와 동일한 만료 정책 적용 |
 | ws 페이로드 크기 폭탄 | 메시지 크기 상한 설정 (예: 64KB). 초과 시 연결 종료 |
 
-### 6-5. 세션 보안
+### 6-6. 세션 보안
 
 | 항목 | 설정 |
 |------|------|

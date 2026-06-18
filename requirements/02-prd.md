@@ -15,7 +15,7 @@
 | 3 | 페이지 편집 (단일 사용자) | 블록 기반 contenteditable 에디터, 자동저장 |
 | 4 | 실시간 공동편집 | RGA CRDT + WebSocket relay, 2인 이상 동시 편집 수렴 |
 | 5 | Presence | 라이브 커서, 접속자 아바타, "이 페이지 보는 중" 표시 |
-| 6 | 공유 워크스페이스 | 생성, 이메일 초대, OWNER/MEMBER 역할, 멤버 관리 |
+| 6 | 공유 워크스페이스 | 생성, 이메일 초대, OWNER(워크스페이스 관리자)/MEMBER 역할, 멤버 관리 |
 
 ### Out-of-Scope (post-MVP)
 
@@ -130,8 +130,7 @@
 - [ ] 편집 op는 WebSocket을 통해 relay 서버로 전송되고, 서버가 같은 페이지의 다른 클라이언트에게 broadcast한다.
 - [ ] 모든 op는 `CrdtOp` 테이블에 append-only로 저장된다.
 - [ ] 신규 접속 클라이언트는 서버에서 현재 전체 상태(snapshot 또는 op 재생)를 받아 초기화된다.
-- [ ] RGA INSERT op는 `{siteId, seq, afterId, value}` 구조를 갖는다.
-- [ ] RGA DELETE op는 `{targetId}` 구조로 해당 문자를 tombstone 처리한다.
+- [ ] op wire 봉투는 `{siteId, seq, opType, payload}` 구조를 갖는다. INSERT payload는 `{id, originId, value}`, DELETE payload는 `{targetId}`이다.
 - [ ] 동일 위치 동시 삽입은 `siteId` 기준 결정론적 순서로 해소된다 (모든 클라이언트 동일 결과).
 - [ ] CRDT 단위 테스트: INSERT/DELETE/동시 삽입 충돌/tombstone 재삽입 시도 등 주요 경로를 커버한다.
 - [ ] Playwright e2e: 브라우저 2개에서 동시 편집 후 양쪽 텍스트가 동일함을 확인한다.
@@ -169,7 +168,7 @@
 
 #### 수용 기준
 
-- [ ] OWNER는 이메일 주소를 입력해 초대를 생성할 수 있다. 초대 이메일이 해당 주소로 발송된다.
+- [ ] OWNER는 이메일 주소를 입력해 초대를 생성할 수 있다. 초대 이메일이 해당 주소로 발송된다 (MVP: Resend를 통한 실제 이메일 발송).
 - [ ] 초대 링크는 고유 token을 포함하며 7일 후 만료된다 (expiresAt).
 - [ ] 초대 링크 클릭 시 로그인 상태면 즉시 Membership이 생성되고, 미로그인이면 로그인 후 처리된다.
 - [ ] 이미 멤버인 이메일로 초대 시 에러 메시지를 반환한다.
@@ -203,7 +202,7 @@
 
 - 모든 API Route Handler는 세션 유효성을 검증한다. 인증되지 않은 요청은 401을 반환한다.
 - 워크스페이스 자원(페이지, 멤버, 초대)에 대한 접근은 요청자의 Membership을 확인한다 (403 처리).
-- Invitation token은 충분한 엔트로피를 가진 무작위 값으로 생성한다 (예: `crypto.randomUUID()` 기반).
+- Invitation token은 충분한 엔트로피를 가진 무작위 값으로 생성한다 (예: `crypto.randomBytes(32).toString('hex')`).
 - Google OAuth에서 수신한 이메일과 googleId 외의 민감 정보는 저장하지 않는다.
 - WebSocket 연결 시 세션 쿠키 또는 토큰으로 사용자를 인증한다. 미인증 WebSocket 연결은 거부한다.
 
