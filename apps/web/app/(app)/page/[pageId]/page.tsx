@@ -1,6 +1,7 @@
-// 페이지 상세 — 블록 에디터 (P3, US-EDIT-01~03 + US-PAGE-05 제목 인라인 편집)
+// 페이지 상세 — 블록 에디터 (P3 + P5 walking skeleton: CRDT op WebSocket relay)
+// P5 완료: EditorContainer → useCrdtDocument(DocState 진실원천) + ws relay 2탭 라이브 수렴.
 // TODO [P3 후속]: pageId로 페이지 메타데이터 조회(제목/아이콘 초기값) — 단일 페이지 GET API
-// TODO [P5]: @ieum/crdt RGA 초기화 + WebSocket sync(Snapshot+op replay) + 영속화 연결
+// TODO [P5 후속]: CrdtOp 영속화 + sync-request/Snapshot 초기로드 + 재접속 op 복원 / 구조편집 블록 op 전송
 // TODO [P6]: <PresenceOverlay /> 통합
 
 import EditorContainer from '@/components/editor/EditorContainer';

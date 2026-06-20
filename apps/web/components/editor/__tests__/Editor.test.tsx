@@ -1,116 +1,80 @@
 import { describe, it, expect, vi } from 'vitest';
-import { useState } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { idKey } from '@ieum/crdt';
+import type { EditorBlockView, RgaId } from '@ieum/crdt';
 import Editor from '@/components/editor/Editor';
-import type { EditorBlock } from '@/src/lib/editor/document';
 
-/** 실제 controlled 흐름을 재현하는 하네스: onChange가 상태를 갱신하고 스파이로도 흘린다. */
-function Harness({
-  initial,
-  onChangeSpy,
-}: {
-  initial: EditorBlock[];
-  onChangeSpy?: (b: EditorBlock[]) => void;
-}) {
-  const [blocks, setBlocks] = useState<EditorBlock[]>(initial);
-  return (
-    <Editor
-      blocks={blocks}
-      onChange={(b) => {
-        setBlocks(b);
-        onChangeSpy?.(b);
-      }}
-    />
-  );
-}
+// T8 / AC-7, FR-6: 에디터는 DocState 파생 EditorBlockView(id:RgaId)를 렌더하고,
+// 텍스트 변경은 onBlockInput(blockId,newText)으로만 전달한다. 구조 편집은 비활성.
+const id = (n: number): RgaId => ({ counter: n, siteId: 'A' });
+const block = (n: number, type: EditorBlockView['type'], text: string): EditorBlockView => ({
+  id: id(n),
+  type,
+  text,
+});
+const el = (container: HTMLElement, blockId: RgaId) =>
+  container.querySelector(`[data-block-id="${idKey(blockId)}"]`) as HTMLElement;
 
-const el = (container: HTMLElement, id: string) =>
-  container.querySelector(`[data-block-id="${id}"]`) as HTMLElement;
-
-describe('Editor — controlled 블록 에디터', () => {
-  it('I2: 에디터 영역이 접근성 그룹(role=group, 레이블)을 갖는다', () => {
-    render(<Editor blocks={[{ id: 'b1', type: 'paragraph', text: '' }]} onChange={vi.fn()} />);
+describe('Editor — CRDT 블록 에디터 (P5)', () => {
+  it('I2: 접근성 그룹(role=group, 레이블)을 갖는다', () => {
+    render(<Editor blocks={[block(1, 'paragraph', '')]} onBlockInput={vi.fn()} />);
     expect(screen.getByRole('group', { name: '페이지 본문' })).toBeInTheDocument();
   });
 
-  it('PR#8-2: 블록에 whitespace-pre-wrap이 적용되어 줄바꿈이 보존된다', () => {
-    const { container } = render(
-      <Editor blocks={[{ id: 'b1', type: 'paragraph', text: '' }]} onChange={vi.fn()} />,
-    );
-    const node = container.querySelector('[data-block-id="b1"]') as HTMLElement;
-    expect(node.className).toContain('whitespace-pre-wrap');
+  it('PR#8-2: whitespace-pre-wrap이 적용된다', () => {
+    const { container } = render(<Editor blocks={[block(1, 'paragraph', '')]} onBlockInput={vi.fn()} />);
+    expect(el(container, id(1)).className).toContain('whitespace-pre-wrap');
   });
 
-  it('AC-13: blocks에서 파생하여 타입별 시맨틱 태그로 렌더한다', () => {
-    const blocks: EditorBlock[] = [
-      { id: 'h', type: 'heading1', text: 'Title' },
-      { id: 'p', type: 'paragraph', text: 'body' },
-      { id: 'b', type: 'bullet', text: 'item' },
-    ];
-    render(<Editor blocks={blocks} onChange={vi.fn()} />);
-
+  it('AC-7: EditorBlockView에서 타입별 시맨틱 태그로 렌더한다', () => {
+    render(
+      <Editor
+        blocks={[block(1, 'heading1', 'Title'), block(2, 'paragraph', 'body'), block(3, 'bullet', 'item')]}
+        onBlockInput={vi.fn()}
+      />,
+    );
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Title');
     expect(screen.getByText('body')).toBeInTheDocument();
     expect(screen.getByRole('listitem')).toHaveTextContent('item');
   });
 
-  it('AC-14: 타이핑(input)이 onChange로 해당 블록 text를 전달한다', () => {
+  it('AC-7: 타이핑(input)이 onBlockInput(blockId, newText)으로 전달된다', () => {
     const spy = vi.fn();
-    const { container } = render(
-      <Harness initial={[{ id: 'b1', type: 'paragraph', text: '' }]} onChangeSpy={spy} />,
-    );
-
-    const node = el(container, 'b1');
-    node.textContent = 'hello';
+    const { container } = render(<Editor blocks={[block(1, 'paragraph', '')]} onBlockInput={spy} />);
+    const node = el(container, id(1));
+    node.textContent = '안';
     fireEvent.input(node);
-
-    expect(spy).toHaveBeenCalled();
-    const last = spy.mock.calls.at(-1)![0] as EditorBlock[];
-    expect(last.find((b) => b.id === 'b1')!.text).toBe('hello');
+    expect(spy).toHaveBeenCalledWith(id(1), '안');
   });
 
-  it('AC-15: Enter가 블록을 분할하여 개수를 1 늘린다', () => {
+  it('IME 조합 중 input은 무시되고 compositionend에서 최종 텍스트로 1회 전달된다', () => {
     const spy = vi.fn();
-    const { container } = render(
-      <Harness initial={[{ id: 'b1', type: 'paragraph', text: 'ab' }]} onChangeSpy={spy} />,
-    );
-
-    fireEvent.keyDown(el(container, 'b1'), { key: 'Enter' });
-
-    const last = spy.mock.calls.at(-1)![0] as EditorBlock[];
-    expect(last).toHaveLength(2);
-  });
-
-  it('FR-7: 블록 시작에 "# " 입력 시 heading1으로 변환되고 접두사가 제거된다', () => {
-    const spy = vi.fn();
-    const { container } = render(
-      <Harness initial={[{ id: 'b1', type: 'paragraph', text: '' }]} onChangeSpy={spy} />,
-    );
-
-    const node = el(container, 'b1');
-    node.textContent = '# ';
+    const { container } = render(<Editor blocks={[block(1, 'paragraph', '')]} onBlockInput={spy} />);
+    const node = el(container, id(1));
+    fireEvent.compositionStart(node);
+    node.textContent = '가';
     fireEvent.input(node);
-
-    const last = spy.mock.calls.at(-1)![0] as EditorBlock[];
-    expect(last[0]!.type).toBe('heading1');
-    expect(last[0]!.text).toBe('');
+    expect(spy).not.toHaveBeenCalled(); // 조합 중 무시
+    node.textContent = '각';
+    fireEvent.compositionEnd(node);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith(id(1), '각');
   });
 
-  it('AC-16: 빈 블록에서 Backspace가 블록을 제거한다', () => {
+  it('구조 편집 비활성: Enter는 분할하지 않고 기본 동작을 막는다', () => {
     const spy = vi.fn();
-    const { container } = render(
-      <Harness
-        initial={[
-          { id: 'a', type: 'paragraph', text: 'a' },
-          { id: 'b', type: 'paragraph', text: '' },
-        ]}
-        onChangeSpy={spy}
-      />,
-    );
+    const { container } = render(<Editor blocks={[block(1, 'paragraph', 'ab')]} onBlockInput={spy} />);
+    const prevented = !fireEvent.keyDown(el(container, id(1)), { key: 'Enter' });
+    expect(prevented).toBe(true);
+    expect(spy).not.toHaveBeenCalled();
+  });
 
-    fireEvent.keyDown(el(container, 'b'), { key: 'Backspace' });
-
-    const last = spy.mock.calls.at(-1)![0] as EditorBlock[];
-    expect(last).toHaveLength(1);
+  it('구조 편집 비활성: 블록 시작 Backspace는 병합하지 않고 기본 동작을 막는다', () => {
+    const spy = vi.fn();
+    const { container } = render(<Editor blocks={[block(1, 'paragraph', '')]} onBlockInput={spy} />);
+    // 빈 블록(캐럿 offset 0)에서 Backspace → 병합 시도 차단.
+    const prevented = !fireEvent.keyDown(el(container, id(1)), { key: 'Backspace' });
+    expect(prevented).toBe(true);
+    expect(spy).not.toHaveBeenCalled();
   });
 });
