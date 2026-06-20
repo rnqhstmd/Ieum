@@ -10,7 +10,9 @@
 
 > 이 매핑은 requirements 구현 phase 계획 기준: CRDT 코어(수렴/멱등/교환/인과버퍼·op 구조·블록 op) → **P4**, WebSocket relay·op 영속화·sync·2탭 수렴 → **P5**, Presence(US-PRES) → **P6**, 재접속 delta·Snapshot → **P8**.
 >
-> **P4 진행 (PR #6, `@ieum/crdt` 인라인 RGA 코어)**: 인라인 문자 RGA(createRga/localInsert/localDelete/applyOp/toText/serialize·deserialize) + 4속성(수렴·멱등·교환·인과버퍼) 구현·검증 완료. **P4b 잔여**: 2-level 블록 RGA(block-insert/delete/set-type·splitBlock/mergeBlock), 인라인 op의 blockId 스코프, wire 봉투 `{siteId, seq, opType, payload}`.
+> **P4 완료 (PR #6, `@ieum/crdt` 인라인 RGA 코어)**: 인라인 문자 RGA(createRga/localInsert/localDelete/applyOp/toText/serialize·deserialize) + 4속성(수렴·멱등·교환·인과버퍼) 구현·검증 완료.
+>
+> **P4b 완료 (PR #9, 2-level 블록 RGA)**: DocState(외부 블록 RGA + 블록별 내부 인라인 RGA), applyDocOp(block-insert/delete·block-set-type LWW·인라인 blockId 스코프), splitBlock/mergeBlockWithPrev/inheritType, 2단 인과버퍼, docToBlocks 도출, wire 봉투 codec(toWire/fromWire) 구현·검증 완료(crdt 51/51). rga.ts 제네릭화(createRga<V>/applyOp<V>) — 인라인 RGA 백워드 호환.
 
 ---
 
@@ -26,12 +28,12 @@
 | US-CRDT-02 | 재연결 후 편집 내용 유실 없음 | 신규 접속 클라이언트가 snapshot 또는 op 재생으로 초기화됨 | ⬜ | P8 |
 | US-CRDT-02 | 재연결 후 편집 내용 유실 없음 | 모든 op가 CrdtOp 테이블에 append-only로 저장됨 | ⬜ | P5 |
 | US-CRDT-03 | op 로그로 편집 이력 추적 가능 | CrdtOp 테이블 append-only 보장, 감사 추적 가능 | ⬜ | P5 |
-| US-CRDT-03 | op 로그로 편집 이력 추적 가능 | wire 봉투: `{siteId, seq, opType, payload}` — payload는 아래 정본 구조 | ⬜ | P4 |
-| US-CRDT-03 | op 로그로 편집 이력 추적 가능 | 인라인 INSERT payload: `{id, originId, value, blockId}` (blockId로 블록 스코프) | ⬜ | P4 |
-| US-CRDT-03 | op 로그로 편집 이력 추적 가능 | 인라인 DELETE payload: `{targetId, blockId}` — tombstone 처리 | ⬜ | P4 |
-| US-CRDT-03 | op 로그로 편집 이력 추적 가능 | 블록 INSERT payload: `{id, originId, blockType}` — 외부 블록 RGA 삽입 | ⬜ | P4 |
-| US-CRDT-03 | op 로그로 편집 이력 추적 가능 | 블록 DELETE payload: `{targetId}` — 외부 블록 RGA tombstone | ⬜ | P4 |
-| US-CRDT-03 | op 로그로 편집 이력 추적 가능 | 블록 SET-TYPE payload: `{blockId, blockType, clock, siteId}` — LWW 타입 변경 | ⬜ | P4 |
+| US-CRDT-03 | op 로그로 편집 이력 추적 가능 | wire 봉투: `{siteId, seq, opType, payload}` — payload는 아래 정본 구조 | ✅ | P4b (PR #9) |
+| US-CRDT-03 | op 로그로 편집 이력 추적 가능 | 인라인 INSERT payload: `{id, originId, value, blockId}` (blockId로 블록 스코프) | ✅ | P4b (PR #9) |
+| US-CRDT-03 | op 로그로 편집 이력 추적 가능 | 인라인 DELETE payload: `{targetId, blockId}` — tombstone 처리 | ✅ | P4b (PR #9) |
+| US-CRDT-03 | op 로그로 편집 이력 추적 가능 | 블록 INSERT payload: `{id, originId, blockType}` — 외부 블록 RGA 삽입 | ✅ | P4b (PR #9) |
+| US-CRDT-03 | op 로그로 편집 이력 추적 가능 | 블록 DELETE payload: `{targetId}` — 외부 블록 RGA tombstone | ✅ | P4b (PR #9) |
+| US-CRDT-03 | op 로그로 편집 이력 추적 가능 | 블록 SET-TYPE payload: `{blockId, blockType, clock, siteId}` — LWW 타입 변경 | ✅ | P4b (PR #9) |
 
 ### Presence (PRD §6 — US-PRES)
 
@@ -53,6 +55,8 @@
 | 멱등성 (Idempotency) | 같은 op를 여러 번 적용해도 한 번 적용과 동일 | insert op 2~3회 반복 적용 후 nodeMap 크기·`toText()` 불변 확인 | ✅ | P4 |
 | 교환법칙 (Commutativity) | op 적용 순서를 바꿔도 최종 상태 동일 | 독립 op 2개 순열(2가지), 3개 순열(6가지) 모두 수렴 확인 | ✅ | P4 |
 | 인과 버퍼링 (Causal Buffering) | originId 없는 op는 originId 도착 후 자동 적용 | originId op보다 의존 op를 먼저 도착시켜 pendingBuffer → drainBuffer 동작 확인; 체인 역순 도착 테스트 | ✅ | P4 |
+
+> **P4b 2-level 재검증 (PR #9)**: 위 4속성을 블록 RGA 수준에서 재검증 완료 — 동시 분할 수렴(AC-12), 인라인 선도착 인과버퍼(AC-13), 임의순서·중복 수렴=멱등·교환(AC-14, 시드 PRNG property 120회). 블록 set-type은 (clock,siteId) LWW로 수렴.
 
 ### 통합 테스트 항목 (07-collaboration-crdt.md §7-2)
 
