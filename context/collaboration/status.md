@@ -56,6 +56,8 @@
 | 교환법칙 (Commutativity) | op 적용 순서를 바꿔도 최종 상태 동일 | 독립 op 2개 순열(2가지), 3개 순열(6가지) 모두 수렴 확인 | ✅ | P4 |
 | 인과 버퍼링 (Causal Buffering) | originId 없는 op는 originId 도착 후 자동 적용 | originId op보다 의존 op를 먼저 도착시켜 pendingBuffer → drainBuffer 동작 확인; 체인 역순 도착 테스트 | ✅ | P4 |
 
+> **P4b 2-level 재검증 (PR #9)**: 위 4속성을 블록 RGA 수준에서 재검증 완료 — 동시 분할 수렴(AC-12), 인라인 선도착 인과버퍼(AC-13), 임의순서·중복 수렴=멱등·교환(AC-14, 시드 PRNG property 120회). 블록 set-type은 (clock,siteId) LWW로 수렴.
+
 ### 통합 테스트 항목 (07-collaboration-crdt.md §7-2)
 
 | 항목 | 설명 | 상태 | Phase |
