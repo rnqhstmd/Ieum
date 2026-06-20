@@ -11,7 +11,11 @@ export interface Transport {
   close(): void;
 }
 
-/** 브라우저 native WebSocket 어댑터. open 전 send는 버퍼링 후 open 시 flush. */
+/**
+ * 브라우저 native WebSocket 어댑터. open 전 send는 버퍼링 후 open 시 flush.
+ * 알려진 한계: open 이전에 close되면 pending 버퍼의 미전송 메시지는 유실된다
+ * (재연결 중 유실과 별개 시나리오). missing-op 복원은 walking skeleton 범위 밖(P8).
+ */
 export function createWebSocketTransport(url: string): Transport {
   const ws = new WebSocket(url);
   const pending: string[] = [];

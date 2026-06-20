@@ -62,6 +62,8 @@ export function parseServerMessage(raw: string): ServerToClient | null {
         ? (o as unknown as JoinAckMsg)
         : null;
     case 'op':
+      // op 봉투(WireEnvelope)의 필수 필드만 검증한다. 메시지에 규격 외 추가 필드가 있어도
+      // 소비자(onRemoteOp)는 msg.op만 사용하므로 무해 — relay는 신뢰 환경(BR-5). 엄격 검증은 인증 슬라이스에서.
       return typeof o.pageId === 'string' && isWireEnvelope(o.op)
         ? (o as unknown as OpMsg)
         : null;

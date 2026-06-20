@@ -23,6 +23,8 @@ export const GENESIS_BLOCK_ID: RgaId = { counter: 0, siteId: 'genesis' };
  * 같은 pageId의 두 탭이 인라인 타이핑을 수렴시킬 수 있다.
  */
 export function createCollaborativeDocument(siteId: string): DocState {
+  // @ieum/crdt의 createDocument는 siteId 기반 블록 id를 만들어 탭마다 달라지므로 쓰지 않는다.
+  // 빈 문서 + 고정 GENESIS_BLOCK_ID 블록을 직접 삽입해 모든 탭이 같은 블록 위에서 수렴하게 한다.
   const doc = createEmptyDocument(siteId);
   applyDocOp(doc, makeBlockInsertOp(GENESIS_BLOCK_ID, null, 'paragraph'));
   return doc;

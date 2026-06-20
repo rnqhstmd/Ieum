@@ -34,7 +34,9 @@ export function createInMemoryRelay(): InMemoryRelay {
           cbs.add(cb);
           return () => cbs.delete(cb);
         },
-        // 테스트는 명시적으로 join을 호출하므로 onOpen 자동 트리거는 사용하지 않는다.
+        // FakeTransport는 onOpen을 fire하지 않는다. 따라서 relayClient의 onOpen→join 자동
+        // 경로는 여기서 동작하지 않으며, convergence.test.ts는 join을 수동 호출한다.
+        // onOpen→join 자동 경로 자체는 relayClient.test.ts(createFakeTransport.emitOpen)가 커버한다.
         onOpen() {
           return () => {};
         },

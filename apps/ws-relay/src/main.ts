@@ -7,6 +7,15 @@ createRelayServer({ port })
   .then((server) => {
     // eslint-disable-next-line no-console
     console.log(`[ws-relay] listening on ws://localhost:${server.port}`);
+
+    // 종료 신호 시 정상 종료(소켓·서버 정리) — 개발 서버 재시작 시 포트 점유 방지.
+    const shutdown = (signal: string) => {
+      // eslint-disable-next-line no-console
+      console.log(`[ws-relay] ${signal} received, shutting down`);
+      server.close().finally(() => process.exit(0));
+    };
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
   })
   .catch((err) => {
     // eslint-disable-next-line no-console

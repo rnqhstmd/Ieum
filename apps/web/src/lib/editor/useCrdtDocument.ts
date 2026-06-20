@@ -64,6 +64,8 @@ export function useCrdtDocument(
       clientRef.current = null;
     };
     // 마운트(pageId) 시 1회 배선. doc/bump는 안정적이며 transportFactory 재구독은 의도적으로 생략.
+    // transportFactory는 마운트 시점 값으로 1회만 캡처된다 — 런타임 교체는 지원하지 않으며
+    // 필요 시 page.tsx의 key={pageId} 교체로 remount해야 한다(테스트 주입 전용).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageId]);
 
@@ -73,6 +75,8 @@ export function useCrdtDocument(
       const oldText = block?.text ?? '';
       const ops = diffBlockText(doc, blockId, oldText, newText); // 로컬 즉시 적용
       const client = clientRef.current;
+      // relay 배선(useEffect) 전 입력 시 client가 null이면 송신을 조용히 건너뛴다.
+      // 로컬 DocState에는 이미 적용되며, 미송신 op 복원은 walking skeleton 범위 밖(P8).
       if (client) {
         for (const op of ops) client.sendOp(toWire(op, ++seqRef.current, doc.siteId));
       }
