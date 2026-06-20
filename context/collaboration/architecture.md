@@ -11,6 +11,11 @@
 | 클라이언트 에디터 | contenteditable | DOM 이벤트 → localInsert/localDelete → op 전송, CRDT 상태에서 렌더링 |
 | DB (PostgreSQL) | Prisma | CrdtOp append-only 저장, Snapshot 압축 보관 |
 
+> **P5 walking skeleton 구현 현황 (PR #10)**: 위 표는 목표 설계다. P5 walking skeleton에서는 relay 서버의 **op 중계(broadcast)** 와 클라이언트 송수신·에디터 CRDT 연결까지 구현했고, **op 영속화·presence는 미구현**(후속)이다.
+> - `apps/ws-relay`: 순수 `RoomRegistry`(라우팅, `Dispatch[]` 반환)와 `ws` 어댑터(`server.ts`) 분리. 메시지 계약은 `protocol.ts`(join/join-ack/op/op-ack). 보안 하드닝: 127.0.0.1 바인딩, 소켓 error 핸들러, 연결 상한, maxPayload, room 교차주입 차단, parse prototype-pollution 가드. 인증은 BR-5 목 처리(후속 강화).
+> - 클라이언트 `apps/web/src/lib/realtime`: `Transport` 추상화(+재연결) · 순수 `relayClient` · `protocol`. `apps/web/src/lib/editor/crdtDocument`(텍스트 diff→인라인 op, 공유 genesis 블록) · `useCrdtDocument` 훅(DocState 진실 원천 + relay 배선).
+> - 검증: 2탭 수렴은 Playwright 미설치로 in-memory relay(실 `RoomRegistry` + FakeTransport) vitest 통합 테스트로 결정적 검증. 실 브라우저 e2e는 후속 과제.
+
 ### RGA CRDT 핵심 설계
 
 - **2-level 블록 RGA (MVP)**: 외부 블록 리스트 RGA(paragraph/heading1~3/bullet 타입의 블록 단위 요소)와 블록별 내부 인라인 텍스트 RGA로 구성된다. 이후 인라인 서식·추가 블록 타입으로 확장한다.
