@@ -100,6 +100,14 @@ export function createRelayServer(opts: {
           }
           connPage = joinMsg.pageId; // 게이트 off여도 교차 room 마감 기준으로 설정
           sendAll(registry.join(handle, joinMsg.pageId, joinMsg.presence)); // P6 presence 전달
+        }).catch(() => {
+          // 체인 내 예기치 못한 예외가 socketChain을 영구 reject시켜 이후 메시지를 막는 것을 방지한다
+          // (gemini CRITICAL). 인가 경로 오류이므로 연결을 1011로 안전하게 정리한다.
+          try {
+            socket.close(1011, 'internal error');
+          } catch {
+            /* 이미 닫힘 */
+          }
         });
         return;
       }
@@ -113,6 +121,9 @@ export function createRelayServer(opts: {
         } catch {
           // 영속화 실패(연결 끊김 등): 무전파·무ack (S1). 프로세스 보호.
         }
+      }).catch(() => {
+        // 예기치 못한 예외로 socketChain이 reject되어 이후 op가 막히는 것을 방지(gemini CRITICAL).
+        // 단일 op 실패는 연결을 끊지 않고 체인만 복구한다.
       });
     });
 
