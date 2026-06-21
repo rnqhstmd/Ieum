@@ -23,8 +23,8 @@
 |------|--------------|---------------|------|-------|------|
 | US-WS-01 | 로그인 시 개인 워크스페이스 자동 존재 | 최초 로그인 시 `type=PERSONAL` 워크스페이스 1개 자동 생성 | ✅ | P1 | OAuth2 로그인 성공 시 `WorkspaceService.ensurePersonalWorkspace` 자동 생성 (PR #3) |
 | US-WS-01 | 〃 | 개인 워크스페이스 추가 생성·삭제 불가 (1인 1개 고정) | ✅ | P1 | `ensurePersonalWorkspace` 멱등(기존 반환), PERSONAL 생성·삭제 불가 정책 (PR #3) |
-| US-WS-02 | 새 공유 워크스페이스 생성 | 생성 시 생성자에게 OWNER Membership 자동 생성 | ⬜ | P7 | |
-| US-WS-02 | 〃 | 워크스페이스 이름 1자 이상 100자 이하 | ⬜ | P7 | |
+| US-WS-02 | 새 공유 워크스페이스 생성 | 생성 시 생성자에게 OWNER Membership 자동 생성 | ✅ | P7 | `WorkspaceService.createSharedWorkspace` SHARED 저장+생성자 OWNER 멤버십 자동, `POST /api/workspaces` 인증 배선(`requireCurrentUserId`) (PR #18) |
+| US-WS-02 | 〃 | 워크스페이스 이름 1자 이상 100자 이하 | ✅ | P7 | `normalizeName` trim 후 1~100자 검증, 위반 시 IllegalArgumentException→400 (PR #18) |
 | US-WS-03 | 사이드바에서 워크스페이스 목록 확인·전환 | 사이드바에 개인·공유 워크스페이스 목록 표시 | ✅ | P2 | 목록 API 백엔드(PR #4) + 프론트 `WorkspaceSwitcher` 목록/전환 UI (PR #5). 공유 WS 생성은 P7 |
 | US-WS-04 | OWNER로서 공유 워크스페이스 삭제 | OWNER만 삭제 가능; 삭제 시 하위 페이지·멤버십 함께 삭제 | ⬜ | P7 | |
 | US-WS-04 | 〃 | MEMBER는 나가기 가능 (Membership 삭제); 마지막 OWNER 나가기 시 경고 | ⬜ | P7 | |
