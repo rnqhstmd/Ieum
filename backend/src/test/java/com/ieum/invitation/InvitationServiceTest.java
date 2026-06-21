@@ -183,4 +183,18 @@ class InvitationServiceTest {
 
         verify(invitationRepository, never()).save(any());
     }
+
+    // ── 방어(cross-review MEDIUM / PR #19 gemini): request null 가드 ──
+
+    @Test
+    @DisplayName("방어: createInvitation — request가 null이면 IllegalArgumentException, 저장 없음")
+    void createInvitation_nullRequest_throwsAndSavesNothing() {
+        UUID owner = UUID.randomUUID();
+        UUID wsId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> invitationService.createInvitation(owner, wsId, null))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        verify(invitationRepository, never()).save(any());
+    }
 }

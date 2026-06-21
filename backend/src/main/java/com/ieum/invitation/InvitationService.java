@@ -73,6 +73,10 @@ public class InvitationService {
     @Transactional
     public InvitationDto createInvitation(UUID currentUserId, UUID wsId,
                                           CreateInvitationRequest request) {
+        // 서비스 경계 방어(cross-review MEDIUM / PR #19): request null → 진입부에서 400으로 거부.
+        if (request == null) {
+            throw new IllegalArgumentException("초대 요청 정보가 누락되었습니다.");
+        }
         accessGuard.requireOwner(currentUserId, wsId); // 비OWNER → AccessDeniedException(403)
 
         String email = normalizeEmail(request.email());                 // 빈/공백 → IllegalArgumentException(400)
