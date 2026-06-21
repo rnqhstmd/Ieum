@@ -5,7 +5,15 @@
 // applyDocOp로 적용한다. DocState는 가변 객체이므로 version 카운터로 리렌더한다.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { applyDocOp, docToBlocks, fromWire, toWire, idEquals } from '@ieum/crdt';
+import {
+  applyDocOp,
+  docToBlocks,
+  fromWire,
+  toWire,
+  idEquals,
+  resolveAnchorToIndex,
+  indexToAnchorId,
+} from '@ieum/crdt';
 import type { DocState, EditorBlockView, RgaId } from '@ieum/crdt';
 import { createCollaborativeDocument, diffBlockText } from './crdtDocument';
 import { createRetryingTransport } from '@/src/lib/realtime/transport';
@@ -13,7 +21,8 @@ import type { Transport } from '@/src/lib/realtime/transport';
 import { createRelayClient } from '@/src/lib/realtime/relayClient';
 import type { RelayClient } from '@/src/lib/realtime/relayClient';
 import { usePresence } from '@/src/lib/realtime/usePresence';
-import type { PresenceInfo } from '@/src/lib/realtime/protocol';
+import { useCursor } from '@/src/lib/realtime/useCursor';
+import type { PresenceInfo, CursorInfo } from '@/src/lib/realtime/protocol';
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? 'ws://localhost:3001';
 
@@ -22,6 +31,14 @@ export interface UseCrdtDocumentResult {
   connectedClients: number;
   presences: PresenceInfo[];
   onBlockInput: (blockId: RgaId, newText: string) => void;
+  // P6 커서
+  cursors: CursorInfo[];
+  /** 서버 부여 자기 clientId — 자기 커서 렌더 제외(AC-7). 배선 전 null. */
+  localClientId: string | null;
+  /** Editor가 DOM caret offset(가시 index)을 올리면 직전 문자 id로 변환해 전송. */
+  onCursorMove: (blockId: RgaId, caretOffset: number) => void;
+  /** 원격 커서 anchorId → 현재 가시 index(Editor 오버레이 위치). */
+  resolveCursorIndex: (blockId: RgaId, anchorId: RgaId | null) => number;
 }
 
 // 탭별 고유 siteId. crypto.randomUUID(현대 브라우저 표준)를 우선 사용한다.
@@ -57,10 +74,20 @@ export function useCrdtDocument(
   const clientRef = useRef<RelayClient | null>(null);
   const [, setVersion] = useState(0);
   const [connectedClients, setConnectedClients] = useState(0);
+  const [localClientId, setLocalClientId] = useState<string | null>(null);
   const bump = useCallback(() => setVersion((v) => v + 1), []);
-  // P6: presence(아바타) 상태는 DocState와 분리된 별도 훅 — op 경로에 영향 없음(AC-9).
+  // P6: presence(아바타)·cursor 상태는 DocState와 분리된 별도 훅 — op 경로에 영향 없음(AC-9).
   const presence = usePresence();
+  const cursor = useCursor();
   const displayName = displayNameFromSiteId(doc.siteId);
+  // presence-leave 시 커서도 제거(BR-7). 두 안정 콜백(useCallback[])을 합성해 안정화(C4 — stale closure 방지).
+  const handlePresenceLeave = useCallback(
+    (id: string) => {
+      presence.onPresenceLeave(id);
+      cursor.onCursorLeave(id);
+    },
+    [presence.onPresenceLeave, cursor.onCursorLeave],
+  );
 
   useEffect(() => {
     const factory = opts?.transportFactory ?? ((url: string) => createRetryingTransport(url));
@@ -73,10 +100,15 @@ export function useCrdtDocument(
           applyDocOp(doc, fromWire(env));
           bump();
         },
-        onJoinAck: (n) => setConnectedClients(n),
+        onJoinAck: (n, clientId) => {
+          setConnectedClients(n);
+          setLocalClientId(clientId); // 자기 식별(AC-7)
+        },
         // presence 핸들러는 usePresence의 안정 콜백 — op 경로(onRemoteOp)와 분리.
         onPresenceUpdate: presence.onPresenceUpdate,
-        onPresenceLeave: presence.onPresenceLeave,
+        // presence-leave 시 커서도 함께 제거(BR-7) — 안정화된 합성 콜백(C4).
+        onPresenceLeave: handlePresenceLeave,
+        onCursorUpdate: cursor.onCursorUpdate,
       },
       { displayName },
     );
@@ -107,5 +139,28 @@ export function useCrdtDocument(
     [doc, bump],
   );
 
-  return { blocks: docToBlocks(doc), connectedClients, presences: presence.presences, onBlockInput };
+  // P6 커서: Editor가 올린 caret 가시 index를 직전 문자 id로 변환해 전송.
+  const onCursorMove = useCallback(
+    (blockId: RgaId, caretOffset: number) => {
+      const anchorId = indexToAnchorId(doc, blockId, caretOffset);
+      clientRef.current?.sendCursor(blockId, anchorId); // 배선 전 null이면 조용히 skip
+    },
+    [doc],
+  );
+  // 원격 커서 anchorId → 현재 가시 index (op 적용 후에도 올바른 위치, tombstone fallback).
+  const resolveCursorIndex = useCallback(
+    (blockId: RgaId, anchorId: RgaId | null) => resolveAnchorToIndex(doc, blockId, anchorId),
+    [doc],
+  );
+
+  return {
+    blocks: docToBlocks(doc),
+    connectedClients,
+    presences: presence.presences,
+    onBlockInput,
+    cursors: cursor.cursors,
+    localClientId,
+    onCursorMove,
+    resolveCursorIndex,
+  };
 }

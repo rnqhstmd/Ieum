@@ -1,19 +1,26 @@
 'use client';
 
-// ─── P5 CRDT 블록 에디터 (AC-7, FR-6) ──────────────────────────────
+// ─── P5/P6 CRDT 블록 에디터 (AC-7, FR-6 + 라이브 커서) ─────────────
 // DocState 파생 EditorBlockView(id:RgaId)를 렌더한다. contenteditable은 입력 수단일
-// 뿐 상태를 보유하지 않으며, 텍스트 변경은 onBlockInput(blockId,newText)으로만 전달한다
-// (diff→op는 상위 useCrdtDocument가 수행). walking skeleton: 구조 편집(Enter 분할/
-// Backspace 병합)·마크다운 단축키는 비활성(블록 단위 op 전송은 후속 슬라이스).
+// 뿐 상태를 보유하지 않으며, 텍스트 변경은 onBlockInput(blockId,newText)으로만 전달한다.
+// P6 커서: caret 이동을 50ms debounce 후 onCursorMove(blockId, offset)로 올리고(상위가
+// anchorId 변환·전송), 원격 협업자 커서를 블록 안 절대 위치 오버레이로 렌더한다.
 
 import { useEffect, useRef } from 'react';
-import type { FormEvent, KeyboardEvent } from 'react';
-import { idKey } from '@ieum/crdt';
+import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
+import { idKey, idEquals } from '@ieum/crdt';
 import type { EditorBlockView, RgaId } from '@ieum/crdt';
+import type { CursorInfo, PresenceInfo } from '@/src/lib/realtime/protocol';
 
 interface EditorProps {
   blocks: EditorBlockView[];
   onBlockInput: (blockId: RgaId, newText: string) => void;
+  // P6 커서 (선택적 — 미주입 시 커서 비활성, 기존 호출부 호환)
+  cursors?: CursorInfo[];
+  presences?: PresenceInfo[];
+  localClientId?: string | null;
+  resolveCursorIndex?: (blockId: RgaId, anchorId: RgaId | null) => number;
+  onCursorMove?: (blockId: RgaId, caretOffset: number) => void;
 }
 
 /** 현재 선택 영역의 블록 내 캐럿 offset. 미지원(jsdom) 시 fallback. */
@@ -22,7 +29,10 @@ function getCaretOffset(el: HTMLElement, fallback: number): number {
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0) {
       const range = sel.getRangeAt(0);
-      if (el.contains(range.startContainer)) return range.startOffset;
+      // M2: startContainer가 블록 내 텍스트노드일 때만 startOffset이 가시 index. 그 외(빈 블록 등)는 fallback.
+      if (el.contains(range.startContainer) && range.startContainer.nodeType === Node.TEXT_NODE) {
+        return range.startOffset;
+      }
     }
   } catch {
     /* selection 미지원 환경 */
@@ -44,11 +54,24 @@ interface BlockViewProps {
   onCompositionStart: () => void;
   onCompositionEnd: (e: { currentTarget: HTMLElement }) => void;
   onKeyDown: (e: KeyboardEvent<HTMLElement>) => void;
+  onCaret: (el: HTMLElement) => void; // P6: caret 이동 캡처(keyUp/click)
+  onFocus: () => void;
+  onBlur: () => void;
+  overlays: ReactNode; // P6: 원격 커서 오버레이(contentEditable 형제로 렌더 — 편집 대상 아님)
 }
 
-function BlockView({ block, onInput, onCompositionStart, onCompositionEnd, onKeyDown }: BlockViewProps) {
+function BlockView({
+  block,
+  onInput,
+  onCompositionStart,
+  onCompositionEnd,
+  onKeyDown,
+  onCaret,
+  onFocus,
+  onBlur,
+  overlays,
+}: BlockViewProps) {
   const ref = useRef<HTMLElement | null>(null);
-  // 콜백 ref: HTMLElement를 받아 각 시맨틱 태그(h1/li/p…)에 공통 적용(타입 분산 회피).
   const setRef = (el: HTMLElement | null) => {
     ref.current = el;
   };
@@ -67,30 +90,50 @@ function BlockView({ block, onInput, onCompositionStart, onCompositionEnd, onKey
     onCompositionStart,
     onCompositionEnd,
     onKeyDown,
+    onKeyUp: (e: KeyboardEvent<HTMLElement>) => onCaret(e.currentTarget),
+    onClick: (e: { currentTarget: HTMLElement }) => onCaret(e.currentTarget),
+    onFocus,
+    onBlur,
     className: `${BLOCK_CLASS[block.type]} px-1 outline-none focus:bg-hover/40 rounded`,
   } as const;
 
-  switch (block.type) {
-    case 'heading1':
-      return <h1 ref={setRef} {...common} />;
-    case 'heading2':
-      return <h2 ref={setRef} {...common} />;
-    case 'heading3':
-      return <h3 ref={setRef} {...common} />;
-    case 'bullet':
-      return (
-        <ul className="list-disc pl-6">
-          <li ref={setRef} {...common} />
-        </ul>
-      );
-    default:
-      return <p ref={setRef} {...common} />;
-  }
+  const editable =
+    block.type === 'heading1' ? (
+      <h1 ref={setRef} {...common} />
+    ) : block.type === 'heading2' ? (
+      <h2 ref={setRef} {...common} />
+    ) : block.type === 'heading3' ? (
+      <h3 ref={setRef} {...common} />
+    ) : block.type === 'bullet' ? (
+      <ul className="list-disc pl-6">
+        <li ref={setRef} {...common} />
+      </ul>
+    ) : (
+      <p ref={setRef} {...common} />
+    );
+
+  // 커서 오버레이는 contentEditable 형제(absolute)로 — 편집 콘텐츠/textContent 관리에 영향 없음.
+  return (
+    <div className="relative">
+      {editable}
+      {overlays}
+    </div>
+  );
 }
 
-export default function Editor({ blocks, onBlockInput }: EditorProps) {
-  // IME 조합 추적 — 조합 중 input은 무시하고 compositionend에서 최종 텍스트만 emit.
+export default function Editor({
+  blocks,
+  onBlockInput,
+  cursors = [],
+  presences = [],
+  localClientId = null,
+  resolveCursorIndex,
+  onCursorMove,
+}: EditorProps) {
+  // IME 조합 추적 — 조합 중 input/cursor는 무시한다.
   const composing = useRef(false);
+  const cursorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const focusedBlock = useRef<string | null>(null);
 
   const handleInput = (blockId: RgaId, e: FormEvent<HTMLElement>) => {
     if (composing.current) return;
@@ -98,7 +141,6 @@ export default function Editor({ blocks, onBlockInput }: EditorProps) {
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLElement>, block: EditorBlockView) => {
-    // 구조 편집 비활성: Enter(블록 분할)·블록 시작 Backspace(병합) 차단.
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       return;
@@ -108,6 +150,49 @@ export default function Editor({ blocks, onBlockInput }: EditorProps) {
       if (offset === 0) e.preventDefault();
     }
   };
+
+  // P6 FR-2/BR-3: caret 이동 → 50ms debounce → onCursorMove. FR-8: 포커스 블록만. composing 가드.
+  const scheduleCursor = (block: EditorBlockView, el: HTMLElement) => {
+    if (!onCursorMove || composing.current) return;
+    if (focusedBlock.current !== idKey(block.id)) return; // FR-8
+    const len = (el.textContent ?? '').length;
+    const offset = Math.max(0, Math.min(getCaretOffset(el, len), len)); // M2: clamp
+    if (cursorTimer.current) clearTimeout(cursorTimer.current);
+    cursorTimer.current = setTimeout(() => onCursorMove(block.id, offset), 50);
+  };
+
+  const overlaysFor = (block: EditorBlockView): ReactNode =>
+    cursors
+      // blockId가 이 블록과 일치하는 커서만 렌더 → 존재하지 않는/삭제된 blockId 커서는 어느 블록에도
+      // 매칭되지 않아 자동 제외(C5/C12 유령 블록 방어). 자기 커서 제외(AC-7)는 localClientId 비교 —
+      // localClientId=null(join-ack 전)이어도 서버가 발신자를 제외(BR-8)하므로 자기 커서 수신 경로 없음(C11).
+      .filter((c) => idEquals(c.blockId, block.id) && c.clientId !== localClientId)
+      .map((c) => {
+        const info = presences.find((p) => p.clientId === c.clientId);
+        if (!info) return null; // lookup 실패 시 skip(presence-leave 1프레임 불일치 방어)
+        const idx = resolveCursorIndex ? resolveCursorIndex(block.id, c.anchorId) : 0;
+        return (
+          <span
+            key={c.clientId}
+            data-cursor-client-id={c.clientId}
+            data-color={info.color}
+            aria-hidden="true"
+            className="pointer-events-none absolute top-0 select-none"
+            style={{ left: `calc(${idx}ch + 0.25rem)` }}
+          >
+            <span
+              className="inline-block h-5 w-0.5 align-text-bottom"
+              style={{ backgroundColor: info.color }}
+            />
+            <span
+              className="ml-0.5 whitespace-nowrap rounded px-1 align-top text-[10px] leading-none text-white"
+              style={{ backgroundColor: info.color }}
+            >
+              {info.displayName}
+            </span>
+          </span>
+        );
+      });
 
   return (
     <div role="group" aria-label="페이지 본문" className="space-y-1">
@@ -124,6 +209,14 @@ export default function Editor({ blocks, onBlockInput }: EditorProps) {
             onBlockInput(b.id, e.currentTarget.textContent ?? '');
           }}
           onKeyDown={(e) => handleKeyDown(e, b)}
+          onCaret={(el) => scheduleCursor(b, el)}
+          onFocus={() => {
+            focusedBlock.current = idKey(b.id);
+          }}
+          onBlur={() => {
+            if (focusedBlock.current === idKey(b.id)) focusedBlock.current = null;
+          }}
+          overlays={overlaysFor(b)}
         />
       ))}
     </div>

@@ -2,7 +2,7 @@
 // 서버(@ieum/ws-relay protocol.ts)와 동일 계약. walking skeleton에선 복제하며
 // 공유 패키지화는 범위 밖. op 필드는 @ieum/crdt WireEnvelope(결정2: 소문자 opType).
 
-import type { WireEnvelope } from '@ieum/crdt';
+import type { WireEnvelope, RgaId } from '@ieum/crdt';
 
 export interface JoinMsg {
   type: 'join';
@@ -19,6 +19,8 @@ export interface JoinAckMsg {
   type: 'join-ack';
   pageId: string;
   connectedClients: number;
+  // P6 커서: 서버 부여 clientId — 자기 커서를 렌더에서 제외(AC-7).
+  clientId: string;
 }
 export interface OpAckMsg {
   type: 'op-ack';
@@ -43,13 +45,57 @@ export interface PresenceLeaveMsg {
   clientId: string;
 }
 
-export type ClientToServer = JoinMsg | OpMsg;
-export type ServerToClient = JoinAckMsg | OpMsg | OpAckMsg | PresenceUpdateMsg | PresenceLeaveMsg;
+// ─── P6 라이브 커서 (US-PRES-02) — ws-relay protocol.ts와 대칭 복제 ──
+/** 원격 커서 1건. 색·이름은 미포함 — 렌더 시 PresenceInfo에서 lookup(단일 출처). */
+export interface CursorInfo {
+  clientId: string;
+  blockId: RgaId;
+  anchorId: RgaId | null;
+}
+/** C→S: caret 위치 보고(clientId 미전송 — 서버 태깅). */
+export interface CursorMsg {
+  type: 'cursor';
+  pageId: string;
+  blockId: RgaId;
+  anchorId: RgaId | null;
+}
+/** S→C: 협업자 커서 broadcast(발신자 제외). */
+export interface CursorUpdateMsg {
+  type: 'cursor-update';
+  clientId: string;
+  blockId: RgaId;
+  anchorId: RgaId | null;
+}
+
+export type ClientToServer = JoinMsg | OpMsg | CursorMsg;
+export type ServerToClient =
+  | JoinAckMsg
+  | OpMsg
+  | OpAckMsg
+  | PresenceUpdateMsg
+  | PresenceLeaveMsg
+  | CursorUpdateMsg;
+
+// RgaId siteId 상한 — 커서 anchorId siteId로 대용량 문자열 broadcast 증폭 차단(C2).
+const MAX_SITE_ID = 64;
 
 // prototype pollution 방어: JSON.parse는 __proto__ 등을 own 속성으로 만들 수 있다.
 const DANGEROUS_KEYS = ['__proto__', 'constructor', 'prototype'];
 function hasDangerousKey(o: object): boolean {
   return DANGEROUS_KEYS.some((k) => Object.prototype.hasOwnProperty.call(o, k));
+}
+
+/** RgaId 구조 검증 (커서 blockId/anchorId). proto 가드 + 범위/길이 가드(C1·C2) — 서버와 대칭. */
+function isRgaId(v: unknown): v is RgaId {
+  if (typeof v !== 'object' || v === null || hasDangerousKey(v)) return false;
+  const o = v as Record<string, unknown>;
+  return (
+    typeof o.counter === 'number' &&
+    Number.isInteger(o.counter) && // C1: Infinity/NaN/소수 차단
+    o.counter >= 0 &&
+    typeof o.siteId === 'string' &&
+    o.siteId.length <= MAX_SITE_ID // C2
+  );
 }
 
 /** op 봉투(WireEnvelope) 구조 검증 — 서버 parseClientMessage와 대칭. */
@@ -77,7 +123,9 @@ export function parseServerMessage(raw: string): ServerToClient | null {
   const o = parsed as Record<string, unknown>;
   switch (o.type) {
     case 'join-ack':
-      return typeof o.pageId === 'string' && typeof o.connectedClients === 'number'
+      return typeof o.pageId === 'string' &&
+        typeof o.connectedClients === 'number' &&
+        typeof o.clientId === 'string'
         ? (o as unknown as JoinAckMsg)
         : null;
     case 'op':
@@ -100,6 +148,12 @@ export function parseServerMessage(raw: string): ServerToClient | null {
         : null;
     case 'presence-leave':
       return typeof o.clientId === 'string' ? (o as unknown as PresenceLeaveMsg) : null;
+    case 'cursor-update':
+      return typeof o.clientId === 'string' &&
+        isRgaId(o.blockId) &&
+        (o.anchorId === null || isRgaId(o.anchorId))
+        ? (o as unknown as CursorUpdateMsg)
+        : null;
     default:
       return null;
   }

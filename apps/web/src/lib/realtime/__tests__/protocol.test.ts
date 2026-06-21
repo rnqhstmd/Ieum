@@ -17,9 +17,17 @@ describe('parseServerMessage', () => {
     expect((msg as OpMsg).op.payload).toEqual(env.payload);
   });
 
-  it('join-ack / op-ack를 파싱한다', () => {
-    expect(parseServerMessage(JSON.stringify({ type: 'join-ack', pageId: 'p', connectedClients: 2 }))).not.toBeNull();
+  it('join-ack(clientId 포함) / op-ack를 파싱한다', () => {
+    const ack = parseServerMessage(
+      JSON.stringify({ type: 'join-ack', pageId: 'p', connectedClients: 2, clientId: 'c1' }),
+    ) as { type: 'join-ack'; clientId: string } | null;
+    expect(ack).not.toBeNull();
+    expect(ack!.clientId).toBe('c1'); // P6 커서: localClientId 채널
     expect(parseServerMessage(JSON.stringify({ type: 'op-ack', siteId: 's', seq: 1 }))).not.toBeNull();
+  });
+
+  it('P6: clientId 없는 join-ack는 null이다', () => {
+    expect(parseServerMessage(JSON.stringify({ type: 'join-ack', pageId: 'p', connectedClients: 2 }))).toBeNull();
   });
 
   it('보안: op 봉투 필드(siteId/seq/opType/payload)가 불완전하면 null을 반환한다', () => {
@@ -96,5 +104,46 @@ describe('parseServerMessage — presence', () => {
     const raw = '{"type":"presence-leave","clientId":"c1","__proto__":{"polluted":1}}';
     expect(parseServerMessage(raw)).toBeNull();
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+});
+
+// P6 라이브 커서 / AC-10 채널: cursor-update 파싱.
+describe('parseServerMessage — cursor-update', () => {
+  const blockId = { counter: 0, siteId: 'genesis' };
+
+  it('cursor-update(anchorId null/RgaId)를 파싱한다', () => {
+    const m1 = parseServerMessage(
+      JSON.stringify({ type: 'cursor-update', clientId: 'c2', blockId, anchorId: null }),
+    ) as { type: 'cursor-update'; clientId: string; anchorId: unknown } | null;
+    expect(m1).not.toBeNull();
+    expect(m1!.clientId).toBe('c2');
+    expect(m1!.anchorId).toBeNull();
+
+    const anchorId = { counter: 7, siteId: 'site_b' };
+    const m2 = parseServerMessage(
+      JSON.stringify({ type: 'cursor-update', clientId: 'c2', blockId, anchorId }),
+    ) as { anchorId: unknown } | null;
+    expect(m2).not.toBeNull();
+    expect((m2 as { anchorId: unknown }).anchorId).toEqual(anchorId);
+  });
+
+  it('blockId가 RgaId가 아니거나 clientId 누락이면 null', () => {
+    expect(
+      parseServerMessage(JSON.stringify({ type: 'cursor-update', clientId: 'c2', blockId: { counter: 'x' }, anchorId: null })),
+    ).toBeNull();
+    expect(parseServerMessage(JSON.stringify({ type: 'cursor-update', blockId, anchorId: null }))).toBeNull();
+  });
+
+  it('보안: cursor-update의 __proto__는 null이며 prototype을 오염시키지 않는다', () => {
+    const raw = '{"type":"cursor-update","clientId":"c2","blockId":{"counter":0,"siteId":"g"},"anchorId":null,"__proto__":{"polluted":1}}';
+    expect(parseServerMessage(raw)).toBeNull();
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
+  it('보안(C1/C2): counter 비정수·음수·무한 또는 siteId 과길이는 null', () => {
+    expect(parseServerMessage(JSON.stringify({ type: 'cursor-update', clientId: 'c2', blockId: { counter: 1.5, siteId: 'g' }, anchorId: null }))).toBeNull();
+    expect(parseServerMessage('{"type":"cursor-update","clientId":"c2","blockId":{"counter":1e999,"siteId":"g"},"anchorId":null}')).toBeNull();
+    const longSite = 's'.repeat(100);
+    expect(parseServerMessage(JSON.stringify({ type: 'cursor-update', clientId: 'c2', blockId: { counter: 0, siteId: longSite }, anchorId: null }))).toBeNull();
   });
 });
