@@ -3,7 +3,7 @@
 // (결정2: WireEnvelope.opType은 소문자 op.type — relay는 op를 불투명 전달).
 // relay 서버는 @ieum/crdt를 타입 용도로만 import한다 (런타임 CRDT 미적용).
 
-import type { WireEnvelope } from '@ieum/crdt';
+import type { WireEnvelope, RgaId } from '@ieum/crdt';
 
 export interface JoinMsg {
   type: 'join';
@@ -16,6 +16,8 @@ export interface JoinAckMsg {
   type: 'join-ack';
   pageId: string;
   connectedClients: number;
+  // P6 커서: 서버가 부여한 clientId 회신 — 클라가 자기 커서를 렌더에서 제외(AC-7).
+  clientId: string;
 }
 
 export interface OpMsg {
@@ -50,16 +52,53 @@ export interface PresenceLeaveMsg {
   clientId: string;
 }
 
-export type ClientToServer = JoinMsg | OpMsg;
-export type ServerToClient = JoinAckMsg | OpMsg | OpAckMsg | PresenceUpdateMsg | PresenceLeaveMsg;
+// ─── P6 라이브 커서 (US-PRES-02) ──────────────────────────────────
+/** C→S: caret 위치 보고. clientId는 서버가 태깅(클라 미전송). anchorId=caret 직전 문자 id. */
+export interface CursorMsg {
+  type: 'cursor';
+  pageId: string;
+  blockId: RgaId;
+  anchorId: RgaId | null;
+}
+/** S→C: 협업자 커서 broadcast (발신자 제외). 비영속(저장/roster 없음). */
+export interface CursorUpdateMsg {
+  type: 'cursor-update';
+  clientId: string;
+  blockId: RgaId;
+  anchorId: RgaId | null;
+}
+
+export type ClientToServer = JoinMsg | OpMsg | CursorMsg;
+export type ServerToClient =
+  | JoinAckMsg
+  | OpMsg
+  | OpAckMsg
+  | PresenceUpdateMsg
+  | PresenceLeaveMsg
+  | CursorUpdateMsg;
 
 // presence displayName 상한 — 64KiB payload를 displayName으로 채워 broadcast 증폭(DoS)하는 것을 차단(S2).
 const MAX_DISPLAY_NAME = 64;
+// RgaId siteId 상한 — 커서 anchorId의 siteId로 대용량 문자열을 채워 broadcast 증폭하는 것을 차단(C2).
+const MAX_SITE_ID = 64;
 
 // prototype pollution 방어: JSON.parse는 __proto__ 등을 own 속성으로 만들 수 있다.
 const DANGEROUS_KEYS = ['__proto__', 'constructor', 'prototype'];
 function hasDangerousKey(o: object): boolean {
   return DANGEROUS_KEYS.some((k) => Object.prototype.hasOwnProperty.call(o, k));
+}
+
+/** RgaId 구조 검증 (커서 blockId/anchorId). proto 가드 + 범위/길이 가드(C1·C2). */
+function isRgaId(v: unknown): v is RgaId {
+  if (typeof v !== 'object' || v === null || hasDangerousKey(v)) return false;
+  const o = v as Record<string, unknown>;
+  return (
+    typeof o.counter === 'number' &&
+    Number.isInteger(o.counter) && // C1: Infinity/NaN/소수 차단(JSON 직렬화 시 null화로 커서 점프 방지)
+    o.counter >= 0 &&
+    typeof o.siteId === 'string' &&
+    o.siteId.length <= MAX_SITE_ID // C2: broadcast 증폭 차단
+  );
 }
 
 function isWireEnvelope(v: unknown): v is WireEnvelope {
@@ -110,6 +149,17 @@ export function parseClientMessage(raw: string): ClientToServer | null {
     if (typeof o.pageId !== 'string') return null;
     if (!isWireEnvelope(o.op) || hasDangerousKey(o.op)) return null;
     return { type: 'op', pageId: o.pageId, op: o.op };
+  }
+  if (o.type === 'cursor') {
+    if (typeof o.pageId !== 'string') return null;
+    if (!isRgaId(o.blockId)) return null;
+    if (!(o.anchorId === null || isRgaId(o.anchorId))) return null;
+    return {
+      type: 'cursor',
+      pageId: o.pageId,
+      blockId: o.blockId,
+      anchorId: o.anchorId as RgaId | null,
+    };
   }
   return null;
 }

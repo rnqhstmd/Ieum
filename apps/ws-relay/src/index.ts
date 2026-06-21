@@ -16,6 +16,8 @@ export type {
   PresenceInfo,
   PresenceUpdateMsg,
   PresenceLeaveMsg,
+  CursorMsg,
+  CursorUpdateMsg,
   ClientToServer,
   ServerToClient,
 } from './protocol.js';

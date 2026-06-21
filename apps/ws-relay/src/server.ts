@@ -64,7 +64,9 @@ export function createRelayServer(opts: {
       sendAll(
         msg.type === 'join'
           ? registry.join(handle, msg.pageId, msg.presence) // P6: presence(displayName) 전달
-          : registry.handleOp(handle, msg),
+          : msg.type === 'cursor'
+            ? registry.handleCursor(handle, msg) // P6 커서: broadcast
+            : registry.handleOp(handle, msg),
       );
     });
 

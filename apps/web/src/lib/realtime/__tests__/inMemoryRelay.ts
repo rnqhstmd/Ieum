@@ -31,7 +31,9 @@ export function createInMemoryRelay(): InMemoryRelay {
           deliver(
             msg.type === 'join'
               ? reg.join(handle, msg.pageId, msg.presence) // P6: presence(displayName) 전달
-              : reg.handleOp(handle, msg),
+              : msg.type === 'cursor'
+                ? reg.handleCursor(handle, msg) // P6 커서: broadcast
+                : reg.handleOp(handle, msg),
           );
         },
         onMessage(cb) {

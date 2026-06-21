@@ -3,7 +3,7 @@
 // Dispatch[]로 반환만 한다(직접 send 안 함) → fake ClientHandle로 단위 테스트.
 // P6: presence(아바타 목록) 상태/색상 슬롯을 registry가 소유하며, ClientHandle은 불투명 유지.
 
-import type { ServerToClient, OpMsg, PresenceInfo, PresenceUpdateMsg } from './protocol.js';
+import type { ServerToClient, OpMsg, CursorMsg, PresenceInfo, PresenceUpdateMsg } from './protocol.js';
 
 /** 불투명 클라이언트 식별자 — server.ts가 실제 소켓과 매핑한다. */
 export interface ClientHandle {
@@ -68,9 +68,10 @@ export class RoomRegistry {
 
     const dispatches: Dispatch[] = [];
     // [0] join-ack — 불변식: 항상 Dispatch[0] (server.test/room.test의 join-ack 가정 보존).
+    // clientId(서버 부여)를 회신해 클라가 자기 커서를 렌더에서 제외할 수 있게 한다(P6 커서 AC-7).
     dispatches.push({
       target: client,
-      message: { type: 'join-ack', pageId, connectedClients: room.size },
+      message: { type: 'join-ack', pageId, connectedClients: room.size, clientId: client.id },
     });
     // self presence-update — 서버 할당 color를 발신자에게 회신(AC-7/BR-6, self/peer 동일 경로).
     dispatches.push({ target: client, message: presenceUpdate(selfInfo) });
@@ -104,6 +105,34 @@ export class RoomRegistry {
         for (const peer of room) {
           if (peer === client) continue; // AC-3/BR-2: 발신자 제외
           dispatches.push({ target: peer, message: msg });
+        }
+      }
+    }
+    return dispatches;
+  }
+
+  /**
+   * P6 커서: caret 위치를 같은 room의 다른 탭에 broadcast한다(발신자 제외).
+   * 저장/roster/ack 없음(BR-8 비영속) — 신규 접속자는 기존자가 다음 이동 시 받는다.
+   */
+  handleCursor(client: ClientHandle, msg: CursorMsg): Dispatch[] {
+    const dispatches: Dispatch[] = [];
+    // 보안: 실제 join한 room으로만 broadcast(교차 room 주입 차단, handleOp와 동형).
+    const joinedPage = this.clientRoom.get(client.id);
+    if (joinedPage !== undefined && joinedPage === msg.pageId) {
+      const room = this.rooms.get(joinedPage);
+      if (room) {
+        for (const peer of room) {
+          if (peer === client) continue; // 발신자 제외
+          dispatches.push({
+            target: peer,
+            message: {
+              type: 'cursor-update',
+              clientId: client.id,
+              blockId: msg.blockId,
+              anchorId: msg.anchorId,
+            },
+          });
         }
       }
     }
