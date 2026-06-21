@@ -33,8 +33,8 @@
 
 | 항목 | 사용자 스토리 | 핵심 수용 기준 | 상태 | Phase | 비고 |
 |------|--------------|---------------|------|-------|------|
-| US-INV-01 | OWNER가 이메일로 팀원 초대 | OWNER가 이메일 입력해 Invitation 생성; 초대 이메일 발송 (MVP: Resend) | ⬜ | P7 | |
-| US-INV-01 | 〃 | 이미 멤버인 이메일 초대 시 에러 메시지 반환 | ⬜ | P7 | |
+| US-INV-01 | OWNER가 이메일로 팀원 초대 | OWNER가 이메일 입력해 Invitation 생성; 초대 이메일 발송 (MVP: Resend) | ✅ | P7 | `createInvitation` PENDING 저장 + 메일 발송(fallback). 실제 Resend HTTP는 Phase4 TODO (PR #19) |
+| US-INV-01 | 〃 | 이미 멤버인 이메일 초대 시 에러 메시지 반환 | ✅ | P7 | INV-05 — 409 CONFLICT (PR #19) |
 | US-INV-02 | 초대 링크 클릭해 워크스페이스 합류 | 초대 링크는 고유 token 포함, 7일 후 만료 (expiresAt) | ⬜ | P7 | |
 | US-INV-02 | 〃 | 로그인 상태면 즉시 Membership 생성; 미로그인이면 로그인 후 처리 | ⬜ | P7 | |
 | US-INV-02 | 〃 | 초대 상태: `PENDING → ACCEPTED \| REVOKED \| EXPIRED` | ⬜ | P7 | |
@@ -49,7 +49,7 @@
 |------|-----------|------|-------|------|
 | 비멤버 접근 차단 | 워크스페이스 비멤버의 페이지 접근 시 403 반환 | ✅ | P2 | `requireWorkspaceMember`를 `PageService.createPage`/`getPageTree`에 적용 → 비멤버 403 (PR #4). auth `PERM-05`와 동일 항목 — 정합화. 단건/편집 엔드포인트 적용은 P5/P7 |
 | MEMBER 페이지 편집 | MEMBER는 워크스페이스 내 모든 페이지 편집 가능 | ⬜ | P7 | |
-| 초대 생성 권한 | MEMBER의 초대 생성 시도 → 403 | ⬜ | P7 | |
+| 초대 생성 권한 | MEMBER의 초대 생성 시도 → 403 | ✅ | P7 | `accessGuard.requireOwner` → 비OWNER 403 (PR #19) |
 | 멤버 제거 권한 | MEMBER의 다른 멤버 제거 시도 → 403 | ⬜ | P7 | |
 
 ---
