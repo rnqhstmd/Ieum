@@ -43,11 +43,11 @@
 
 | 항목 ID | 설명 | 상태 | Phase | 비고 |
 |---------|------|------|-------|------|
-| WS-AUTH-01 | WebSocket 연결 시 JWT 추출·검증 (`AUTH_SECRET` 공유) | ⬜ | P5 | 실시간 서버 구현 필요 |
-| WS-AUTH-02 | 연결 시 pageId → workspaceId → Membership 확인, 실패 시 ws.close(4003) | ⬜ | P5 | 실시간 서버 구현 필요 |
-| WS-AUTH-03 | 메시지 수신 시 서버가 연결 컨텍스트의 userId를 op에 태깅 (siteId는 세션 UUID, 신원 비교에 미사용) | ⬜ | P5 | 실시간 서버 구현 필요 |
-| WS-AUTH-04 | 멤버 제거 API 호출 시 해당 userId의 WebSocket 연결 강제 종료 | ⬜ | P5 | 멤버 제거 API + 실시간 서버 연동 필요 |
-| WS-AUTH-05 | WebSocket 메시지 크기 상한 설정 (64KB 초과 시 연결 종료) | ⬜ | P5 | 실시간 서버 구현 필요 |
+| WS-AUTH-01 | WebSocket 연결 시 JWT 추출·검증 (`AUTH_SECRET` 공유) | ⬜ | P5 후반 | **trust-relay userId 채택**(JWT 아님 — Spring은 서버측 세션). 웹이 `/api/users/me`로 userId 획득 후 join에 trust-relay. 신원 위조 방지(서명/세션 검증)는 후속 (PR #15) |
+| WS-AUTH-02 | 연결 시 pageId → workspaceId → Membership 확인, 실패 시 ws.close(4003) | ✅ | P5 후반 (PR #15) | Node `MembershipStore`(pages⋈memberships DB 조회), join 게이트 비멤버 `close(4003)`. 교차 room op 영속화 공백도 connPage 게이트로 마감 |
+| WS-AUTH-03 | 메시지 수신 시 서버가 연결 컨텍스트의 userId를 op에 태깅 (siteId는 세션 UUID, 신원 비교에 미사용) | ✅ | P5 후반 (PR #15) | 영속 op에 연결 userId를 `crdt_ops.created_by_id`에 태깅 (Flyway V4). siteId 미사용 |
+| WS-AUTH-04 | 멤버 제거 API 호출 시 해당 userId의 WebSocket 연결 강제 종료 | ⬜ | P7 | 멤버 제거 API(P7) 의존 — 연기 |
+| WS-AUTH-05 | WebSocket 메시지 크기 상한 설정 (64KB 초과 시 연결 종료) | ✅ | P5 | server.ts `maxPayload=64KiB` 기구현(PR #10) |
 
 ### 초대 흐름 (08-auth-and-permissions.md §5, 02-prd.md §7)
 
