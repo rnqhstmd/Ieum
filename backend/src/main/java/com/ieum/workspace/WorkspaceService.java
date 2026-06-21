@@ -27,6 +27,8 @@ public class WorkspaceService {
     private final MembershipRepository membershipRepository;
     private final UserRepository userRepository;
 
+    private static final int NAME_MAX = 100; // 워크스페이스 이름 최대 길이 (US-WS-02)
+
     // ───────────────────────────────────────────────
     // 개인 워크스페이스 보장
     // ───────────────────────────────────────────────
@@ -73,11 +75,24 @@ public class WorkspaceService {
      */
     @Transactional
     public WorkspaceDto createSharedWorkspace(UUID currentUserId, CreateWorkspaceRequest request) {
-        // TODO(Phase 1):
-        //   1. Workspace(type=SHARED, ownerId=currentUserId, name=request.name()) 저장
-        //   2. Membership(userId=currentUserId, workspaceId=saved.id(), role=OWNER) 저장
-        //   3. WorkspaceDto 반환
-        throw new UnsupportedOperationException("TODO(Phase 1): createSharedWorkspace");
+        String name = normalizeName(request.name());
+        Workspace ws = workspaceRepository.save(Workspace.builder()
+                .type(WorkspaceType.SHARED).ownerId(currentUserId).name(name).build());
+        membershipRepository.save(Membership.builder()
+                .userId(currentUserId).workspaceId(ws.getId()).role(MemberRole.OWNER).build());
+        return toDto(ws);
+    }
+
+    /**
+     * 워크스페이스 이름 정규화: 앞뒤 공백 제거 후 1~100자 검증 (US-WS-02).
+     * 위반(빈 문자열/공백만/100자 초과) 시 IllegalArgumentException → ApiExceptionHandler가 400 매핑.
+     */
+    private static String normalizeName(String raw) {
+        String name = (raw == null) ? "" : raw.trim();
+        if (name.isEmpty() || name.length() > NAME_MAX) {
+            throw new IllegalArgumentException("워크스페이스 이름은 1자 이상 " + NAME_MAX + "자 이하여야 합니다.");
+        }
+        return name;
     }
 
     /**

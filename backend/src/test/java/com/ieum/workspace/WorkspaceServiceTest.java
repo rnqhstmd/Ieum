@@ -9,6 +9,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.ieum.user.UserRepository;
+import com.ieum.workspace.dto.CreateWorkspaceRequest;
 import com.ieum.workspace.dto.WorkspaceDto;
 
 import java.util.List;
@@ -16,6 +17,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -154,5 +156,103 @@ class WorkspaceServiceTest {
 
         // Then
         assertThat(result).isEmpty();
+    }
+
+    // ── US-WS-02 / AC-1: 공유 워크스페이스 생성 + OWNER 멤버십 ──────────
+
+    @Test
+    @DisplayName("AC-1: createSharedWorkspace — SHARED 워크스페이스와 생성자 OWNER 멤버십을 저장하고 dto를 반환한다")
+    void createSharedWorkspace_savesSharedWorkspaceAndOwnerMembership() {
+        // Given
+        UUID ownerId = UUID.randomUUID();
+        UUID savedWsId = UUID.randomUUID();
+
+        when(workspaceRepository.save(any(Workspace.class))).thenAnswer(inv -> {
+            Workspace ws = inv.getArgument(0);
+            return Workspace.builder()
+                    .id(savedWsId)
+                    .name(ws.getName())
+                    .type(ws.getType())
+                    .ownerId(ws.getOwnerId())
+                    .build();
+        });
+        when(membershipRepository.save(any(Membership.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // When
+        WorkspaceDto result = workspaceService.createSharedWorkspace(
+                ownerId, new CreateWorkspaceRequest("팀 워크스페이스"));
+
+        // Then: Workspace 저장 내용 검증
+        ArgumentCaptor<Workspace> wsCaptor = ArgumentCaptor.forClass(Workspace.class);
+        verify(workspaceRepository).save(wsCaptor.capture());
+        Workspace savedWs = wsCaptor.getValue();
+        assertThat(savedWs.getType()).isEqualTo(WorkspaceType.SHARED);
+        assertThat(savedWs.getOwnerId()).isEqualTo(ownerId);
+        assertThat(savedWs.getName()).isEqualTo("팀 워크스페이스");
+
+        // Then: OWNER Membership 저장 내용 검증
+        ArgumentCaptor<Membership> memberCaptor = ArgumentCaptor.forClass(Membership.class);
+        verify(membershipRepository).save(memberCaptor.capture());
+        Membership savedMembership = memberCaptor.getValue();
+        assertThat(savedMembership.getRole()).isEqualTo(MemberRole.OWNER);
+        assertThat(savedMembership.getUserId()).isEqualTo(ownerId);
+        assertThat(savedMembership.getWorkspaceId()).isEqualTo(savedWsId);
+
+        // Then: 반환 dto 검증
+        assertThat(result.type()).isEqualTo(WorkspaceType.SHARED);
+        assertThat(result.ownerId()).isEqualTo(ownerId);
+        assertThat(result.name()).isEqualTo("팀 워크스페이스");
+    }
+
+    // ── AC-2: 이름 길이 경계값(1자·100자)은 저장된다 ───────────────────
+
+    @Test
+    @DisplayName("AC-2: createSharedWorkspace — 이름 1자/100자 경계값은 저장되고 반환 name이 입력과 같다")
+    void createSharedWorkspace_nameBoundary_1and100_ok() {
+        // Given
+        UUID ownerId = UUID.randomUUID();
+        when(workspaceRepository.save(any(Workspace.class))).thenAnswer(inv -> {
+            Workspace ws = inv.getArgument(0);
+            return Workspace.builder()
+                    .id(UUID.randomUUID())
+                    .name(ws.getName())
+                    .type(ws.getType())
+                    .ownerId(ws.getOwnerId())
+                    .build();
+        });
+        when(membershipRepository.save(any(Membership.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        String name1 = "가";
+        String name100 = "a".repeat(100);
+
+        // When
+        WorkspaceDto r1 = workspaceService.createSharedWorkspace(ownerId, new CreateWorkspaceRequest(name1));
+        WorkspaceDto r100 = workspaceService.createSharedWorkspace(ownerId, new CreateWorkspaceRequest(name100));
+
+        // Then
+        assertThat(r1.name()).isEqualTo(name1);
+        assertThat(r100.name()).isEqualTo(name100);
+        verify(workspaceRepository, times(2)).save(any(Workspace.class));
+    }
+
+    // ── AC-3: 빈/공백/100자 초과 이름은 거부되고 아무것도 저장되지 않는다 ──
+
+    @Test
+    @DisplayName("AC-3: createSharedWorkspace — 빈/공백/101자 이름은 IllegalArgumentException, 저장 없음")
+    void createSharedWorkspace_invalidName_throwsAndSavesNothing() {
+        // Given
+        UUID ownerId = UUID.randomUUID();
+        String tooLong = "a".repeat(101);
+
+        // When / Then: 각 무효 이름마다 예외
+        for (String invalid : new String[] {"", "   ", tooLong}) {
+            assertThatThrownBy(() ->
+                    workspaceService.createSharedWorkspace(ownerId, new CreateWorkspaceRequest(invalid)))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        // Then: 어떤 저장도 발생하지 않음
+        verify(workspaceRepository, never()).save(any());
+        verify(membershipRepository, never()).save(any());
     }
 }

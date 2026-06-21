@@ -42,7 +42,7 @@ public class WorkspaceController {
      */
     @PostMapping
     public ResponseEntity<WorkspaceDto> createWorkspace(@RequestBody CreateWorkspaceRequest request) {
-        UUID currentUserId = null; // TODO(Phase 1): 인증 컨텍스트에서 추출
+        UUID currentUserId = currentUserService.requireCurrentUserId();
         WorkspaceDto created = workspaceService.createSharedWorkspace(currentUserId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
