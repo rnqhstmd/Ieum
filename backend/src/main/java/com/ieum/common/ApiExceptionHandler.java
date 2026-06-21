@@ -40,6 +40,17 @@ public class ApiExceptionHandler {
     }
 
     /**
+     * 리소스 상태 충돌 → 409 Conflict (예: 이미 멤버인 이메일 초대)
+     */
+    @ExceptionHandler(ConflictException.class)
+    public ResponseEntity<ErrorResponse> handleConflict(ConflictException ex) {
+        log.warn("충돌: {}", ex.getMessage());
+        return ResponseEntity
+            .status(HttpStatus.CONFLICT)
+            .body(new ErrorResponse("CONFLICT", ex.getMessage()));
+    }
+
+    /**
      * 그 외 모든 예외 → 500 Internal Server Error
      * TODO: 운영 환경에서는 내부 메시지 노출 방지 처리 필요
      */
