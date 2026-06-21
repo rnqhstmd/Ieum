@@ -109,4 +109,23 @@ describe('PgOpStore — 실 DB 영속화 (testcontainers)', () => {
   it('AC-5(형식): UUID 형식이 아닌 pageId → rejected', async () => {
     expect(await store.append('not-a-uuid', wire('s1', 1))).toBe('rejected');
   });
+
+  // WS-AUTH T4 / AC-6: append에 userId 전달 시 crdt_ops.created_by_id에 저장(V4).
+  it('AC-6: userId 전달 시 created_by_id에 저장된다', async () => {
+    expect(await store.append(PAGE, wire('s_user', 300), USER)).toBe('persisted');
+    const r = await admin.query(
+      "SELECT created_by_id FROM crdt_ops WHERE page_id=$1 AND site_id='s_user'",
+      [PAGE],
+    );
+    expect(r.rows[0].created_by_id).toBe(USER);
+  });
+
+  it('AC-6: userId 없이 append하면 created_by_id는 NULL', async () => {
+    expect(await store.append(PAGE, wire('s_anon', 301))).toBe('persisted');
+    const r = await admin.query(
+      "SELECT created_by_id FROM crdt_ops WHERE page_id=$1 AND site_id='s_anon'",
+      [PAGE],
+    );
+    expect(r.rows[0].created_by_id).toBeNull();
+  });
 });

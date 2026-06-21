@@ -8,6 +8,9 @@ import type { WireEnvelope, RgaId } from '@ieum/crdt';
 export interface JoinMsg {
   type: 'join';
   pageId: string;
+  // WS-AUTH: 참여자의 인증 userId(웹이 /api/users/me로 얻어 trust-relay). 멤버십은 서버가
+  // DB로 판정한다. 선택적 — 게이트 비활성(DB 미구성) 시 미사용. 신원 위조 방지는 후속.
+  userId?: string;
   // P6: 참여 시 자신의 표시 이름(아바타용). 미제공 시 서버가 "익명 #N"으로 fallback(BR-4).
   presence?: { displayName?: string };
 }
@@ -131,6 +134,9 @@ export function parseClientMessage(raw: string): ClientToServer | null {
 
   if (o.type === 'join') {
     if (typeof o.pageId !== 'string') return null;
+    // userId(선택, trust-relay 신원): 문자열 + 길이 상한만 검증. 멤버십은 서버가 DB로 판정.
+    const userId =
+      typeof o.userId === 'string' && o.userId.length <= MAX_SITE_ID ? o.userId : undefined;
     // presence는 선택적. dangerous key는 즉시 null, 그 외 검증 실패는 presence만 버리고
     // join은 유효하게 둔다(서버가 BR-4 "익명 #N"으로 흡수).
     if (o.presence !== undefined && o.presence !== null) {
@@ -139,11 +145,11 @@ export function parseClientMessage(raw: string): ClientToServer | null {
         const p = o.presence as Record<string, unknown>;
         // 길이 상한 초과 displayName은 버린다(서버가 BR-4 "익명 #N"으로 흡수, S2 증폭 차단).
         if (typeof p.displayName === 'string' && p.displayName.length <= MAX_DISPLAY_NAME) {
-          return { type: 'join', pageId: o.pageId, presence: { displayName: p.displayName } };
+          return { type: 'join', pageId: o.pageId, userId, presence: { displayName: p.displayName } };
         }
       }
     }
-    return { type: 'join', pageId: o.pageId };
+    return { type: 'join', pageId: o.pageId, userId };
   }
   if (o.type === 'op') {
     if (typeof o.pageId !== 'string') return null;
