@@ -44,13 +44,20 @@ export class RoomRegistry {
   private readonly anonCounters = new Map<string, number>();
 
   join(client: ClientHandle, pageId: string, presence?: { displayName?: string }): Dispatch[] {
+    // 같은 client가 다른 room에 이미 있으면 먼저 이탈시킨다(소켓 유지 채 room 이동 시 유령 아바타·
+    // 슬롯 누수 방지, PR #11 리뷰). presence-leave Dispatch는 join-ack 불변식 유지를 위해 끝에 추가.
+    const currentPageId = this.clientRoom.get(client.id);
+    const leaveDispatches =
+      currentPageId !== undefined && currentPageId !== pageId ? this.leave(client) : [];
+
     let room = this.rooms.get(pageId);
     if (!room) {
       room = new Set<ClientHandle>();
       this.rooms.set(pageId, room);
     }
-    // 발신자 추가 전의 기존 접속자 — roster(발신자에게) + broadcast(기존자에게) 대상.
-    const peers = [...room];
+    // 발신자 추가 전의 기존 접속자 — roster·broadcast 대상. 자기 자신은 제외해 중복 join 시
+    // self presence-update가 중복 발송되지 않게 한다(PR #11 리뷰).
+    const peers = [...room].filter((peer) => peer.id !== client.id);
     room.add(client);
     this.clientRoom.set(client.id, pageId);
 
@@ -77,6 +84,8 @@ export class RoomRegistry {
     for (const peer of peers) {
       dispatches.push({ target: peer, message: presenceUpdate(selfInfo) });
     }
+    // room 전환 시 이전 room peer에게 보낼 presence-leave — 끝에 추가(join-ack=Dispatch[0] 유지).
+    dispatches.push(...leaveDispatches);
     return dispatches;
   }
 
@@ -169,6 +178,9 @@ export class RoomRegistry {
       slots = new Map<string, number>();
       this.colorSlots.set(pageId, slots);
     }
+    // 이미 슬롯이 있으면(중복 join) 기존 색을 유지한다(재할당 버그 방지, PR #11 리뷰).
+    const existing = slots.get(clientId);
+    if (existing !== undefined) return PRESENCE_COLORS[existing]!;
     const used = new Set(slots.values());
     let slot = PRESENCE_COLORS.findIndex((_, i) => !used.has(i));
     // 8슬롯이 모두 차면(9명+) 색상을 의도적으로 순환 재사용한다(중복 허용) — 07:538 정본.

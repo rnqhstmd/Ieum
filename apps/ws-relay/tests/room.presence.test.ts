@@ -120,4 +120,35 @@ describe('RoomRegistry — presence (아바타 목록)', () => {
       /^익명 #\d+$/,
     );
   });
+
+  // PR #11 gemini 리뷰: join idempotency (중복 join·room 전환)
+  it('리뷰: 중복 join(같은 client·page)은 self presence-update 중복 없이 색상이 안정적이다', () => {
+    const reg = new RoomRegistry();
+    const c1 = selfUpdate(reg.join(A, PAGE, { displayName: 'a' }), A)!.color;
+    const d2 = reg.join(A, PAGE, { displayName: 'a' }); // 같은 핸들 중복 join
+
+    // 발신자 자신에 대한 presence-update는 1건(self)만 — 자기 자신을 broadcast/roster에 포함하지 않음.
+    const selfA = pUpdates(d2, A).filter((x) => x.message.clientId === A.id);
+    expect(selfA).toHaveLength(1);
+    expect(selfUpdate(d2, A)!.color).toBe(c1); // 색상 재할당되지 않음
+    expect(reg.roomSize(PAGE)).toBe(1);
+  });
+
+  it('리뷰: 같은 client가 다른 page로 join하면 이전 room에서 이탈(presence-leave)한다', () => {
+    const reg = new RoomRegistry();
+    reg.join(B, PAGE, { displayName: 'b' }); // B는 PAGE에 잔류
+    reg.join(A, PAGE, { displayName: 'a' });
+    const d = reg.join(A, 'pg_other', { displayName: 'a' }); // A가 다른 page로 전환
+
+    // 이전 room(PAGE)의 남은 peer(B)에게 A의 presence-leave가 전달된다.
+    const leaveToB = d.filter(
+      (x) => x.message.type === 'presence-leave' && x.target === B,
+    );
+    expect(leaveToB).toHaveLength(1);
+    expect((leaveToB[0]!.message as PresenceLeaveMsg).clientId).toBe(A.id);
+    expect(reg.roomSize(PAGE)).toBe(1); // B만 남음
+    expect(reg.roomSize('pg_other')).toBe(1); // A
+    // 불변식 유지: 새 join의 join-ack는 여전히 Dispatch[0].
+    expect(d[0]!.message.type).toBe('join-ack');
+  });
 });
