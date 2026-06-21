@@ -25,3 +25,8 @@
 | **pendingBuffer** | `originId`가 아직 도착하지 않아 적용할 수 없는 op를 임시 보관하는 버퍼. 새 op 적용 후 `drainBuffer()`로 재검사된다. |
 | **toText()** | RGA 링크드 리스트를 순회하며 `deleted = false`인 노드의 value만 이어붙여 현재 문서 텍스트를 반환하는 함수. |
 | **packages/crdt** | 순수 TypeScript로 구현된 RGA CRDT 모듈. 외부 의존성 0, 네트워크·DOM·파일시스템 접근 없음. Node.js·브라우저·Vitest 환경 모두에서 동일하게 동작한다. |
+| **apps/ws-relay** | P5 WebSocket relay 서버 패키지. 순수 라우팅(`RoomRegistry`)과 `ws` 어댑터(`server.ts`)를 분리한다. `@ieum/crdt`는 타입 용도로만 import하며 런타임 CRDT를 적용하지 않는다(op 불투명 전달). |
+| **RoomRegistry** | relay 서버의 순수 라우팅 클래스. pageId(room)별 연결 집합을 관리하고, join/op 처리 결과를 "누구에게 무엇을 보낼지"(`Dispatch[]`)로 **반환만** 한다(직접 send 안 함 → fake로 단위 테스트). op는 클라이언트가 실제 join한 room으로만 broadcast하고 발신자를 제외한다(교차 주입 차단·BR-2). |
+| **wire 봉투 (WireEnvelope)** | op를 네트워크로 전송하기 위한 봉투. `{ siteId, seq, opType, payload }` 구조. `toWire(op, seq, siteId)`/`fromWire(env)`로 직렬화하며, `opType`은 op의 type(소문자)을 그대로 담는다. relay는 이 봉투를 파싱하지 않고 불투명하게 중계한다. |
+| **genesis 블록** | P5 walking skeleton에서 sync(서버 초기 상태 전달) 미구현을 보완하기 위해, 모든 탭이 동일한 고정 id로 생성하는 초기 paragraph 블록(`createCollaborativeDocument`). 같은 pageId의 두 탭이 같은 블록 위에서 인라인 op를 수렴시킬 수 있게 한다. sync/snapshot 구현 후 대체된다. |
+| **Transport (클라이언트)** | 클라이언트의 WebSocket 송수신을 추상화한 인터페이스(`send`/`onMessage`/`onOpen`/`onClose`/`close`). 실제 WebSocket 어댑터와 재연결 래퍼(`createRetryingTransport`)로 분리되어, 테스트에서 FakeTransport를 주입해 relay 로직을 네트워크 없이 검증한다. |

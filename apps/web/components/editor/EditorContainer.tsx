@@ -1,23 +1,19 @@
 'use client';
 
-// ─── P3 에디터 컨테이너 (FR-8) ─────────────────────────────────────
-// 제목 + 블록 본문 상태와 자동저장 메커니즘을 보유하는 client 래퍼.
-// 실제 영속화(save-port)는 P5(CrdtOp/Snapshot)에서 연결한다.
+// ─── P5 에디터 컨테이너 — CRDT 진실 원천 + relay 연결 ─────────────
+// 본문 블록은 @ieum/crdt DocState(useCrdtDocument)를 진실 원천으로 사용한다.
+// 제목은 CRDT 범위 밖이므로 로컬 상태로 유지한다. autosave 스텁은 유지하며
+// (저장 no-op) 영속화 슬라이스에서 CRDT op 영속화로 교체한다.
 
 import { useCallback, useState } from 'react';
 import Editor from '@/components/editor/Editor';
 import TitleEditor from '@/components/editor/TitleEditor';
-import { createEmptyDocument, type EditorBlock } from '@/src/lib/editor/document';
+import { useCrdtDocument } from '@/src/lib/editor/useCrdtDocument';
 import { useAutosave, type SaveStatus } from '@/src/lib/editor/useAutosave';
 
 interface EditorContainerProps {
   pageId: string;
   initialTitle?: string;
-}
-
-interface PageDraft {
-  title: string;
-  blocks: EditorBlock[];
 }
 
 const STATUS_LABEL: Record<SaveStatus, string> = {
@@ -29,23 +25,17 @@ const STATUS_LABEL: Record<SaveStatus, string> = {
 
 export default function EditorContainer({ pageId, initialTitle = '' }: EditorContainerProps) {
   const [title, setTitle] = useState(initialTitle);
-  const [blocks, setBlocks] = useState<EditorBlock[]>(() => createEmptyDocument());
+  const { blocks, onBlockInput } = useCrdtDocument(pageId);
 
-  // P3 save-port 스텁: P5에서 pageId 스코프의 CrdtOp/Snapshot 전송으로 교체.
-  const save = useCallback(async (_draft: PageDraft) => {
-    // no-op (P5 연결 지점)
+  // 제목 save-port 스텁: 영속화 슬라이스에서 실제 저장으로 교체.
+  const save = useCallback(async (_title: string) => {
+    // no-op (영속화 연결 지점)
   }, []);
-
-  const { status, notifyChange } = useAutosave<PageDraft>(save, 500);
+  const { status, notifyChange } = useAutosave<string>(save, 500);
 
   const handleTitleChange = (next: string) => {
     setTitle(next);
-    notifyChange({ title: next, blocks });
-  };
-
-  const handleBlocksChange = (next: EditorBlock[]) => {
-    setBlocks(next);
-    notifyChange({ title, blocks: next });
+    notifyChange(next);
   };
 
   return (
@@ -54,7 +44,7 @@ export default function EditorContainer({ pageId, initialTitle = '' }: EditorCon
         {STATUS_LABEL[status]}
       </div>
       <TitleEditor title={title} onChange={handleTitleChange} />
-      <Editor blocks={blocks} onChange={handleBlocksChange} />
+      <Editor blocks={blocks} onBlockInput={onBlockInput} />
     </div>
   );
 }

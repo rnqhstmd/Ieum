@@ -1,23 +1,19 @@
 'use client';
 
-// ─── P3 블록 에디터 (US-EDIT-01·03) ────────────────────────────────
-// controlled 컴포넌트: 상태를 보유하지 않고 blocks/onChange만 받는다.
-// 렌더는 blocks에서 단방향 파생(모델=진실 원천). contenteditable은 입력
-// 수단일 뿐 상태를 보유하지 않으며, 편집은 순수 document 연산을 거친다.
+// ─── P5 CRDT 블록 에디터 (AC-7, FR-6) ──────────────────────────────
+// DocState 파생 EditorBlockView(id:RgaId)를 렌더한다. contenteditable은 입력 수단일
+// 뿐 상태를 보유하지 않으며, 텍스트 변경은 onBlockInput(blockId,newText)으로만 전달한다
+// (diff→op는 상위 useCrdtDocument가 수행). walking skeleton: 구조 편집(Enter 분할/
+// Backspace 병합)·마크다운 단축키는 비활성(블록 단위 op 전송은 후속 슬라이스).
 
 import { useEffect, useRef } from 'react';
 import type { FormEvent, KeyboardEvent } from 'react';
-import {
-  type EditorBlock,
-  updateText,
-  splitBlock,
-  mergeWithPrevious,
-  applyMarkdownShortcut,
-} from '@/src/lib/editor/document';
+import { idKey } from '@ieum/crdt';
+import type { EditorBlockView, RgaId } from '@ieum/crdt';
 
 interface EditorProps {
-  blocks: EditorBlock[];
-  onChange: (blocks: EditorBlock[]) => void;
+  blocks: EditorBlockView[];
+  onBlockInput: (blockId: RgaId, newText: string) => void;
 }
 
 /** 현재 선택 영역의 블록 내 캐럿 offset. 미지원(jsdom) 시 fallback. */
@@ -34,8 +30,7 @@ function getCaretOffset(el: HTMLElement, fallback: number): number {
   return fallback;
 }
 
-// whitespace-pre-wrap: Shift+Enter 등으로 들어온 줄바꿈(\n)이 축소되지 않고 보존됨.
-const BLOCK_CLASS: Record<EditorBlock['type'], string> = {
+const BLOCK_CLASS: Record<EditorBlockView['type'], string> = {
   paragraph: 'text-[15px] leading-7 text-body whitespace-pre-wrap',
   heading1: 'text-3xl font-bold text-ink mt-4 whitespace-pre-wrap',
   heading2: 'text-2xl font-semibold text-ink mt-3 whitespace-pre-wrap',
@@ -44,14 +39,19 @@ const BLOCK_CLASS: Record<EditorBlock['type'], string> = {
 };
 
 interface BlockViewProps {
-  block: EditorBlock;
-  onInput: (id: string, text: string) => void;
-  onKeyDown: (e: KeyboardEvent<HTMLElement>, block: EditorBlock) => void;
-  registerRef: (id: string, el: HTMLElement | null) => void;
+  block: EditorBlockView;
+  onInput: (e: FormEvent<HTMLElement>) => void;
+  onCompositionStart: () => void;
+  onCompositionEnd: (e: { currentTarget: HTMLElement }) => void;
+  onKeyDown: (e: KeyboardEvent<HTMLElement>) => void;
 }
 
-function BlockView({ block, onInput, onKeyDown, registerRef }: BlockViewProps) {
+function BlockView({ block, onInput, onCompositionStart, onCompositionEnd, onKeyDown }: BlockViewProps) {
   const ref = useRef<HTMLElement | null>(null);
+  // 콜백 ref: HTMLElement를 받아 각 시맨틱 태그(h1/li/p…)에 공통 적용(타입 분산 회피).
+  const setRef = (el: HTMLElement | null) => {
+    ref.current = el;
+  };
 
   // 모델 → DOM 단방향 반영. 동일하면 건드리지 않아 캐럿 점프를 피한다.
   useEffect(() => {
@@ -59,19 +59,16 @@ function BlockView({ block, onInput, onKeyDown, registerRef }: BlockViewProps) {
     if (el && el.textContent !== block.text) el.textContent = block.text;
   }, [block.text]);
 
-  const setRef = (el: HTMLElement | null) => {
-    ref.current = el;
-    registerRef(block.id, el);
-  };
-
   const common = {
-    'data-block-id': block.id,
+    'data-block-id': idKey(block.id),
     contentEditable: true,
     suppressContentEditableWarning: true,
-    onInput: (e: FormEvent<HTMLElement>) => onInput(block.id, e.currentTarget.textContent ?? ''),
-    onKeyDown: (e: KeyboardEvent<HTMLElement>) => onKeyDown(e, block),
+    onInput,
+    onCompositionStart,
+    onCompositionEnd,
+    onKeyDown,
     className: `${BLOCK_CLASS[block.type]} px-1 outline-none focus:bg-hover/40 rounded`,
-  };
+  } as const;
 
   switch (block.type) {
     case 'heading1':
@@ -91,74 +88,24 @@ function BlockView({ block, onInput, onKeyDown, registerRef }: BlockViewProps) {
   }
 }
 
-export default function Editor({ blocks, onChange }: EditorProps) {
-  const refs = useRef<Map<string, HTMLElement>>(new Map());
-  const pending = useRef<{ id: string; offset: number } | null>(null);
+export default function Editor({ blocks, onBlockInput }: EditorProps) {
+  // IME 조합 추적 — 조합 중 input은 무시하고 compositionend에서 최종 텍스트만 emit.
+  const composing = useRef(false);
 
-  const registerRef = (id: string, el: HTMLElement | null) => {
-    if (el) refs.current.set(id, el);
-    else refs.current.delete(id);
+  const handleInput = (blockId: RgaId, e: FormEvent<HTMLElement>) => {
+    if (composing.current) return;
+    onBlockInput(blockId, e.currentTarget.textContent ?? '');
   };
 
-  // split/merge 후 새 위치로 포커스·캐럿 복원(best-effort, 실브라우저 기준).
-  useEffect(() => {
-    const p = pending.current;
-    if (!p) return;
-    pending.current = null;
-    const el = refs.current.get(p.id);
-    if (!el) return;
-    el.focus();
-    try {
-      const sel = window.getSelection();
-      const range = document.createRange();
-      // firstChild가 텍스트 노드(nodeType 3)일 때만 offset 설정. 그 외(빈 블록·<br>
-      // 등 요소 노드)는 IndexSizeError 위험이 있어 블록 시작으로 폴백한다.
-      if (el.firstChild && el.firstChild.nodeType === Node.TEXT_NODE) {
-        const max = (el.textContent ?? '').length;
-        range.setStart(el.firstChild, Math.min(p.offset, max));
-      } else {
-        range.setStart(el, 0);
-      }
-      range.collapse(true);
-      sel?.removeAllRanges();
-      sel?.addRange(range);
-    } catch {
-      /* caret 복원 미지원 환경 */
-    }
-  }, [blocks]);
-
-  const handleInput = (id: string, text: string) => {
-    const updated = updateText(blocks, id, text);
-    // 블록 시작의 마크다운 접두사(# / ## / ### / - )를 타입으로 변환(FR-7).
-    const shortcut = applyMarkdownShortcut(updated, id);
-    if (shortcut) {
-      // 타입 변경으로 블록 태그가 remount되므로 캐럿을 명시적으로 복원한다.
-      const block = shortcut.find((b) => b.id === id);
-      pending.current = { id, offset: block ? block.text.length : 0 };
-      onChange(shortcut);
-    } else {
-      onChange(updated);
-    }
-  };
-
-  const handleKeyDown = (e: KeyboardEvent<HTMLElement>, block: EditorBlock) => {
-    const el = e.currentTarget;
+  const handleKeyDown = (e: KeyboardEvent<HTMLElement>, block: EditorBlockView) => {
+    // 구조 편집 비활성: Enter(블록 분할)·블록 시작 Backspace(병합) 차단.
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      const offset = getCaretOffset(el, block.text.length);
-      const { doc, newBlockId } = splitBlock(blocks, block.id, offset);
-      pending.current = { id: newBlockId, offset: 0 };
-      onChange(doc);
-    } else if (e.key === 'Backspace') {
-      const offset = getCaretOffset(el, block.text.length);
-      if (offset === 0) {
-        const res = mergeWithPrevious(blocks, block.id);
-        if (res) {
-          e.preventDefault();
-          pending.current = { id: res.caretBlockId, offset: res.caretOffset };
-          onChange(res.doc);
-        }
-      }
+      return;
+    }
+    if (e.key === 'Backspace') {
+      const offset = getCaretOffset(e.currentTarget, block.text.length);
+      if (offset === 0) e.preventDefault();
     }
   };
 
@@ -166,11 +113,17 @@ export default function Editor({ blocks, onChange }: EditorProps) {
     <div role="group" aria-label="페이지 본문" className="space-y-1">
       {blocks.map((b) => (
         <BlockView
-          key={b.id}
+          key={idKey(b.id)}
           block={b}
-          onInput={handleInput}
-          onKeyDown={handleKeyDown}
-          registerRef={registerRef}
+          onInput={(e) => handleInput(b.id, e)}
+          onCompositionStart={() => {
+            composing.current = true;
+          }}
+          onCompositionEnd={(e) => {
+            composing.current = false;
+            onBlockInput(b.id, e.currentTarget.textContent ?? '');
+          }}
+          onKeyDown={(e) => handleKeyDown(e, b)}
         />
       ))}
     </div>

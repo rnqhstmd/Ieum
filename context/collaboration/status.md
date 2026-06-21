@@ -13,6 +13,8 @@
 > **P4 완료 (PR #6, `@ieum/crdt` 인라인 RGA 코어)**: 인라인 문자 RGA(createRga/localInsert/localDelete/applyOp/toText/serialize·deserialize) + 4속성(수렴·멱등·교환·인과버퍼) 구현·검증 완료.
 >
 > **P4b 완료 (PR #9, 2-level 블록 RGA)**: DocState(외부 블록 RGA + 블록별 내부 인라인 RGA), applyDocOp(block-insert/delete·block-set-type LWW·인라인 blockId 스코프), splitBlock/mergeBlockWithPrev/inheritType, 2단 인과버퍼, docToBlocks 도출, wire 봉투 codec(toWire/fromWire) 구현·검증 완료(crdt 51/51). rga.ts 제네릭화(createRga<V>/applyOp<V>) — 인라인 RGA 백워드 호환.
+>
+> **P5 walking skeleton 완료 (PR #10, WebSocket relay)**: 신규 relay 서버(`apps/ws-relay`, room=pageId, join/op broadcast 발신자 제외/op-ack) + 클라 realtime 레이어(Transport 추상화·relayClient·diff→인라인 op) + 에디터 CRDT(DocState) 연결로 2탭 인라인 타이핑 라이브 수렴 구현. in-memory relay 통합 테스트로 검증(ws-relay 19 + web 94 통과). **후속(이 row 외 ⬜ 유지)**: CrdtOp DB 영속화(US-CRDT-02/03 P5 후반), 실 브라우저 Playwright e2e(TDD 검증 표), sync/snapshot·재접속 복원(P8), presence(P6). 구조 편집(Enter/Backspace) 수렴은 블록 op 전송 후속 슬라이스. 인증은 BR-5 목 처리(localhost, 후속 강화).
 
 ---
 
@@ -22,8 +24,8 @@
 
 | 항목 | 설명 | 수용 기준 요약 | 상태 | Phase |
 |------|------|--------------|------|-------|
-| US-CRDT-01 | 편집이 상대방 화면에 즉시 반영 | 2인 이상 동시 편집 시 모든 클라이언트가 동일한 최종 텍스트로 수렴 | ⬜ | P5 |
-| US-CRDT-01 | 편집이 상대방 화면에 즉시 반영 | op가 WebSocket relay로 전송되고 같은 페이지의 다른 클라이언트에 broadcast됨 | ⬜ | P5 |
+| US-CRDT-01 | 편집이 상대방 화면에 즉시 반영 | 2인 이상 동시 편집 시 모든 클라이언트가 동일한 최종 텍스트로 수렴 | ✅ | P5 (PR #10) |
+| US-CRDT-01 | 편집이 상대방 화면에 즉시 반영 | op가 WebSocket relay로 전송되고 같은 페이지의 다른 클라이언트에 broadcast됨 | ✅ | P5 (PR #10) |
 | US-CRDT-01 | 편집이 상대방 화면에 즉시 반영 | 동일 위치 동시 삽입이 siteId 기준 결정론적 순서로 해소됨 | ✅ | P4 |
 | US-CRDT-02 | 재연결 후 편집 내용 유실 없음 | 신규 접속 클라이언트가 snapshot 또는 op 재생으로 초기화됨 | ⬜ | P8 |
 | US-CRDT-02 | 재연결 후 편집 내용 유실 없음 | 모든 op가 CrdtOp 테이블에 append-only로 저장됨 | ⬜ | P5 |
