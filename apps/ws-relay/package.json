@@ -14,7 +14,8 @@
     "start": "tsx src/main.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:int": "vitest run --config vitest.int.config.ts"
   },
   "dependencies": {
     "@ieum/crdt": "workspace:*",
