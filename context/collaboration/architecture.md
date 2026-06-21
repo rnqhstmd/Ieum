@@ -16,6 +16,10 @@
 > - 클라이언트 `apps/web/src/lib/realtime`: `Transport` 추상화(+재연결) · 순수 `relayClient` · `protocol`. `apps/web/src/lib/editor/crdtDocument`(텍스트 diff→인라인 op, 공유 genesis 블록) · `useCrdtDocument` 훅(DocState 진실 원천 + relay 배선).
 > - 검증: 2탭 수렴은 Playwright 미설치로 in-memory relay(실 `RoomRegistry` + FakeTransport) vitest 통합 테스트로 결정적 검증. 실 브라우저 e2e는 후속 과제.
 
+> **P5 후반 op 영속화 구현 현황 (PR #14)**: 위 표 "relay 서버 → DB 영속화"를 구현했다. 단 정본은 **Node ws-relay가 pg로 Postgres `crdt_ops`에 직접 append**(표의 "Prisma"는 문서-현실 드리프트 — 실 스택은 Spring/Flyway가 DDL 소유 + Node가 write). Spring `collaboration` 모듈(`OpService` 스텁)은 폐기.
+> - 영속화는 `OpStore` 포트(`opStore.ts`)로 격리: `InMemoryOpStore`(멱등 fake + `RELAY_DATABASE_URL` 미설정 fallback) / `PgOpStore`(`pgOpStore.ts`, `INSERT … ON CONFLICT(page_id,site_id,seq) DO NOTHING RETURNING server_seq`). `RoomRegistry.handleOp(outcome)`는 순수 유지(영속화 결과만 받아 Dispatch[] 결정), 비동기 INSERT는 `server.ts` 어댑터 담당(영속화 선행 후 dispatch + 소켓별 직렬화로 `server_seq` 도착순서 보존).
+> - DDL: **Flyway V3**(`V3__crdt_ops_optype_wire.sql`)로 `crdt_ops.op_type` CHECK를 wire opType 5종(`insert`/`delete`/`block-insert`/`block-delete`/`block-set-type`, 소문자)으로 확장. 검증: 단위 + testcontainers 통합(V1~V3·user→workspace→page 픽스처). **후속**: 재접속 op replay·Snapshot(P8), WS 연결/페이지 인가(교차 room 영속화 인가 공백), 자동저장 클라 배선.
+
 ### RGA CRDT 핵심 설계
 
 - **2-level 블록 RGA (MVP)**: 외부 블록 리스트 RGA(paragraph/heading1~3/bullet 타입의 블록 단위 요소)와 블록별 내부 인라인 텍스트 RGA로 구성된다. 이후 인라인 서식·추가 블록 타입으로 확장한다.

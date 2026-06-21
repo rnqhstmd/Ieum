@@ -19,6 +19,8 @@
 > **P6 presence walking skeleton 완료 (PR #11, 아바타 목록)**: relay `RoomRegistry`에 presence 상태/색상 슬롯 확장(join 메시지에 displayName 운반, self+roster+broadcast Dispatch, leave→presence-leave), 신규 메시지 `presence-update`/`presence-leave`, 클라 `usePresence` 훅(순수 reducer)·`PresenceAvatars`(색 배지+이니셜)로 2탭 접속자 목록 실시간 수렴/이탈 구현. in-memory relay 통합 테스트로 검증(ws-relay 33 + web 116). displayName은 siteId 자동생성, 색상 8색 팔레트 서버 할당. **후속(이 row 외 ⬜ 유지)**: 라이브 커서(US-PRES-02, anchorId·debounce), presence 영속화, 실 인증, half-open heartbeat. 인증은 BR-5 연장(displayName 신뢰 중계).
 >
 > **P6 라이브 커서 완료 (PR #12, feat/p6-cursor — feat/p6-presence 위 적층)**: `@ieum/crdt`에 `resolveAnchorToIndex`(tombstone fallback)·`indexToAnchorId`(caret 직전 문자) 순수 함수 추가. relay `cursor`/`cursor-update` 메시지 + `handleCursor`(발신자 제외 broadcast, 비영속) + join-ack `clientId`(자기 식별). 클라 `useCursor` 훅·Editor 50ms debounce 전송·원격 커서 오버레이(색막대+이름). **US-PRES-01/02/03 전부 ✅ — presence 슬라이스 완결.** anchorId↔index·2탭 수렴은 crdt 순수 단위 + in-memory relay 통합으로 검증(crdt 64 + ws-relay 43 + web 134). **후속**: 선택영역 커서, 서버 cursor rate-limit, FR-7 이름 자동숨김, presence/cursor 영속화·실 인증.
+>
+> **P5 후반 op 영속화 완료 (PR #14, feat/p5b-op-persistence — main 위 단독)**: SSOT 정본대로 **Node ws-relay가 op를 Postgres `crdt_ops`에 append-only 영속화**(US-CRDT-02/03)한다. 영속화를 `OpStore` 포트(InMemoryOpStore fake/fallback + PgOpStore 실DB)로 격리해 `RoomRegistry.handleOp(outcome)`는 순수 유지(`persisted`→[ack,broadcast]/`duplicate`→[ack]/`rejected`→[]). 멱등은 `(page_id,site_id,seq)` 유니크 + `ON CONFLICT DO NOTHING`. 서버 어댑터는 영속화 선행 후 dispatch(미영속 무전파) + 소켓별 직렬화로 `server_seq` 도착순서 보존. **Flyway V3**로 `op_type` CHECK를 wire opType 5종(소문자)으로 확장(Spring `collaboration` 스텁은 폐기 — INSERT 코드 0건). 검증: 단위 + testcontainers 통합(V1~V3·user→workspace→page 픽스처)로 ws-relay 61 + web 135 + backend gradle BUILD SUCCESSFUL. **후속**: 재접속 op replay·Snapshot(P8), WS 연결/페이지 인가(WS-AUTH, 교차 room 영속화 인가 공백 마감), 자동저장 클라 save-port 배선(US-EDIT-02), 실 e2e.
 
 ---
 
@@ -32,8 +34,8 @@
 | US-CRDT-01 | 편집이 상대방 화면에 즉시 반영 | op가 WebSocket relay로 전송되고 같은 페이지의 다른 클라이언트에 broadcast됨 | ✅ | P5 (PR #10) |
 | US-CRDT-01 | 편집이 상대방 화면에 즉시 반영 | 동일 위치 동시 삽입이 siteId 기준 결정론적 순서로 해소됨 | ✅ | P4 |
 | US-CRDT-02 | 재연결 후 편집 내용 유실 없음 | 신규 접속 클라이언트가 snapshot 또는 op 재생으로 초기화됨 | ⬜ | P8 |
-| US-CRDT-02 | 재연결 후 편집 내용 유실 없음 | 모든 op가 CrdtOp 테이블에 append-only로 저장됨 | ⬜ | P5 |
-| US-CRDT-03 | op 로그로 편집 이력 추적 가능 | CrdtOp 테이블 append-only 보장, 감사 추적 가능 | ⬜ | P5 |
+| US-CRDT-02 | 재연결 후 편집 내용 유실 없음 | 모든 op가 CrdtOp 테이블에 append-only로 저장됨 | ✅ | P5 후반 (PR #14) |
+| US-CRDT-03 | op 로그로 편집 이력 추적 가능 | CrdtOp 테이블 append-only 보장, 감사 추적 가능 | ✅ | P5 후반 (PR #14) |
 | US-CRDT-03 | op 로그로 편집 이력 추적 가능 | wire 봉투: `{siteId, seq, opType, payload}` — payload는 아래 정본 구조 | ✅ | P4b (PR #9) |
 | US-CRDT-03 | op 로그로 편집 이력 추적 가능 | 인라인 INSERT payload: `{id, originId, value, blockId}` (blockId로 블록 스코프) | ✅ | P4b (PR #9) |
 | US-CRDT-03 | op 로그로 편집 이력 추적 가능 | 인라인 DELETE payload: `{targetId, blockId}` — tombstone 처리 | ✅ | P4b (PR #9) |
