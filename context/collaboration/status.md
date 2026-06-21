@@ -15,6 +15,8 @@
 > **P4b 완료 (PR #9, 2-level 블록 RGA)**: DocState(외부 블록 RGA + 블록별 내부 인라인 RGA), applyDocOp(block-insert/delete·block-set-type LWW·인라인 blockId 스코프), splitBlock/mergeBlockWithPrev/inheritType, 2단 인과버퍼, docToBlocks 도출, wire 봉투 codec(toWire/fromWire) 구현·검증 완료(crdt 51/51). rga.ts 제네릭화(createRga<V>/applyOp<V>) — 인라인 RGA 백워드 호환.
 >
 > **P5 walking skeleton 완료 (PR #10, WebSocket relay)**: 신규 relay 서버(`apps/ws-relay`, room=pageId, join/op broadcast 발신자 제외/op-ack) + 클라 realtime 레이어(Transport 추상화·relayClient·diff→인라인 op) + 에디터 CRDT(DocState) 연결로 2탭 인라인 타이핑 라이브 수렴 구현. in-memory relay 통합 테스트로 검증(ws-relay 19 + web 94 통과). **후속(이 row 외 ⬜ 유지)**: CrdtOp DB 영속화(US-CRDT-02/03 P5 후반), 실 브라우저 Playwright e2e(TDD 검증 표), sync/snapshot·재접속 복원(P8), presence(P6). 구조 편집(Enter/Backspace) 수렴은 블록 op 전송 후속 슬라이스. 인증은 BR-5 목 처리(localhost, 후속 강화).
+>
+> **P6 presence walking skeleton 완료 (PR #11, 아바타 목록)**: relay `RoomRegistry`에 presence 상태/색상 슬롯 확장(join 메시지에 displayName 운반, self+roster+broadcast Dispatch, leave→presence-leave), 신규 메시지 `presence-update`/`presence-leave`, 클라 `usePresence` 훅(순수 reducer)·`PresenceAvatars`(색 배지+이니셜)로 2탭 접속자 목록 실시간 수렴/이탈 구현. in-memory relay 통합 테스트로 검증(ws-relay 33 + web 116). displayName은 siteId 자동생성, 색상 8색 팔레트 서버 할당. **후속(이 row 외 ⬜ 유지)**: 라이브 커서(US-PRES-02, anchorId·debounce), presence 영속화, 실 인증, half-open heartbeat. 인증은 BR-5 연장(displayName 신뢰 중계).
 
 ---
 
@@ -41,13 +43,13 @@
 
 | 항목 | 설명 | 수용 기준 요약 | 상태 | Phase |
 |------|------|--------------|------|-------|
-| US-PRES-01 | 같은 페이지 접속자 아바타 확인 | 현재 페이지 접속자 목록(이름, 아바타 이미지)이 에디터 상단에 표시됨 | ⬜ | P6 |
-| US-PRES-01 | 같은 페이지 접속자 아바타 확인 | presence 정보는 서버에 영속 저장하지 않음(메모리 내 상태, 재연결 시 재구독) | ⬜ | P6 |
-| US-PRES-02 | 협업자 커서 위치가 에디터에 표시 | 협업자 커서 위치가 에디터 내에 컬러 표시(이름 레이블 포함)됨 | ⬜ | P6 |
-| US-PRES-02 | 협업자 커서 위치가 에디터에 표시 | 커서 위치가 RGA 노드 id(anchorId)로 표현되어 op 적용 후에도 올바른 위치 유지 | ⬜ | P6 |
-| US-PRES-02 | 협업자 커서 위치가 에디터에 표시 | presence 업데이트는 커서 이동 이벤트 시 debounce(50ms) 후 전송 | ⬜ | P6 |
-| US-PRES-03 | "이 페이지 보는 중" 표시·소멸 | 페이지 접속 시 relay 서버에 presence 참여 알림, 탭 종료·페이지 이동 시 이탈 알림 | ⬜ | P6 |
-| US-PRES-03 | "이 페이지 보는 중" 표시·소멸 | 사용자가 페이지를 떠나면 커서가 즉시 사라짐(relay 서버 disconnect 처리) | ⬜ | P6 |
+| US-PRES-01 | 같은 페이지 접속자 아바타 확인 | 현재 페이지 접속자 목록(이름, 아바타)이 에디터 상단에 표시됨 | ✅ | P6 (PR #11) |
+| US-PRES-01 | 같은 페이지 접속자 아바타 확인 | presence 정보는 서버에 영속 저장하지 않음(메모리 내 상태) | ✅ | P6 (PR #11) |
+| US-PRES-02 | 협업자 커서 위치가 에디터에 표시 | 협업자 커서 위치가 에디터 내에 컬러 표시(이름 레이블 포함)됨 | ⬜ | P6 (커서 후속) |
+| US-PRES-02 | 협업자 커서 위치가 에디터에 표시 | 커서 위치가 RGA 노드 id(anchorId)로 표현되어 op 적용 후에도 올바른 위치 유지 | ⬜ | P6 (커서 후속) |
+| US-PRES-02 | 협업자 커서 위치가 에디터에 표시 | presence 업데이트는 커서 이동 이벤트 시 debounce(50ms) 후 전송 | ⬜ | P6 (커서 후속) |
+| US-PRES-03 | "이 페이지 보는 중" 표시·소멸 | 페이지 접속 시 relay 서버에 presence 참여 알림, 탭 종료·페이지 이동 시 이탈 알림 | ✅ | P6 (PR #11) |
+| US-PRES-03 | "이 페이지 보는 중" 표시·소멸 | 사용자가 페이지를 떠나면 아바타가 즉시 사라짐(relay disconnect→presence-leave) | ✅ | P6 (PR #11) |
 
 ### TDD 검증 속성 (07-collaboration-crdt.md §7)
 
