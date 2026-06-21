@@ -9,6 +9,7 @@ import type { ClientHandle } from './room.js';
 import { parseClientMessage } from './protocol.js';
 import { InMemoryOpStore } from './opStore.js';
 import type { OpStore } from './opStore.js';
+import type { MembershipStore } from './membershipStore.js';
 
 export interface RelayServer {
   close(): Promise<void>;
@@ -28,9 +29,13 @@ export function createRelayServer(opts: {
   maxPayload?: number;
   // op 영속화 store. 미주입 시 InMemoryOpStore(DB 미구성 fallback, AC-8/S3).
   opStore?: OpStore;
+  // WS-AUTH-02 멤버십 게이트. 주입 시 join에 userId+멤버십 검증(비멤버 close 4003).
+  // 미주입 시 게이트 off(DB 미구성 walking skeleton — 기존 동작 유지).
+  membershipStore?: MembershipStore;
 }): Promise<RelayServer> {
   const registry = opts.registry ?? new RoomRegistry();
   const opStore: OpStore = opts.opStore ?? new InMemoryOpStore();
+  const membershipGate = opts.membershipStore; // undefined = 게이트 off
   const maxConnections = opts.maxConnections ?? DEFAULT_MAX_CONNECTIONS;
   const wss = new WebSocketServer({
     port: opts.port,
@@ -63,29 +68,62 @@ export function createRelayServer(opts: {
       }
     };
 
-    // op는 영속화(비동기) 선행 후 dispatch한다. 한 소켓에서 연속 도착한 op가 reorder되지
-    // 않도록 소켓별 promise 체인으로 직렬화한다(server_seq가 도착 순서 반영). 소켓 간은 병렬.
-    let opChain: Promise<void> = Promise.resolve();
+    // join·op는 비동기(멤버십 조회/영속화)이므로 소켓별 promise 체인으로 직렬화한다.
+    // join이 op보다 먼저 처리되어 connPage가 설정되도록 FIFO를 보장한다. 소켓 간은 병렬.
+    let socketChain: Promise<void> = Promise.resolve();
+    let connUserId: string | null = null; // 인가된 연결 userId (WS-AUTH-03 op 태깅)
+    let connPage: string | null = null; // 인가 합류한 page (교차 room 영속화 마감 기준)
     socket.on('message', (raw: { toString(): string }) => {
       const msg = parseClientMessage(raw.toString());
       if (!msg) return; // 잘못된 JSON/규격 외 메시지는 무시
-      if (msg.type === 'join') {
-        sendAll(registry.join(handle, msg.pageId, msg.presence)); // P6: presence(displayName) 전달
-        return;
-      }
       if (msg.type === 'cursor') {
-        sendAll(registry.handleCursor(handle, msg)); // P6 커서: broadcast(비영속)
+        sendAll(registry.handleCursor(handle, msg)); // P6 커서: broadcast(비영속, 게이트 무관)
         return;
       }
-      // op: append 선행 → outcome으로 dispatch (S1: 미영속 op 전파 금지).
+      if (msg.type === 'join') {
+        const joinMsg = msg;
+        socketChain = socketChain.then(async () => {
+          // WS-AUTH-02: 게이트 활성 시 userId+멤버십 검증, 실패하면 close(4003).
+          if (membershipGate) {
+            if (
+              joinMsg.userId === undefined ||
+              !(await membershipGate.isMember(joinMsg.userId, joinMsg.pageId))
+            ) {
+              try {
+                socket.close(4003, 'forbidden');
+              } catch {
+                /* 이미 닫힘 */
+              }
+              return;
+            }
+            connUserId = joinMsg.userId;
+          }
+          connPage = joinMsg.pageId; // 게이트 off여도 교차 room 마감 기준으로 설정
+          sendAll(registry.join(handle, joinMsg.pageId, joinMsg.presence)); // P6 presence 전달
+        }).catch(() => {
+          // 체인 내 예기치 못한 예외가 socketChain을 영구 reject시켜 이후 메시지를 막는 것을 방지한다
+          // (gemini CRITICAL). 인가 경로 오류이므로 연결을 1011로 안전하게 정리한다.
+          try {
+            socket.close(1011, 'internal error');
+          } catch {
+            /* 이미 닫힘 */
+          }
+        });
+        return;
+      }
+      // op: 인가 합류 page로만 영속/전파(교차 room 마감 S1/AC-7) → append(userId 태깅) → dispatch.
       const opMsg = msg;
-      opChain = opChain.then(async () => {
+      socketChain = socketChain.then(async () => {
+        if (connPage === null || opMsg.pageId !== connPage) return; // 미합류/교차 room: 무영속·무전파
         try {
-          const outcome = await opStore.append(opMsg.pageId, opMsg.op);
+          const outcome = await opStore.append(opMsg.pageId, opMsg.op, connUserId);
           sendAll(registry.handleOp(handle, opMsg, outcome));
         } catch {
-          // 영속화 실패(연결 끊김 등): 무전파·무ack (AC-6). 프로세스 보호.
+          // 영속화 실패(연결 끊김 등): 무전파·무ack (S1). 프로세스 보호.
         }
+      }).catch(() => {
+        // 예기치 못한 예외로 socketChain이 reject되어 이후 op가 막히는 것을 방지(gemini CRITICAL).
+        // 단일 op 실패는 연결을 끊지 않고 체인만 복구한다.
       });
     });
 

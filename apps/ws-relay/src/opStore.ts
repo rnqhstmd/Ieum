@@ -9,8 +9,11 @@ import type { WireEnvelope } from '@ieum/crdt';
 export type AppendOutcome = 'persisted' | 'duplicate' | 'rejected';
 
 export interface OpStore {
-  /** op를 영속화한다. (page_id,site_id,seq) 멱등. 반환 outcome으로 dispatch 분기. */
-  append(pageId: string, op: WireEnvelope): Promise<AppendOutcome>;
+  /**
+   * op를 영속화한다. (page_id,site_id,seq) 멱등. 반환 outcome으로 dispatch 분기.
+   * userId는 WS 연결의 인증 사용자(WS-AUTH-03 created_by_id 태깅) — 선택적(미인가 경로는 null).
+   */
+  append(pageId: string, op: WireEnvelope, userId?: string | null): Promise<AppendOutcome>;
   /** 연결 풀 등 리소스 정리(선택적). */
   close?(): Promise<void>;
 }
@@ -30,7 +33,7 @@ export function isUuid(v: string): boolean {
 export class InMemoryOpStore implements OpStore {
   private readonly seen = new Set<string>();
 
-  async append(pageId: string, op: WireEnvelope): Promise<AppendOutcome> {
+  async append(pageId: string, op: WireEnvelope, _userId?: string | null): Promise<AppendOutcome> {
     if (!isUuid(pageId)) return 'rejected';
     const key = `${pageId}|${op.siteId}|${op.seq}`;
     if (this.seen.has(key)) return 'duplicate';
