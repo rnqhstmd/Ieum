@@ -1,0 +1,17 @@
+ .../src/lib/realtime/__tests__/inMemoryRelay.ts    |    2 +-
+ apps/ws-relay/package.json                         |    3 +
+ apps/ws-relay/src/index.ts                         |    3 +
+ apps/ws-relay/src/main.ts                          |   11 +-
+ apps/ws-relay/src/opStore.ts                       |   40 +
+ apps/ws-relay/src/pgOpStore.ts                     |   50 +
+ apps/ws-relay/src/room.ts                          |   13 +-
+ apps/ws-relay/src/server.ts                        |   43 +-
+ apps/ws-relay/tests/opStore.test.ts                |   42 +
+ apps/ws-relay/tests/pgOpStore.int.test.ts          |  112 ++
+ apps/ws-relay/tests/room.test.ts                   |   55 +-
+ apps/ws-relay/tests/server.test.ts                 |  101 ++
+ .../db/migration/V3__crdt_ops_optype_wire.sql      |   15 +
+ pnpm-lock.yaml                                     | 1317 +++++++++++++++++++-
+ 14 files changed, 1776 insertions(+), 31 deletions(-)
+---
+위는 요약입니다. 변경 파일을 Read 도구로 직접 확인하라.

@@ -1,0 +1,7 @@
+ apps/web/components/editor/EditorContainer.tsx     | 11 +--
+ .../src/lib/editor/__tests__/usePageTitle.test.ts  | 47 +++++++++++
+ apps/web/src/lib/editor/usePageTitle.ts            | 47 +++++++++++
+ .../java/com/ieum/page/PageDetailController.java   | 41 ++++++++++
+ .../com/ieum/page/PageDetailIntegrationTest.java   | 90 ++++++++++++++++++++++
+ context/page/status.md                             |  2 +-
+ 6 files changed, 230 insertions(+), 8 deletions(-)

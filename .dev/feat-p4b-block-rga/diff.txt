@@ -1,0 +1,950 @@
+diff --git a/packages/crdt/src/block.ts b/packages/crdt/src/block.ts
+new file mode 100644
+index 0000000..0cc2bf2
+--- /dev/null
++++ b/packages/crdt/src/block.ts
+@@ -0,0 +1,243 @@
++// ─── 2-level 블록 RGA (P4b) ──────────────────────────────────────
++// 외부 블록 RGA(RgaState<BlockMeta>) + 블록별 내부 인라인 RGA(RgaState<string>).
++// 정렬·인과버퍼·멱등 머신은 rga.ts의 제네릭 createRga/applyOp를 공유한다.
++// 블록 전용 의미론(LWW 타입, blockId 스코프, 블록 미도착 인라인 버퍼, split/merge)만 여기 둔다.
++
++import type {
++  RgaId,
++  RgaState,
++  RgaNode,
++  BlockMeta,
++  BlockType,
++  BlockInsertOp,
++  BlockDeleteOp,
++  BlockSetTypeOp,
++  InlineInsertOp,
++  InlineDeleteOp,
++  AnyOp,
++} from './types.js';
++import { createRga, applyOp, toText, getVisibleNodes } from './rga.js';
++import { idKey } from './id.js';
++import {
++  makeBlockInsertOp,
++  makeBlockDeleteOp,
++  makeBlockSetTypeOp,
++  makeInlineInsertOp,
++  makeInlineDeleteOp,
++} from './op.js';
++
++// ─── 문서 상태 ────────────────────────────────────────────────────
++
++export interface DocState {
++  siteId: string;
++  localClock: number; // 로컬 op id 발급용 단조 클락 (블록·인라인 공용)
++  blockRga: RgaState<BlockMeta>; // 외부 블록 리스트 RGA
++  inlineRgas: Map<string, RgaState<string>>; // idKey(blockId) → 블록별 내부 인라인 RGA
++  pendingInline: (InlineInsertOp | InlineDeleteOp)[]; // 블록 미도착 인라인 op 버퍼
++  pendingSetType: BlockSetTypeOp[]; // 블록 미도착 set-type 버퍼
++}
++
++/** 렌더링용 블록 도출 결과. (P3 EditorBlock과 형태 정합; id는 RgaId) */
++export interface EditorBlockView {
++  id: RgaId;
++  type: BlockType;
++  text: string;
++}
++
++// ─── createDocument ──────────────────────────────────────────────
++
++/** 빈 paragraph 블록 1개로 시작하는 새 문서를 만든다. (AC-1) */
++export function createDocument(siteId: string): DocState {
++  const doc: DocState = {
++    siteId,
++    localClock: 0,
++    blockRga: createRga<BlockMeta>(siteId),
++    inlineRgas: new Map(),
++    pendingInline: [],
++    pendingSetType: [],
++  };
++  const firstId: RgaId = { counter: ++doc.localClock, siteId };
++  applyDocOp(doc, makeBlockInsertOp(firstId, null, 'paragraph'));
++  return doc;
++}
++
++// ─── applyDocOp ──────────────────────────────────────────────────
++
++/** 임의 op(AnyOp)를 문서에 적용한다. 멱등·인과버퍼 보장. (AC-3,4,5,6,7,13,14) */
++export function applyDocOp(doc: DocState, op: AnyOp): void {
++  switch (op.type) {
++    case 'block-insert': {
++      const value: BlockMeta = { type: op.blockType, typeClock: 0, typeSiteId: '' };
++      applyOp(doc.blockRga, { type: 'insert', id: op.id, originId: op.originId, value });
++      const key = idKey(op.id);
++      // 멱등: 기존 인라인 RGA를 덮어쓰지 않는다.
++      if (!doc.inlineRgas.has(key)) doc.inlineRgas.set(key, createRga(doc.siteId));
++      drainPending(doc); // 새 블록 도착 → 보류 인라인/set-type 재시도
++      return;
++    }
++    case 'block-delete': {
++      applyOp(doc.blockRga, { type: 'delete', targetId: op.targetId });
++      return;
++    }
++    case 'block-set-type': {
++      const node = doc.blockRga.nodeMap.get(idKey(op.blockId));
++      if (!node) {
++        doc.pendingSetType.push(op); // 인과 버퍼: 블록 미도착
++        return;
++      }
++      applyLww(node.value, op);
++      return;
++    }
++    case 'insert': {
++      // InlineInsertOp
++      const inline = doc.inlineRgas.get(idKey(op.blockId));
++      if (!inline) {
++        doc.pendingInline.push(op); // 블록 미도착 → 버퍼
++        return;
++      }
++      applyOp(inline, op);
++      return;
++    }
++    case 'delete': {
++      // InlineDeleteOp
++      const inline = doc.inlineRgas.get(idKey(op.blockId));
++      if (!inline) {
++        doc.pendingInline.push(op);
++        return;
++      }
++      applyOp(inline, op);
++      return;
++    }
++  }
++}
++
++/** block-set-type LWW: (clock DESC, siteId DESC) 최대가 승자. 멱등·교환. */
++function applyLww(meta: BlockMeta, op: BlockSetTypeOp): void {
++  const win =
++    op.clock > meta.typeClock ||
++    (op.clock === meta.typeClock && op.siteId > meta.typeSiteId);
++  if (win) {
++    meta.type = op.blockType;
++    meta.typeClock = op.clock;
++    meta.typeSiteId = op.siteId;
++  }
++}
++
++/**
++ * 블록 도착이 보류 op(인라인/set-type)를 풀 수 있으므로 진행이 멈출 때까지 재시도한다.
++ * 인라인 op가 블록에 라우팅된 뒤, 블록 내부 문자 originId 인과버퍼는 인라인 RGA가 자체 처리(2단 버퍼).
++ */
++function drainPending(doc: DocState): void {
++  let progress = true;
++  while (progress) {
++    progress = false;
++    doc.pendingInline = doc.pendingInline.filter((op) => {
++      const inline = doc.inlineRgas.get(idKey(op.blockId));
++      if (!inline) return true;
++      applyOp(inline, op);
++      progress = true;
++      return false;
++    });
++    doc.pendingSetType = doc.pendingSetType.filter((op) => {
++      const node = doc.blockRga.nodeMap.get(idKey(op.blockId));
++      if (!node) return true;
++      applyLww(node.value, op);
++      progress = true;
++      return false;
++    });
++  }
++}
++
++// ─── docToBlocks (도출) ──────────────────────────────────────────
++
++/** 외부 RGA 가시 순서대로 블록을 도출한다. tombstone 제외, 각 블록 텍스트 포함. (AC-1,2) */
++export function docToBlocks(doc: DocState): EditorBlockView[] {
++  return getVisibleNodes(doc.blockRga).map((b) => {
++    const inline = doc.inlineRgas.get(idKey(b.id));
++    return { id: b.id, type: b.value.type, text: inline ? toText(inline) : '' };
++  });
++}
++
++// ─── 로컬 편집 헬퍼 ──────────────────────────────────────────────
++
++/** Enter 분할 시 새 블록 타입 규칙. (Q1=A, §4M-3) */
++export function inheritType(t: BlockType): BlockType {
++  return t === 'heading1' || t === 'heading2' || t === 'heading3' ? 'paragraph' : t;
++}
++
++/**
++ * 블록 분할(Enter). 커서 이후 가시 문자를 새 블록으로 옮긴다. (AC-8,9, §4M-3)
++ * 반환: [BlockInsertOp, ...InlineDeleteOp(원본 tail), ...InlineInsertOp(새 블록)]. 로컬 즉시 적용.
++ */
++export function splitBlock(doc: DocState, blockId: RgaId, cursorIndex: number): AnyOp[] {
++  const blockNode = doc.blockRga.nodeMap.get(idKey(blockId));
++  const inline = doc.inlineRgas.get(idKey(blockId));
++  if (!blockNode || !inline) return [];
++
++  const newBlockId: RgaId = { counter: ++doc.localClock, siteId: doc.siteId };
++  const blockInsert: BlockInsertOp = makeBlockInsertOp(
++    newBlockId,
++    blockId,
++    inheritType(blockNode.value.type),
++  );
++
++  const tail = getVisibleNodes(inline).slice(cursorIndex);
++  const deleteOps: InlineDeleteOp[] = tail.map((n) => makeInlineDeleteOp(n.id, blockId));
++
++  const insertOps: InlineInsertOp[] = [];
++  let prevId: RgaId | null = null;
++  for (const n of tail) {
++    const id: RgaId = { counter: ++doc.localClock, siteId: doc.siteId };
++    insertOps.push(makeInlineInsertOp(id, prevId, n.value, newBlockId));
++    prevId = id;
++  }
++
++  const ops: AnyOp[] = [blockInsert, ...deleteOps, ...insertOps];
++  for (const op of ops) applyDocOp(doc, op);
++  return ops;
++}
++
++/**
++ * 블록 병합(Backspace at index 0). 현재 블록 내용을 이전 가시 블록 끝에 붙이고 현재 블록 삭제. (AC-10,11, §4M-4)
++ * 첫 블록이면 null. 반환: [...InlineInsertOp(이전 블록), BlockDeleteOp]. 로컬 즉시 적용.
++ */
++export function mergeBlockWithPrev(doc: DocState, blockId: RgaId): AnyOp[] | null {
++  const prev = getPrevVisibleBlock(doc, blockId);
++  if (!prev) return null;
++
++  const src = doc.inlineRgas.get(idKey(blockId));
++  const dest = doc.inlineRgas.get(idKey(prev.id));
++  if (!src || !dest) return null;
++
++  const srcNodes = getVisibleNodes(src);
++  const destNodes = getVisibleNodes(dest);
++  let prevId: RgaId | null =
++    destNodes.length > 0 ? destNodes[destNodes.length - 1]!.id : null;
++
++  const insertOps: InlineInsertOp[] = [];
++  for (const n of srcNodes) {
++    const id: RgaId = { counter: ++doc.localClock, siteId: doc.siteId };
++    insertOps.push(makeInlineInsertOp(id, prevId, n.value, prev.id));
++    prevId = id;
++  }
++
++  const blockDelete: BlockDeleteOp = makeBlockDeleteOp(blockId);
++  const ops: AnyOp[] = [...insertOps, blockDelete];
++  for (const op of ops) applyDocOp(doc, op);
++  return ops;
++}
++
++/** 블록 타입 변경(로컬). localClock을 증가시켜 BlockSetTypeOp를 생성·적용. (FR-13) */
++export function setBlockType(doc: DocState, blockId: RgaId, type: BlockType): BlockSetTypeOp {
++  const op = makeBlockSetTypeOp(blockId, type, ++doc.localClock, doc.siteId);
++  applyDocOp(doc, op);
++  return op;
++}
++
++/** blockId 직전의 가시 블록을 반환한다. 첫 블록이면 null. */
++function getPrevVisibleBlock(doc: DocState, blockId: RgaId): RgaNode<BlockMeta> | null {
++  const blocks = getVisibleNodes(doc.blockRga);
++  const idx = blocks.findIndex((b) => idKey(b.id) === idKey(blockId));
++  if (idx <= 0) return null;
++  return blocks[idx - 1] ?? null;
++}
+diff --git a/packages/crdt/src/index.ts b/packages/crdt/src/index.ts
+index f1b719c..95a47df 100644
+--- a/packages/crdt/src/index.ts
++++ b/packages/crdt/src/index.ts
+@@ -2,8 +2,31 @@
+ // 07 §8-2 public API 재export.
+ // 외부 런타임 의존성 0 — 순수 TypeScript.
+ 
+-// 함수
+-export { createRga, applyOp, localInsert, localDelete, toText, serializeRga, deserializeRga } from './rga.js';
++// 함수 (인라인 RGA 코어 + 제네릭 getVisibleNodes)
++export {
++  createRga,
++  applyOp,
++  localInsert,
++  localDelete,
++  toText,
++  getVisibleNodes,
++  serializeRga,
++  deserializeRga,
++} from './rga.js';
++
++// 2-level 블록 RGA (P4b)
++export {
++  createDocument,
++  applyDocOp,
++  docToBlocks,
++  splitBlock,
++  mergeBlockWithPrev,
++  setBlockType,
++  inheritType,
++} from './block.js';
++
++// wire 봉투 codec
++export { toWire, fromWire } from './wire.js';
+ 
+ // id 유틸
+ export { compareIds, idEquals, idKey } from './id.js';
+@@ -20,6 +43,8 @@ export {
+   makeBlockInsertOp,
+   makeBlockDeleteOp,
+   makeBlockSetTypeOp,
++  makeInlineInsertOp,
++  makeInlineDeleteOp,
+ } from './op.js';
+ 
+ // 타입
+@@ -42,3 +67,7 @@ export type {
+   InlineDeleteOp,
+   AnyOp,
+ } from './types.js';
++
++// 2-level 블록 RGA 타입 (P4b)
++export type { DocState, EditorBlockView } from './block.js';
++export type { WireEnvelope } from './wire.js';
+diff --git a/packages/crdt/src/op.ts b/packages/crdt/src/op.ts
+index 02ccfe3..8c0c5c9 100644
+--- a/packages/crdt/src/op.ts
++++ b/packages/crdt/src/op.ts
+@@ -7,6 +7,8 @@ import type {
+   BlockDeleteOp,
+   BlockSetTypeOp,
+   BlockType,
++  InlineInsertOp,
++  InlineDeleteOp,
+ } from './types.js';
+ 
+ // ─── 타입 가드 ────────────────────────────────────────────────────
+@@ -83,8 +85,7 @@ export function makeBlockDeleteOp(targetId: RgaId): BlockDeleteOp {
+ }
+ 
+ /**
+- * BlockSetTypeOp를 생성한다.
+- * TODO(Phase 2): LWW 판정 로직 통합
++ * BlockSetTypeOp를 생성한다. LWW 판정은 applyDocOp(block.ts)에서 수행한다.
+  */
+ export function makeBlockSetTypeOp(
+   blockId: RgaId,
+@@ -92,6 +93,24 @@ export function makeBlockSetTypeOp(
+   clock: number,
+   siteId: string,
+ ): BlockSetTypeOp {
+-  // TODO: Phase 2 (TDD) — LWW 판정 통합
+   return { type: 'block-set-type', blockId, blockType, clock, siteId };
+ }
++
++/**
++ * InlineInsertOp를 생성한다 — blockId 스코프가 추가된 인라인 삽입.
++ */
++export function makeInlineInsertOp(
++  id: RgaId,
++  originId: RgaId | null,
++  value: string,
++  blockId: RgaId,
++): InlineInsertOp {
++  return { type: 'insert', id, originId, value, blockId };
++}
++
++/**
++ * InlineDeleteOp를 생성한다 — blockId 스코프가 추가된 인라인 삭제.
++ */
++export function makeInlineDeleteOp(targetId: RgaId, blockId: RgaId): InlineDeleteOp {
++  return { type: 'delete', targetId, blockId };
++}
+diff --git a/packages/crdt/src/rga.ts b/packages/crdt/src/rga.ts
+index 82c5a62..d79908f 100644
+--- a/packages/crdt/src/rga.ts
++++ b/packages/crdt/src/rga.ts
+@@ -14,14 +14,17 @@ import { idKey, idEquals, compareIds } from './id.js';
+ /**
+  * 새 RGA 상태를 생성한다.
+  * sentinel 노드를 링크드 리스트의 헤드로 초기화한다.
++ *
++ * 제네릭 V: 인라인 텍스트 RGA는 V=string(기본), 외부 블록 RGA는 V=BlockMeta.
++ * sentinel은 항상 deleted=true이고 toText/getVisibleNodes에서 제외되므로
++ * value가 절대 읽히지 않는다 → '' 캐스트는 안전(블록 RGA에서도 동일).
+  */
+-export function createRga(siteId: string): RgaState {
+-  // sentinel: id=(0, '') 는 절대 충돌하지 않는 특수 노드
+-  const sentinel: RgaNode = {
++export function createRga<V = string>(siteId: string): RgaState<V> {
++  const sentinel: RgaNode<V> = {
+     id: { counter: 0, siteId: '' },
+     originId: null,
+-    value: '',
+-    deleted: true, // sentinel은 항상 삭제 상태 — toText()에서 제외
++    value: '' as unknown as V, // 절대 읽히지 않음 (deleted=true sentinel)
++    deleted: true,
+     next: null,
+   };
+ 
+@@ -45,7 +48,7 @@ export function createRga(siteId: string): RgaState {
+  * - insert: 이미 적용된 id면 무시(멱등). originId 미도착이면 pendingBuffer에 보관.
+  *   삽입 후 drainBuffer로 풀린 op를 재적용.
+  */
+-export function applyOp(rga: RgaState, op: RgaOp): void {
++export function applyOp<V = string>(rga: RgaState<V>, op: RgaOp<V>): void {
+   if (op.type === 'delete') {
+     const key = idKey(op.targetId);
+     const node = rga.nodeMap.get(key);
+@@ -70,7 +73,7 @@ export function applyOp(rga: RgaState, op: RgaOp): void {
+ }
+ 
+ /** InsertOp로부터 새 활성 노드(tombstone 아님)를 만든다. */
+-function nodeFromInsert(op: InsertOp): RgaNode {
++function nodeFromInsert<V>(op: InsertOp<V>): RgaNode<V> {
+   return {
+     id: op.id,
+     originId: op.originId,
+@@ -132,6 +135,22 @@ export function toText(rga: RgaState): string {
+   return chars.join('');
+ }
+ 
++// ─── getVisibleNodes (제네릭) ─────────────────────────────────────
++
++/**
++ * 가시(tombstone 아님) 노드를 링크드 리스트 순서대로 반환한다.
++ * 인라인 RGA(V=string)와 블록 RGA(V=BlockMeta) 모두에서 사용한다.
++ */
++export function getVisibleNodes<V = string>(rga: RgaState<V>): RgaNode<V>[] {
++  const out: RgaNode<V>[] = [];
++  let cursor = rga.sentinel.next;
++  while (cursor) {
++    if (!cursor.deleted) out.push(cursor);
++    cursor = cursor.next;
++  }
++  return out;
++}
++
+ // ─── serializeRga ────────────────────────────────────────────────
+ 
+ /**
+@@ -189,7 +208,7 @@ function sameOrigin(a: RgaId | null, b: RgaId | null): boolean {
+ }
+ 
+ /**
+- * 가시 텍스트 기준 index번째 노드를 반환한다. 범위 밖이면 null.
++ * 가시 텍스트 기준 index번째 노드를 반환한다. 범위 밖이면 null. (인라인 전용)
+  */
+ function getVisibleNodeAt(rga: RgaState, index: number): RgaNode | null {
+   if (index < 0) return null;
+@@ -206,7 +225,7 @@ function getVisibleNodeAt(rga: RgaState, index: number): RgaNode | null {
+ }
+ 
+ /** id로 노드를 찾는다. null이면 sentinel을 반환한다. */
+-function findNodeById(rga: RgaState, id: RgaId | null): RgaNode {
++function findNodeById<V>(rga: RgaState<V>, id: RgaId | null): RgaNode<V> {
+   if (id === null) return rga.sentinel;
+   return rga.nodeMap.get(idKey(id)) ?? rga.sentinel;
+ }
+@@ -215,7 +234,7 @@ function findNodeById(rga: RgaState, id: RgaId | null): RgaNode {
+  * DFS 평면 리스트에서 node의 서브트리(node + 모든 후손)의 마지막 노드를 반환한다.
+  * 같은 originId 형제 사이에 끼어 있는 후손을 건너뛰기 위해 사용한다 (정확한 RGA 삽입).
+  */
+-function endOfSubtree(node: RgaNode): RgaNode {
++function endOfSubtree<V>(node: RgaNode<V>): RgaNode<V> {
+   const subtreeIds = new Set<string>([idKey(node.id)]);
+   let last = node;
+   let cursor = node.next;
+@@ -232,7 +251,7 @@ function endOfSubtree(node: RgaNode): RgaNode {
+  * 같은 originId 형제들과 compareIds로 tie-break 정렬하되,
+  * newNode보다 앞서는 형제의 서브트리 전체를 건너뛴다 (중첩 정확성).
+  */
+-function insertNode(rga: RgaState, newNode: RgaNode): void {
++function insertNode<V>(rga: RgaState<V>, newNode: RgaNode<V>): void {
+   let insertAfter = findNodeById(rga, newNode.originId);
+   let cursor = insertAfter.next;
+ 
+@@ -260,7 +279,7 @@ function insertNode(rga: RgaState, newNode: RgaNode): void {
+ }
+ 
+ /** 인과적으로 준비된 op인지 확인한다. (07 §6-1) */
+-function isCausallyReady(rga: RgaState, op: InsertOp): boolean {
++function isCausallyReady<V>(rga: RgaState<V>, op: InsertOp<V>): boolean {
+   return op.originId === null || rga.nodeMap.has(idKey(op.originId));
+ }
+ 
+@@ -268,7 +287,7 @@ function isCausallyReady(rga: RgaState, op: InsertOp): boolean {
+  * pendingBuffer에서 이제 적용 가능한 op를 꺼내 순서대로 적용한다. (07 §6-1)
+  * 적용으로 새 노드가 생기면 또 다른 op가 풀릴 수 있으므로 진행이 멈출 때까지 반복한다.
+  */
+-function drainBuffer(rga: RgaState): void {
++function drainBuffer<V>(rga: RgaState<V>): void {
+   let progress = true;
+   while (progress) {
+     progress = false;
+diff --git a/packages/crdt/src/wire.ts b/packages/crdt/src/wire.ts
+new file mode 100644
+index 0000000..106f39e
+--- /dev/null
++++ b/packages/crdt/src/wire.ts
+@@ -0,0 +1,38 @@
++// ─── Wire 봉투 (op 전송 직렬화) ──────────────────────────────────
++// op는 이미 JSON 안전한 평범한 객체이므로 봉투는 메타(siteId/seq/opType)만 덧입힌다.
++// seq는 P5(relay/영속화)가 (pageId, siteId, seq) 유니크를 위해 발급하며 codec은 보관만 한다.
++
++import type { AnyOp } from './types.js';
++
++export interface WireEnvelope {
++  siteId: string; // 발신 사이트 (P5 sender 신원)
++  seq: number; // 발신 사이트별 시퀀스 번호
++  opType: AnyOp['type'];
++  payload: AnyOp;
++}
++
++/**
++ * op를 wire 봉투로 감싼다.
++ * siteId 우선순위: 명시 인자 > op.id.siteId(insert/block-insert) > op.siteId(set-type) > op.targetId.siteId(delete).
++ */
++export function toWire(op: AnyOp, seq: number, siteId?: string): WireEnvelope {
++  return { siteId: siteId ?? originSiteId(op), seq, opType: op.type, payload: op };
++}
++
++/** 봉투에서 op를 꺼낸다. */
++export function fromWire(env: WireEnvelope): AnyOp {
++  return env.payload;
++}
++
++function originSiteId(op: AnyOp): string {
++  switch (op.type) {
++    case 'insert':
++    case 'block-insert':
++      return op.id.siteId;
++    case 'block-set-type':
++      return op.siteId;
++    case 'delete':
++    case 'block-delete':
++      return op.targetId.siteId;
++  }
++}
+diff --git a/packages/crdt/tests/block.test.ts b/packages/crdt/tests/block.test.ts
+new file mode 100644
+index 0000000..d656fef
+--- /dev/null
++++ b/packages/crdt/tests/block.test.ts
+@@ -0,0 +1,365 @@
++import { describe, it, expect } from 'vitest';
++import {
++  createDocument,
++  applyDocOp,
++  docToBlocks,
++  splitBlock,
++  mergeBlockWithPrev,
++  setBlockType,
++  inheritType,
++  createRga,
++  makeBlockInsertOp,
++  makeBlockDeleteOp,
++  makeBlockSetTypeOp,
++  makeInlineInsertOp,
++  makeInlineDeleteOp,
++} from '../src/index.js';
++import { idKey } from '../src/id.js';
++import type { DocState, AnyOp, BlockMeta, RgaId } from '../src/index.js';
++
++// ─── 테스트 헬퍼 ──────────────────────────────────────────────────
++
++/** createDocument의 자동 블록 없이 빈 문서를 만든다 (수렴 테스트용 공유 베이스). */
++function emptyDoc(siteId: string): DocState {
++  return {
++    siteId,
++    localClock: 0,
++    blockRga: createRga<BlockMeta>(siteId),
++    inlineRgas: new Map(),
++    pendingInline: [],
++    pendingSetType: [],
++  };
++}
++
++function applyAll(doc: DocState, ops: AnyOp[]): DocState {
++  for (const op of ops) applyDocOp(doc, op);
++  return doc;
++}
++
++/** 문서에 블록 b를 추가하고 텍스트를 순서대로 삽입한다 (siteId 명시). */
++function typeInto(doc: DocState, blockId: RgaId, text: string, site: string, startCounter: number): number {
++  let prev: RgaId | null = null;
++  let c = startCounter;
++  for (const ch of text) {
++    const id = { counter: c++, siteId: site };
++    applyDocOp(doc, makeInlineInsertOp(id, prev, ch, blockId));
++    prev = id;
++  }
++  return c;
++}
++
++function mulberry32(seed: number): () => number {
++  let a = seed >>> 0;
++  return () => {
++    a |= 0;
++    a = (a + 0x6d2b79f5) | 0;
++    let t = Math.imul(a ^ (a >>> 15), 1 | a);
++    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
++    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
++  };
++}
++
++function shuffle<T>(arr: T[], rand: () => number): T[] {
++  const a = [...arr];
++  for (let i = a.length - 1; i > 0; i--) {
++    const j = Math.floor(rand() * (i + 1));
++    [a[i], a[j]] = [a[j]!, a[i]!];
++  }
++  return a;
++}
++
++// ─── 문서 구조 & 도출 ────────────────────────────────────────────
++describe('createDocument / docToBlocks', () => {
++  it('AC-1: createDocument는 빈 paragraph 블록 1개로 시작한다', () => {
++    const doc = createDocument('siteA');
++    const blocks = docToBlocks(doc);
++    expect(blocks).toHaveLength(1);
++    expect(blocks[0]!.type).toBe('paragraph');
++    expect(blocks[0]!.text).toBe('');
++    expect(blocks[0]!.id.siteId).toBe('siteA');
++  });
++
++  it('AC-2: docToBlocks는 외부 RGA 순서와 각 블록 텍스트를 도출한다', () => {
++    const doc = createDocument('siteA');
++    const b0 = docToBlocks(doc)[0]!.id;
++    let c = typeInto(doc, b0, 'ab', 'siteA', 10);
++    // b0 뒤에 heading1 블록 추가
++    const h = { counter: c++, siteId: 'siteA' };
++    applyDocOp(doc, makeBlockInsertOp(h, b0, 'heading1'));
++    typeInto(doc, h, 'Hi', 'siteA', c);
++
++    const blocks = docToBlocks(doc);
++    expect(blocks.map((b) => ({ type: b.type, text: b.text }))).toEqual([
++      { type: 'paragraph', text: 'ab' },
++      { type: 'heading1', text: 'Hi' },
++    ]);
++  });
++});
++
++// ─── 블록 op 적용 ────────────────────────────────────────────────
++describe('applyDocOp — 블록 op', () => {
++  it('AC-3: block-insert는 외부 RGA에 삽입되고 빈 내부 인라인 RGA를 갖는다', () => {
++    const doc = createDocument('siteA');
++    const b0 = docToBlocks(doc)[0]!.id;
++    const bullet = { counter: 5, siteId: 'siteB' };
++    applyDocOp(doc, makeBlockInsertOp(bullet, b0, 'bullet'));
++
++    const blocks = docToBlocks(doc);
++    expect(blocks).toHaveLength(2);
++    expect(blocks[1]!.type).toBe('bullet');
++    expect(blocks[1]!.text).toBe('');
++
++    // 내부 RGA 존재 → 인라인 삽입 가능
++    applyDocOp(doc, makeInlineInsertOp({ counter: 6, siteId: 'siteB' }, null, 'x', bullet));
++    expect(docToBlocks(doc)[1]!.text).toBe('x');
++  });
++
++  it('AC-4: block-delete는 tombstone 처리하며 멱등이다', () => {
++    const doc = createDocument('siteA');
++    const b0 = docToBlocks(doc)[0]!.id;
++    const b1 = { counter: 5, siteId: 'siteA' };
++    applyDocOp(doc, makeBlockInsertOp(b1, b0, 'paragraph'));
++    expect(docToBlocks(doc)).toHaveLength(2);
++
++    applyDocOp(doc, makeBlockDeleteOp(b1));
++    const after1 = docToBlocks(doc);
++    applyDocOp(doc, makeBlockDeleteOp(b1)); // 재적용
++    const after2 = docToBlocks(doc);
++
++    expect(after1).toHaveLength(1);
++    expect(after2).toEqual(after1); // 멱등
++    expect(after1.some((b) => idKey(b.id) === idKey(b1))).toBe(false);
++  });
++
++  it('AC-5: block-set-type은 (clock) LWW로 큰 clock 승자 타입을 채택한다', () => {
++    const b1Site = 'siteA';
++    const make = () => {
++      const doc = createDocument(b1Site);
++      const b1 = docToBlocks(doc)[0]!.id;
++      return { doc, b1 };
++    };
++    const opLow = (b1: RgaId) => makeBlockSetTypeOp(b1, 'heading1', 1, 'siteA');
++    const opHigh = (b1: RgaId) => makeBlockSetTypeOp(b1, 'heading2', 2, 'siteB');
++
++    const a = make();
++    applyDocOp(a.doc, opLow(a.b1));
++    applyDocOp(a.doc, opHigh(a.b1));
++
++    const b = make();
++    applyDocOp(b.doc, opHigh(b.b1));
++    applyDocOp(b.doc, opLow(b.b1));
++
++    expect(docToBlocks(a.doc)[0]!.type).toBe('heading2');
++    expect(docToBlocks(b.doc)[0]!.type).toBe('heading2'); // 순서 무관
++  });
++
++  it('AC-6: 동일 clock은 siteId 역순으로 tie-break한다', () => {
++    const make = () => {
++      const doc = createDocument('siteA');
++      return { doc, b1: docToBlocks(doc)[0]!.id };
++    };
++    const opA = (b1: RgaId) => makeBlockSetTypeOp(b1, 'heading1', 3, 'siteA');
++    const opB = (b1: RgaId) => makeBlockSetTypeOp(b1, 'heading3', 3, 'siteB');
++
++    const a = make();
++    applyDocOp(a.doc, opA(a.b1));
++    applyDocOp(a.doc, opB(a.b1));
++
++    const b = make();
++    applyDocOp(b.doc, opB(b.b1));
++    applyDocOp(b.doc, opA(b.b1));
++
++    expect(docToBlocks(a.doc)[0]!.type).toBe('heading3'); // siteB > siteA
++    expect(docToBlocks(b.doc)[0]!.type).toBe('heading3');
++  });
++});
++
++// ─── 인라인 스코프 ───────────────────────────────────────────────
++describe('applyDocOp — 인라인 blockId 스코프', () => {
++  it('AC-7: 인라인 op는 지정 blockId 내부 RGA에만 적용된다', () => {
++    const doc = createDocument('siteA');
++    const b1 = docToBlocks(doc)[0]!.id;
++    typeInto(doc, b1, 'a', 'siteA', 10);
++    const b2 = { counter: 20, siteId: 'siteA' };
++    applyDocOp(doc, makeBlockInsertOp(b2, b1, 'paragraph'));
++    typeInto(doc, b2, 'z', 'siteA', 21);
++
++    // b1에만 'X' 삽입 (b1의 'a' 다음)
++    const b1Last = { counter: 10, siteId: 'siteA' };
++    applyDocOp(doc, makeInlineInsertOp({ counter: 30, siteId: 'siteA' }, b1Last, 'X', b1));
++
++    const blocks = docToBlocks(doc);
++    expect(blocks[0]!.text).toBe('aX');
++    expect(blocks[1]!.text).toBe('z'); // b2 불변
++  });
++});
++
++// ─── 분할 / 병합 ─────────────────────────────────────────────────
++describe('splitBlock / mergeBlockWithPrev / inheritType', () => {
++  it('inheritType: heading1~3→paragraph, paragraph/bullet 유지 (Q1=A)', () => {
++    expect(inheritType('heading1')).toBe('paragraph');
++    expect(inheritType('heading2')).toBe('paragraph');
++    expect(inheritType('heading3')).toBe('paragraph');
++    expect(inheritType('paragraph')).toBe('paragraph');
++    expect(inheritType('bullet')).toBe('bullet');
++  });
++
++  it('AC-8: splitBlock은 커서 이후 텍스트를 새 블록으로 옮긴다', () => {
++    const doc = createDocument('siteA');
++    const b0 = docToBlocks(doc)[0]!.id;
++    typeInto(doc, b0, 'Hello', 'siteA', 10);
++
++    const ops = splitBlock(doc, b0, 3);
++
++    const blocks = docToBlocks(doc);
++    expect(blocks.map((b) => b.text)).toEqual(['Hel', 'lo']);
++    expect(ops.some((o) => o.type === 'block-insert')).toBe(true);
++    expect(ops.filter((o) => o.type === 'delete')).toHaveLength(2); // 'l','o' 원본 삭제
++    expect(ops.filter((o) => o.type === 'insert')).toHaveLength(2); // 새 블록 재삽입
++  });
++
++  it('AC-9: splitBlock 결과는 원격 replica에서 동일하게 수렴한다', () => {
++    const author = createDocument('siteA');
++    const b0 = docToBlocks(author)[0]!.id;
++    typeInto(author, b0, 'Hello', 'siteA', 10);
++    // 원격이 재현하려면 b0 생성·타이핑 op도 필요 → 전체 op 시퀀스를 수집
++    const baseOps: AnyOp[] = [makeBlockInsertOp(b0, null, 'paragraph')];
++    let prev: RgaId | null = null;
++    let c = 10;
++    for (const ch of 'Hello') {
++      const id = { counter: c++, siteId: 'siteA' };
++      baseOps.push(makeInlineInsertOp(id, prev, ch, b0));
++      prev = id;
++    }
++    // author를 baseOps로 재구성한 뒤 split (localClock을 baseOps 이후로 맞춤)
++    const a2 = emptyDoc('siteA');
++    a2.localClock = c - 1;
++    applyAll(a2, baseOps);
++    const splitOps = splitBlock(a2, b0, 3);
++
++    const allOps = [...baseOps, ...splitOps];
++    const remote = emptyDoc('siteB');
++    applyAll(remote, shuffle(allOps, mulberry32(7)));
++
++    expect(docToBlocks(remote).map((b) => b.text)).toEqual(['Hel', 'lo']);
++    expect(docToBlocks(remote).map((b) => b.text)).toEqual(docToBlocks(a2).map((b) => b.text));
++  });
++
++  it('AC-10: mergeBlockWithPrev는 이전 블록 끝에 텍스트를 붙이고 현재 블록을 삭제한다', () => {
++    const doc = createDocument('siteA');
++    const b0 = docToBlocks(doc)[0]!.id;
++    let c = typeInto(doc, b0, 'foo', 'siteA', 10);
++    const b1 = { counter: c++, siteId: 'siteA' };
++    applyDocOp(doc, makeBlockInsertOp(b1, b0, 'paragraph'));
++    typeInto(doc, b1, 'bar', 'siteA', c);
++
++    const ops = mergeBlockWithPrev(doc, b1);
++
++    const blocks = docToBlocks(doc);
++    expect(blocks.map((b) => b.text)).toEqual(['foobar']);
++    expect(ops).not.toBeNull();
++    expect(ops!.some((o) => o.type === 'block-delete')).toBe(true);
++    expect(ops!.filter((o) => o.type === 'insert')).toHaveLength(3); // 'b','a','r'
++  });
++
++  it('AC-11: 첫 블록 병합은 null을 반환하고 문서가 불변이다', () => {
++    const doc = createDocument('siteA');
++    const b0 = docToBlocks(doc)[0]!.id;
++    const before = docToBlocks(doc);
++    const res = mergeBlockWithPrev(doc, b0);
++    expect(res).toBeNull();
++    expect(docToBlocks(doc)).toEqual(before);
++  });
++});
++
++// ─── CRDT 4속성 (2-level) ────────────────────────────────────────
++describe('CRDT 4속성 (2-level 블록 RGA)', () => {
++  it('AC-12: 동시 분할이 결정론적으로 수렴한다 (tie-break siteId 역순)', () => {
++    const b0 = { counter: 1, siteId: 'seed' };
++    const splitA = makeBlockInsertOp({ counter: 2, siteId: 'A' }, b0, 'paragraph');
++    const splitB = makeBlockInsertOp({ counter: 2, siteId: 'B' }, b0, 'paragraph');
++    const base = makeBlockInsertOp(b0, null, 'paragraph');
++
++    const r1 = applyAll(emptyDoc('r1'), [base, splitA, splitB]);
++    const r2 = applyAll(emptyDoc('r2'), [base, splitB, splitA]);
++
++    expect(docToBlocks(r1)).toEqual(docToBlocks(r2));
++    const ids = docToBlocks(r1).map((b) => idKey(b.id));
++    expect(ids).toEqual(['1@seed', '2@B', '2@A']); // siteId B > A → B 먼저
++  });
++
++  it('AC-13: 인라인 op가 블록보다 먼저 도착하면 버퍼링 후 적용된다', () => {
++    const doc = createDocument('siteA');
++    const b0 = docToBlocks(doc)[0]!.id;
++    const bX = { counter: 10, siteId: 'siteB' };
++
++    // 인라인 먼저 (블록 bX 미도착)
++    applyDocOp(doc, makeInlineInsertOp({ counter: 11, siteId: 'siteB' }, null, 'Z', bX));
++    expect(docToBlocks(doc).some((b) => idKey(b.id) === idKey(bX))).toBe(false);
++    expect(doc.pendingInline.length).toBe(1);
++
++    // 블록 도착 → 드레인
++    applyDocOp(doc, makeBlockInsertOp(bX, b0, 'paragraph'));
++    const blk = docToBlocks(doc).find((b) => idKey(b.id) === idKey(bX));
++    expect(blk?.text).toBe('Z');
++    expect(doc.pendingInline.length).toBe(0);
++  });
++
++  it('AC-14: 임의 op 시퀀스를 임의 순서·중복 적용해도 두 replica가 수렴한다', () => {
++    const rand = mulberry32(20260618);
++    for (let trial = 0; trial < 120; trial++) {
++      const ops: AnyOp[] = [];
++      const blocks: RgaId[] = [];
++      const inlinePerBlock = new Map<string, RgaId[]>();
++      let counter = 0;
++      const site = 'S';
++      const n = 6 + Math.floor(rand() * 10);
++
++      for (let i = 0; i < n; i++) {
++        const r = rand();
++        if (blocks.length === 0 || r < 0.3) {
++          // block-insert
++          counter += 1;
++          const id = { counter, siteId: site };
++          const origin = blocks.length === 0 ? null : blocks[Math.floor(rand() * blocks.length)]!;
++          const types = ['paragraph', 'heading1', 'bullet'] as const;
++          ops.push(makeBlockInsertOp(id, origin, types[Math.floor(rand() * types.length)]!));
++          blocks.push(id);
++          inlinePerBlock.set(idKey(id), []);
++        } else if (r < 0.75) {
++          // inline-insert into a random block
++          const b = blocks[Math.floor(rand() * blocks.length)]!;
++          const chars = inlinePerBlock.get(idKey(b))!;
++          counter += 1;
++          const id = { counter, siteId: site };
++          const origin = chars.length === 0 ? null : chars[Math.floor(rand() * chars.length)]!;
++          ops.push(makeInlineInsertOp(id, origin, String.fromCharCode(97 + (counter % 26)), b));
++          chars.push(id);
++        } else if (r < 0.88) {
++          // set-type
++          const b = blocks[Math.floor(rand() * blocks.length)]!;
++          counter += 1;
++          const types = ['paragraph', 'heading1', 'heading2', 'bullet'] as const;
++          ops.push(makeBlockSetTypeOp(b, types[Math.floor(rand() * types.length)]!, counter, site));
++        } else {
++          // inline-delete a random live char
++          const b = blocks[Math.floor(rand() * blocks.length)]!;
++          const chars = inlinePerBlock.get(idKey(b))!;
++          if (chars.length > 0) {
++            const idx = Math.floor(rand() * chars.length);
++            const target = chars.splice(idx, 1)[0]!;
++            ops.push(makeInlineDeleteOp(target, b));
++          }
++        }
++      }
++
++      const dup = [...ops, ...shuffle(ops, rand).slice(0, 3)]; // 일부 중복
++      const r1 = applyAll(emptyDoc('r1'), shuffle(dup, rand));
++      const r2 = applyAll(emptyDoc('r2'), shuffle(dup, rand));
++
++      expect(r1.pendingInline.length).toBe(0);
++      expect(r1.pendingSetType.length).toBe(0);
++      expect(docToBlocks(r1)).toEqual(docToBlocks(r2));
++    }
++  });
++});
+diff --git a/packages/crdt/tests/wire.test.ts b/packages/crdt/tests/wire.test.ts
+new file mode 100644
+index 0000000..f887a9d
+--- /dev/null
++++ b/packages/crdt/tests/wire.test.ts
+@@ -0,0 +1,54 @@
++import { describe, it, expect } from 'vitest';
++import {
++  toWire,
++  fromWire,
++  makeBlockInsertOp,
++  makeBlockDeleteOp,
++  makeBlockSetTypeOp,
++  makeInlineInsertOp,
++  makeInlineDeleteOp,
++} from '../src/index.js';
++import type { AnyOp } from '../src/index.js';
++
++describe('wire 봉투 codec (toWire / fromWire)', () => {
++  const b0 = { counter: 1, siteId: 'A' };
++  const b1 = { counter: 2, siteId: 'B' };
++
++  const cases: { name: string; op: AnyOp; expectedSite: string }[] = [
++    { name: 'block-insert', op: makeBlockInsertOp(b1, b0, 'heading1'), expectedSite: 'B' },
++    { name: 'block-delete', op: makeBlockDeleteOp(b1), expectedSite: 'B' },
++    { name: 'block-set-type', op: makeBlockSetTypeOp(b1, 'bullet', 4, 'C'), expectedSite: 'C' },
++    { name: 'inline-insert', op: makeInlineInsertOp(b1, b0, 'x', b0), expectedSite: 'B' },
++    { name: 'inline-delete', op: makeInlineDeleteOp(b1, b0), expectedSite: 'B' },
++  ];
++
++  it('AC-15: 각 op 종류가 wire 봉투로 왕복 직렬화된다 (구조 항등)', () => {
++    for (const { op } of cases) {
++      const env = toWire(op, 7);
++      expect(env.seq).toBe(7);
++      expect(env.opType).toBe(op.type);
++      expect(fromWire(env)).toEqual(op);
++    }
++  });
++
++  it('AC-15: 봉투는 {siteId, seq, opType, payload} 형태이고 siteId가 도출된다', () => {
++    for (const { op, expectedSite } of cases) {
++      const env = toWire(op, 3);
++      expect(Object.keys(env).sort()).toEqual(['opType', 'payload', 'seq', 'siteId']);
++      expect(env.siteId).toBe(expectedSite);
++    }
++  });
++
++  it('AC-15: siteId 인자를 명시하면 우선한다 (P5 sender 신원)', () => {
++    const env = toWire(makeBlockDeleteOp(b1), 9, 'sender-site');
++    expect(env.siteId).toBe('sender-site');
++  });
++
++  it('AC-15: JSON.stringify→parse 왕복에도 op가 손실 없이 보존된다', () => {
++    for (const { op } of cases) {
++      const env = toWire(op, 1);
++      const roundTripped = fromWire(JSON.parse(JSON.stringify(env)));
++      expect(roundTripped).toEqual(op);
++    }
++  });
++});

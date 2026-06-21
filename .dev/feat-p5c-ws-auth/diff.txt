@@ -1,0 +1,23 @@
+ .../web/src/lib/auth/__tests__/currentUser.test.ts |  30 ++++++
+ apps/web/src/lib/auth/currentUser.ts               |  16 +++
+ apps/web/src/lib/editor/useCrdtDocument.ts         |  17 ++-
+ .../src/lib/realtime/__tests__/relayClient.test.ts |  15 +++
+ apps/web/src/lib/realtime/relayClient.ts           |  21 ++--
+ apps/ws-relay/src/index.ts                         |   3 +
+ apps/ws-relay/src/main.ts                          |   9 +-
+ apps/ws-relay/src/membershipStore.ts               |  22 ++++
+ apps/ws-relay/src/opStore.ts                       |   9 +-
+ apps/ws-relay/src/pgMembershipStore.ts             |  40 +++++++
+ apps/ws-relay/src/pgOpStore.ts                     |   7 +-
+ apps/ws-relay/src/protocol.ts                      |  10 +-
+ apps/ws-relay/src/server.ts                        |  49 +++++++--
+ apps/ws-relay/tests/membershipStore.test.ts        |  17 +++
+ apps/ws-relay/tests/pgMembershipStore.int.test.ts  |  55 ++++++++++
+ apps/ws-relay/tests/pgOpStore.int.test.ts          |  19 ++++
+ apps/ws-relay/tests/server.test.ts                 | 120 +++++++++++++++++++++
+ .../main/java/com/ieum/user/UserController.java    |  33 ++++++
+ .../db/migration/V4__crdt_ops_created_by.sql       |   7 ++
+ .../java/com/ieum/user/UserMeIntegrationTest.java  |  67 ++++++++++++
+ 20 files changed, 534 insertions(+), 32 deletions(-)
+---
+위는 요약입니다. 변경 파일을 Read 도구로 직접 확인하라(846줄).

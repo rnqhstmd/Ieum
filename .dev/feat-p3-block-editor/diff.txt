@@ -1,0 +1,782 @@
+diff --git a/apps/web/app/(app)/page/[pageId]/page.tsx b/apps/web/app/(app)/page/[pageId]/page.tsx
+index 0887d9a..5c845c7 100644
+--- a/apps/web/app/(app)/page/[pageId]/page.tsx
++++ b/apps/web/app/(app)/page/[pageId]/page.tsx
+@@ -1,7 +1,9 @@
+-// TODO [Phase 1]: pageId로 페이지 메타데이터 조회 (GET /api/pages/:pageId)
+-// TODO [Phase 2]: @ieum/crdt RGA 인스턴스 초기화 + WebSocket 연결 (실시간 서버)
+-// TODO [Phase 2]: <Editor /> 컴포넌트 통합 (04-architecture §2-1 참조)
+-// TODO [Phase 2]: <PresenceOverlay /> 컴포넌트 통합
++// 페이지 상세 — 블록 에디터 (P3, US-EDIT-01~03)
++// TODO [P3 후속]: pageId로 페이지 메타데이터 조회 (제목/아이콘) — 단일 페이지 GET API
++// TODO [P5]: @ieum/crdt RGA 초기화 + WebSocket sync(Snapshot+op replay) + 영속화 연결
++// TODO [P6]: <PresenceOverlay /> 통합
++
++import EditorContainer from '@/components/editor/EditorContainer';
+ 
+ interface PageEditorProps {
+   params: Promise<{ pageId: string }>;
+@@ -12,15 +14,8 @@ export default async function PageEditor({ params }: PageEditorProps) {
+ 
+   return (
+     <div className="mx-auto max-w-3xl px-8 py-12">
+-      <p className="text-xs text-gray-400">pageId: {pageId}</p>
+-      <h1 className="mt-4 text-3xl font-bold text-gray-900 outline-none">
+-        제목 없음
+-        {/* TODO [Phase 2]: 편집 가능한 제목 */}
+-      </h1>
+-      <div className="mt-6 min-h-[400px] text-gray-400">
+-        {/* TODO [Phase 2]: 블록 에디터 자리 */}
+-        [에디터 — Phase 2]
+-      </div>
++      <h1 className="mb-6 text-3xl font-bold text-ink outline-none">제목 없음</h1>
++      <EditorContainer pageId={pageId} />
+     </div>
+   );
+ }
+diff --git a/apps/web/components/editor/Editor.tsx b/apps/web/components/editor/Editor.tsx
+new file mode 100644
+index 0000000..3b6b05d
+--- /dev/null
++++ b/apps/web/components/editor/Editor.tsx
+@@ -0,0 +1,175 @@
++'use client';
++
++// ─── P3 블록 에디터 (US-EDIT-01·03) ────────────────────────────────
++// controlled 컴포넌트: 상태를 보유하지 않고 blocks/onChange만 받는다.
++// 렌더는 blocks에서 단방향 파생(모델=진실 원천). contenteditable은 입력
++// 수단일 뿐 상태를 보유하지 않으며, 편집은 순수 document 연산을 거친다.
++
++import { useEffect, useRef } from 'react';
++import type { FormEvent, KeyboardEvent } from 'react';
++import {
++  type EditorBlock,
++  updateText,
++  splitBlock,
++  mergeWithPrevious,
++  applyMarkdownShortcut,
++} from '@/src/lib/editor/document';
++
++interface EditorProps {
++  blocks: EditorBlock[];
++  onChange: (blocks: EditorBlock[]) => void;
++}
++
++/** 현재 선택 영역의 블록 내 캐럿 offset. 미지원(jsdom) 시 fallback. */
++function getCaretOffset(el: HTMLElement, fallback: number): number {
++  try {
++    const sel = window.getSelection();
++    if (sel && sel.rangeCount > 0) {
++      const range = sel.getRangeAt(0);
++      if (el.contains(range.startContainer)) return range.startOffset;
++    }
++  } catch {
++    /* selection 미지원 환경 */
++  }
++  return fallback;
++}
++
++const BLOCK_CLASS: Record<EditorBlock['type'], string> = {
++  paragraph: 'text-[15px] leading-7 text-body',
++  heading1: 'text-3xl font-bold text-ink mt-4',
++  heading2: 'text-2xl font-semibold text-ink mt-3',
++  heading3: 'text-xl font-semibold text-ink mt-2',
++  bullet: 'text-[15px] leading-7 text-body',
++};
++
++interface BlockViewProps {
++  block: EditorBlock;
++  onInput: (id: string, text: string) => void;
++  onKeyDown: (e: KeyboardEvent<HTMLElement>, block: EditorBlock) => void;
++  registerRef: (id: string, el: HTMLElement | null) => void;
++}
++
++function BlockView({ block, onInput, onKeyDown, registerRef }: BlockViewProps) {
++  const ref = useRef<HTMLElement | null>(null);
++
++  // 모델 → DOM 단방향 반영. 동일하면 건드리지 않아 캐럿 점프를 피한다.
++  useEffect(() => {
++    const el = ref.current;
++    if (el && el.textContent !== block.text) el.textContent = block.text;
++  }, [block.text]);
++
++  const setRef = (el: HTMLElement | null) => {
++    ref.current = el;
++    registerRef(block.id, el);
++  };
++
++  const common = {
++    'data-block-id': block.id,
++    contentEditable: true,
++    suppressContentEditableWarning: true,
++    onInput: (e: FormEvent<HTMLElement>) => onInput(block.id, e.currentTarget.textContent ?? ''),
++    onKeyDown: (e: KeyboardEvent<HTMLElement>) => onKeyDown(e, block),
++    className: `${BLOCK_CLASS[block.type]} px-1 outline-none focus:bg-hover/40 rounded`,
++  };
++
++  switch (block.type) {
++    case 'heading1':
++      return <h1 ref={setRef} {...common} />;
++    case 'heading2':
++      return <h2 ref={setRef} {...common} />;
++    case 'heading3':
++      return <h3 ref={setRef} {...common} />;
++    case 'bullet':
++      return (
++        <ul className="list-disc pl-6">
++          <li ref={setRef} {...common} />
++        </ul>
++      );
++    default:
++      return <p ref={setRef} {...common} />;
++  }
++}
++
++export default function Editor({ blocks, onChange }: EditorProps) {
++  const refs = useRef<Map<string, HTMLElement>>(new Map());
++  const pending = useRef<{ id: string; offset: number } | null>(null);
++
++  const registerRef = (id: string, el: HTMLElement | null) => {
++    if (el) refs.current.set(id, el);
++    else refs.current.delete(id);
++  };
++
++  // split/merge 후 새 위치로 포커스·캐럿 복원(best-effort, 실브라우저 기준).
++  useEffect(() => {
++    const p = pending.current;
++    if (!p) return;
++    pending.current = null;
++    const el = refs.current.get(p.id);
++    if (!el) return;
++    el.focus();
++    try {
++      const sel = window.getSelection();
++      const range = document.createRange();
++      if (el.firstChild) {
++        const max = (el.textContent ?? '').length;
++        range.setStart(el.firstChild, Math.min(p.offset, max));
++      } else {
++        range.setStart(el, 0);
++      }
++      range.collapse(true);
++      sel?.removeAllRanges();
++      sel?.addRange(range);
++    } catch {
++      /* caret 복원 미지원 환경 */
++    }
++  }, [blocks]);
++
++  const handleInput = (id: string, text: string) => {
++    const updated = updateText(blocks, id, text);
++    // 블록 시작의 마크다운 접두사(# / ## / ### / - )를 타입으로 변환(FR-7).
++    const shortcut = applyMarkdownShortcut(updated, id);
++    if (shortcut) {
++      // 타입 변경으로 블록 태그가 remount되므로 캐럿을 명시적으로 복원한다.
++      const block = shortcut.find((b) => b.id === id);
++      pending.current = { id, offset: block ? block.text.length : 0 };
++      onChange(shortcut);
++    } else {
++      onChange(updated);
++    }
++  };
++
++  const handleKeyDown = (e: KeyboardEvent<HTMLElement>, block: EditorBlock) => {
++    const el = e.currentTarget;
++    if (e.key === 'Enter' && !e.shiftKey) {
++      e.preventDefault();
++      const offset = getCaretOffset(el, block.text.length);
++      const { doc, newBlockId } = splitBlock(blocks, block.id, offset);
++      pending.current = { id: newBlockId, offset: 0 };
++      onChange(doc);
++    } else if (e.key === 'Backspace') {
++      const offset = getCaretOffset(el, block.text.length);
++      if (offset === 0) {
++        const res = mergeWithPrevious(blocks, block.id);
++        if (res) {
++          e.preventDefault();
++          pending.current = { id: res.caretBlockId, offset: res.caretOffset };
++          onChange(res.doc);
++        }
++      }
++    }
++  };
++
++  return (
++    <div className="space-y-1">
++      {blocks.map((b) => (
++        <BlockView
++          key={b.id}
++          block={b}
++          onInput={handleInput}
++          onKeyDown={handleKeyDown}
++          registerRef={registerRef}
++        />
++      ))}
++    </div>
++  );
++}
+diff --git a/apps/web/components/editor/EditorContainer.tsx b/apps/web/components/editor/EditorContainer.tsx
+new file mode 100644
+index 0000000..6c24ce4
+--- /dev/null
++++ b/apps/web/components/editor/EditorContainer.tsx
+@@ -0,0 +1,45 @@
++'use client';
++
++// ─── P3 에디터 컨테이너 (FR-8) ─────────────────────────────────────
++// 상태(인메모리 문서) + 자동저장 메커니즘을 보유하는 client 래퍼.
++// 실제 영속화(save-port)는 P5(CrdtOp/Snapshot)에서 연결한다.
++
++import { useCallback, useState } from 'react';
++import Editor from '@/components/editor/Editor';
++import { createEmptyDocument, type EditorBlock } from '@/src/lib/editor/document';
++import { useAutosave, type SaveStatus } from '@/src/lib/editor/useAutosave';
++
++interface EditorContainerProps {
++  pageId: string;
++}
++
++const STATUS_LABEL: Record<SaveStatus, string> = {
++  idle: '',
++  saving: '저장 중…',
++  saved: '저장됨',
++};
++
++export default function EditorContainer({ pageId }: EditorContainerProps) {
++  const [blocks, setBlocks] = useState<EditorBlock[]>(() => createEmptyDocument());
++
++  // P3 save-port 스텁: P5에서 pageId 스코프의 CrdtOp/Snapshot 전송으로 교체.
++  const save = useCallback(async (_doc: EditorBlock[]) => {
++    // no-op (P5 연결 지점)
++  }, []);
++
++  const { status, notifyChange } = useAutosave<EditorBlock[]>(save, 500);
++
++  const handleChange = (next: EditorBlock[]) => {
++    setBlocks(next);
++    notifyChange(next);
++  };
++
++  return (
++    <div data-page-id={pageId}>
++      <div className="mb-2 h-4 text-xs text-faint" aria-live="polite" data-testid="autosave-status">
++        {STATUS_LABEL[status]}
++      </div>
++      <Editor blocks={blocks} onChange={handleChange} />
++    </div>
++  );
++}
+diff --git a/apps/web/components/editor/__tests__/Editor.test.tsx b/apps/web/components/editor/__tests__/Editor.test.tsx
+new file mode 100644
+index 0000000..1844f1e
+--- /dev/null
++++ b/apps/web/components/editor/__tests__/Editor.test.tsx
+@@ -0,0 +1,103 @@
++import { describe, it, expect, vi } from 'vitest';
++import { useState } from 'react';
++import { render, screen, fireEvent } from '@testing-library/react';
++import Editor from '@/components/editor/Editor';
++import type { EditorBlock } from '@/src/lib/editor/document';
++
++/** 실제 controlled 흐름을 재현하는 하네스: onChange가 상태를 갱신하고 스파이로도 흘린다. */
++function Harness({
++  initial,
++  onChangeSpy,
++}: {
++  initial: EditorBlock[];
++  onChangeSpy?: (b: EditorBlock[]) => void;
++}) {
++  const [blocks, setBlocks] = useState<EditorBlock[]>(initial);
++  return (
++    <Editor
++      blocks={blocks}
++      onChange={(b) => {
++        setBlocks(b);
++        onChangeSpy?.(b);
++      }}
++    />
++  );
++}
++
++const el = (container: HTMLElement, id: string) =>
++  container.querySelector(`[data-block-id="${id}"]`) as HTMLElement;
++
++describe('Editor — controlled 블록 에디터', () => {
++  it('AC-13: blocks에서 파생하여 타입별 시맨틱 태그로 렌더한다', () => {
++    const blocks: EditorBlock[] = [
++      { id: 'h', type: 'heading1', text: 'Title' },
++      { id: 'p', type: 'paragraph', text: 'body' },
++      { id: 'b', type: 'bullet', text: 'item' },
++    ];
++    render(<Editor blocks={blocks} onChange={vi.fn()} />);
++
++    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Title');
++    expect(screen.getByText('body')).toBeInTheDocument();
++    expect(screen.getByRole('listitem')).toHaveTextContent('item');
++  });
++
++  it('AC-14: 타이핑(input)이 onChange로 해당 블록 text를 전달한다', () => {
++    const spy = vi.fn();
++    const { container } = render(
++      <Harness initial={[{ id: 'b1', type: 'paragraph', text: '' }]} onChangeSpy={spy} />,
++    );
++
++    const node = el(container, 'b1');
++    node.textContent = 'hello';
++    fireEvent.input(node);
++
++    expect(spy).toHaveBeenCalled();
++    const last = spy.mock.calls.at(-1)![0] as EditorBlock[];
++    expect(last.find((b) => b.id === 'b1')!.text).toBe('hello');
++  });
++
++  it('AC-15: Enter가 블록을 분할하여 개수를 1 늘린다', () => {
++    const spy = vi.fn();
++    const { container } = render(
++      <Harness initial={[{ id: 'b1', type: 'paragraph', text: 'ab' }]} onChangeSpy={spy} />,
++    );
++
++    fireEvent.keyDown(el(container, 'b1'), { key: 'Enter' });
++
++    const last = spy.mock.calls.at(-1)![0] as EditorBlock[];
++    expect(last).toHaveLength(2);
++  });
++
++  it('FR-7: 블록 시작에 "# " 입력 시 heading1으로 변환되고 접두사가 제거된다', () => {
++    const spy = vi.fn();
++    const { container } = render(
++      <Harness initial={[{ id: 'b1', type: 'paragraph', text: '' }]} onChangeSpy={spy} />,
++    );
++
++    const node = el(container, 'b1');
++    node.textContent = '# ';
++    fireEvent.input(node);
++
++    const last = spy.mock.calls.at(-1)![0] as EditorBlock[];
++    expect(last[0]!.type).toBe('heading1');
++    expect(last[0]!.text).toBe('');
++  });
++
++  it('AC-16: 빈 블록에서 Backspace가 블록을 제거한다', () => {
++    const spy = vi.fn();
++    const { container } = render(
++      <Harness
++        initial={[
++          { id: 'a', type: 'paragraph', text: 'a' },
++          { id: 'b', type: 'paragraph', text: '' },
++        ]}
++        onChangeSpy={spy}
++      />,
++    );
++
++    fireEvent.keyDown(el(container, 'b'), { key: 'Backspace' });
++
++    const last = spy.mock.calls.at(-1)![0] as EditorBlock[];
++    expect(last).toHaveLength(1);
++  });
++});
+diff --git a/apps/web/src/lib/editor/__tests__/document.test.ts b/apps/web/src/lib/editor/__tests__/document.test.ts
+new file mode 100644
+index 0000000..a2c3dd1
+--- /dev/null
++++ b/apps/web/src/lib/editor/__tests__/document.test.ts
+@@ -0,0 +1,116 @@
++import { describe, it, expect } from 'vitest';
++import {
++  createEmptyDocument,
++  updateText,
++  splitBlock,
++  mergeWithPrevious,
++  setType,
++  applyMarkdownShortcut,
++  type EditorBlock,
++} from '@/src/lib/editor/document';
++
++const block = (over: Partial<EditorBlock>): EditorBlock => ({
++  id: 'b',
++  type: 'paragraph',
++  text: '',
++  ...over,
++});
++
++describe('editor/document — 순수 블록 도큐먼트 모델', () => {
++  // ── T1 ──
++  it('AC-1: createEmptyDocument는 빈 paragraph 블록 1개를 반환한다', () => {
++    const doc = createEmptyDocument();
++    expect(doc).toHaveLength(1);
++    expect(doc[0]!.type).toBe('paragraph');
++    expect(doc[0]!.text).toBe('');
++    expect(typeof doc[0]!.id).toBe('string');
++    expect(doc[0]!.id.length).toBeGreaterThan(0);
++  });
++
++  it('AC-2: updateText는 대상 text만 바꾸고 새 배열을 반환한다(불변성)', () => {
++    const doc = [block({ id: 'b1', text: 'a' }), block({ id: 'b2', text: 'b' })];
++    const next = updateText(doc, 'b1', 'abc');
++    expect(next.find((b) => b.id === 'b1')!.text).toBe('abc');
++    expect(next.find((b) => b.id === 'b2')!.text).toBe('b');
++    expect(next).not.toBe(doc);
++    expect(doc[0]!.text).toBe('a'); // 원본 불변
++  });
++
++  // ── T2 ──
++  it('AC-3: splitBlock(중간 캐럿)은 앞/뒤로 나누고 newBlockId를 반환한다', () => {
++    const doc = [block({ id: 'b1', text: 'hello' })];
++    const { doc: next, newBlockId } = splitBlock(doc, 'b1', 2);
++    expect(next).toHaveLength(2);
++    expect(next[0]!.id).toBe('b1');
++    expect(next[0]!.text).toBe('he');
++    expect(next[1]!.id).toBe(newBlockId);
++    expect(next[1]!.text).toBe('llo');
++  });
++
++  it('AC-4: heading 블록 분할 시 새 블록은 paragraph, 원본 타입은 유지', () => {
++    const doc = [block({ id: 'h', type: 'heading1', text: 'Title' })];
++    const { doc: next } = splitBlock(doc, 'h', 5);
++    expect(next[0]!.type).toBe('heading1');
++    expect(next[1]!.type).toBe('paragraph');
++  });
++
++  it('AC-5: bullet 블록 분할 시 새 블록도 bullet', () => {
++    const doc = [block({ id: 'li', type: 'bullet', text: 'item' })];
++    const { doc: next } = splitBlock(doc, 'li', 4);
++    expect(next[1]!.type).toBe('bullet');
++  });
++
++  // ── T3 ──
++  it('AC-6: mergeWithPrevious는 이전 블록에 병합하고 캐럿 위치를 반환한다', () => {
++    const doc = [block({ id: 'a', text: 'foo' }), block({ id: 'b', text: 'bar' })];
++    const res = mergeWithPrevious(doc, 'b');
++    expect(res).not.toBeNull();
++    expect(res!.doc).toHaveLength(1);
++    expect(res!.doc[0]!.id).toBe('a');
++    expect(res!.doc[0]!.text).toBe('foobar');
++    expect(res!.caretBlockId).toBe('a');
++    expect(res!.caretOffset).toBe(3);
++  });
++
++  it('AC-7: 첫 블록에서 mergeWithPrevious는 null', () => {
++    const doc = [block({ id: 'a', text: 'x' }), block({ id: 'b', text: 'y' })];
++    expect(mergeWithPrevious(doc, 'a')).toBeNull();
++  });
++
++  it('AC-8: 빈 블록 Backspace는 그 블록을 삭제하고 이전 블록은 불변', () => {
++    const doc = [block({ id: 'a', text: 'x' }), block({ id: 'b', text: '' })];
++    const res = mergeWithPrevious(doc, 'b');
++    expect(res!.doc).toHaveLength(1);
++    expect(res!.doc[0]!.text).toBe('x');
++    expect(res!.caretBlockId).toBe('a');
++    expect(res!.caretOffset).toBe(1);
++  });
++
++  // ── T4 ──
++  it('AC-9: setType은 타입만 바꾸고 text는 유지', () => {
++    const doc = [block({ id: 'b', type: 'paragraph', text: 'hi' })];
++    const next = setType(doc, 'b', 'heading2');
++    expect(next[0]!.type).toBe('heading2');
++    expect(next[0]!.text).toBe('hi');
++  });
++
++  it('AC-10: 마크다운 단축 "# "는 heading1으로 변환하고 접두사 제거', () => {
++    const doc = [block({ id: 'b', text: '# Title' })];
++    const next = applyMarkdownShortcut(doc, 'b');
++    expect(next).not.toBeNull();
++    expect(next![0]!.type).toBe('heading1');
++    expect(next![0]!.text).toBe('Title');
++  });
++
++  it('AC-11: 마크다운 단축 "- "는 bullet으로 변환', () => {
++    const doc = [block({ id: 'b', text: '- milk' })];
++    const next = applyMarkdownShortcut(doc, 'b');
++    expect(next![0]!.type).toBe('bullet');
++    expect(next![0]!.text).toBe('milk');
++  });
++
++  it('AC-12: 마크다운 접두사가 없으면 null', () => {
++    const doc = [block({ id: 'b', text: 'plain text' })];
++    expect(applyMarkdownShortcut(doc, 'b')).toBeNull();
++  });
++});
+diff --git a/apps/web/src/lib/editor/__tests__/useAutosave.test.ts b/apps/web/src/lib/editor/__tests__/useAutosave.test.ts
+new file mode 100644
+index 0000000..f35ded8
+--- /dev/null
++++ b/apps/web/src/lib/editor/__tests__/useAutosave.test.ts
+@@ -0,0 +1,77 @@
++import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
++import { renderHook, act } from '@testing-library/react';
++import { useAutosave } from '@/src/lib/editor/useAutosave';
++
++describe('editor/useAutosave — debounce 자동저장 훅', () => {
++  beforeEach(() => {
++    vi.useFakeTimers();
++  });
++  afterEach(() => {
++    vi.useRealTimers();
++  });
++
++  it('AC-17: 변경 후 debounce(500ms) 경과 시 save가 정확히 1회 호출된다', async () => {
++    const save = vi.fn().mockResolvedValue(undefined);
++    const { result } = renderHook(() => useAutosave(save, 500));
++
++    act(() => {
++      result.current.notifyChange('v1');
++    });
++    expect(save).not.toHaveBeenCalled();
++
++    await act(async () => {
++      await vi.advanceTimersByTimeAsync(500);
++    });
++
++    expect(save).toHaveBeenCalledTimes(1);
++    expect(save).toHaveBeenCalledWith('v1');
++  });
++
++  it('AC-18: 연속 변경 시 마지막 값 기준으로 1회만 저장된다', async () => {
++    const save = vi.fn().mockResolvedValue(undefined);
++    const { result } = renderHook(() => useAutosave(save, 500));
++
++    act(() => {
++      result.current.notifyChange('v1');
++    });
++    await act(async () => {
++      await vi.advanceTimersByTimeAsync(300);
++    });
++    act(() => {
++      result.current.notifyChange('v2');
++    });
++    await act(async () => {
++      await vi.advanceTimersByTimeAsync(500);
++    });
++
++    expect(save).toHaveBeenCalledTimes(1);
++    expect(save).toHaveBeenCalledWith('v2');
++  });
++
++  it('AC-19: 저장 상태가 idle → saving → saved로 전이한다', async () => {
++    let resolveSave!: () => void;
++    const save = vi.fn().mockImplementation(
++      () =>
++        new Promise<void>((resolve) => {
++          resolveSave = resolve;
++        }),
++    );
++    const { result } = renderHook(() => useAutosave(save, 500));
++
++    expect(result.current.status).toBe('idle');
++
++    act(() => {
++      result.current.notifyChange('v1');
++    });
++    await act(async () => {
++      await vi.advanceTimersByTimeAsync(500);
++    });
++    expect(result.current.status).toBe('saving');
++
++    await act(async () => {
++      resolveSave();
++      await Promise.resolve();
++    });
++    expect(result.current.status).toBe('saved');
++  });
++});
+diff --git a/apps/web/src/lib/editor/document.ts b/apps/web/src/lib/editor/document.ts
+new file mode 100644
+index 0000000..2bc0e9c
+--- /dev/null
++++ b/apps/web/src/lib/editor/document.ts
+@@ -0,0 +1,123 @@
++// ─── P3 블록 에디터 — 순수 블록 도큐먼트 모델 ────────────────────────
++// architecture.md "블록 기반 contenteditable 에디터": 모델이 진실 원천.
++// 모든 연산은 부수효과 없이 새 배열을 반환한다(불변). 추후 P4b 2-level 블록
++// RGA 구현으로 교체 가능하도록 순수 함수 시그니처로 고정한다.
++// BlockType은 @ieum/crdt와 공유(type-only import — 런타임 의존 없음).
++
++import type { BlockType } from '@ieum/crdt';
++
++export interface EditorBlock {
++  id: string;
++  type: BlockType;
++  text: string;
++}
++
++export type EditorDoc = EditorBlock[];
++
++// 블록 id 생성: crypto.randomUUID 우선, 없으면 단조 카운터 폴백.
++let idCounter = 0;
++function newBlockId(): string {
++  const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
++  if (c && typeof c.randomUUID === 'function') return c.randomUUID();
++  idCounter += 1;
++  return `block-${idCounter}`;
++}
++
++/** 새 페이지의 초기 문서: 빈 paragraph 블록 1개. */
++export function createEmptyDocument(): EditorDoc {
++  return [{ id: newBlockId(), type: 'paragraph', text: '' }];
++}
++
++/** id가 일치하는 블록만 transform으로 치환(불변 — 새 배열 반환). */
++function mapBlock(
++  doc: EditorDoc,
++  id: string,
++  transform: (block: EditorBlock) => EditorBlock,
++): EditorDoc {
++  return doc.map((b) => (b.id === id ? transform(b) : b));
++}
++
++/** 대상 블록의 text만 갱신(불변 — 새 배열 반환). */
++export function updateText(doc: EditorDoc, id: string, text: string): EditorDoc {
++  return mapBlock(doc, id, (b) => ({ ...b, text }));
++}
++
++/**
++ * Enter: 캐럿 위치에서 블록을 둘로 나눈다.
++ * 새(뒤) 블록 타입 = bullet이면 bullet 유지, 그 외는 paragraph.
++ */
++export function splitBlock(
++  doc: EditorDoc,
++  id: string,
++  caret: number,
++): { doc: EditorDoc; newBlockId: string } {
++  const idx = doc.findIndex((b) => b.id === id);
++  const cur = idx === -1 ? undefined : doc[idx];
++  if (!cur) return { doc, newBlockId: '' };
++
++  const before = cur.text.slice(0, caret);
++  const after = cur.text.slice(caret);
++  const id2 = newBlockId();
++  const newType: BlockType = cur.type === 'bullet' ? 'bullet' : 'paragraph';
++
++  const next: EditorDoc = [
++    ...doc.slice(0, idx),
++    { ...cur, text: before },
++    { id: id2, type: newType, text: after },
++    ...doc.slice(idx + 1),
++  ];
++  return { doc: next, newBlockId: id2 };
++}
++
++/**
++ * Backspace(블록 시작): 대상 블록을 직전 블록에 병합한다.
++ * 첫 블록이면 병합 대상이 없으므로 null.
++ */
++export function mergeWithPrevious(
++  doc: EditorDoc,
++  id: string,
++): { doc: EditorDoc; caretBlockId: string; caretOffset: number } | null {
++  const idx = doc.findIndex((b) => b.id === id);
++  if (idx <= 0) return null; // 미발견 또는 첫 블록
++
++  const prev = doc[idx - 1];
++  const cur = doc[idx];
++  if (!prev || !cur) return null; // 방어(노출 불가 경로)
++  const caretOffset = prev.text.length; // 병합 지점 = 이전 블록의 끝
++
++  const next: EditorDoc = [
++    ...doc.slice(0, idx - 1),
++    { ...prev, text: prev.text + cur.text },
++    ...doc.slice(idx + 1),
++  ];
++  return { doc: next, caretBlockId: prev.id, caretOffset };
++}
++
++/** 블록 타입 변경(text 유지). */
++export function setType(doc: EditorDoc, id: string, type: BlockType): EditorDoc {
++  return mapBlock(doc, id, (b) => ({ ...b, type }));
++}
++
++// 마크다운 단축 접두사 → 타입. 긴 접두사를 먼저 검사한다.
++const MARKDOWN_SHORTCUTS: ReadonlyArray<readonly [string, BlockType]> = [
++  ['### ', 'heading3'],
++  ['## ', 'heading2'],
++  ['# ', 'heading1'],
++  ['- ', 'bullet'],
++];
++
++/**
++ * 블록 시작의 마크다운 접두사를 타입으로 변환하고 접두사를 제거한다.
++ * 매칭되는 접두사가 없으면 null.
++ */
++export function applyMarkdownShortcut(doc: EditorDoc, id: string): EditorDoc | null {
++  const target = doc.find((b) => b.id === id);
++  if (!target) return null;
++
++  for (const [prefix, type] of MARKDOWN_SHORTCUTS) {
++    if (target.text.startsWith(prefix)) {
++      return mapBlock(doc, id, (b) => ({ ...b, type, text: b.text.slice(prefix.length) }));
++    }
++  }
++  return null;
++}
+diff --git a/apps/web/src/lib/editor/useAutosave.ts b/apps/web/src/lib/editor/useAutosave.ts
+new file mode 100644
+index 0000000..c710ad3
+--- /dev/null
++++ b/apps/web/src/lib/editor/useAutosave.ts
+@@ -0,0 +1,48 @@
++// ─── P3 자동저장 훅 (US-EDIT-02, Q1=후보A) ──────────────────────────
++// debounce 메커니즘 + 저장 상태만 담당한다. 실제 영속화는 save-port(주입된
++// save 콜백) 뒤로 격리되어 P5(CrdtOp/Snapshot)에서 연결된다.
++
++import { useCallback, useEffect, useRef, useState } from 'react';
++
++export type SaveStatus = 'idle' | 'saving' | 'saved';
++
++export interface UseAutosaveResult<T> {
++  status: SaveStatus;
++  notifyChange: (data: T) => void;
++}
++
++export function useAutosave<T>(
++  save: (data: T) => void | Promise<void>,
++  delayMs = 500,
++): UseAutosaveResult<T> {
++  const [status, setStatus] = useState<SaveStatus>('idle');
++  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
++  const latest = useRef<T | null>(null);
++  // save 콜백의 최신 참조를 유지(notifyChange 재생성 없이 최신 클로저 사용).
++  const saveRef = useRef(save);
++  saveRef.current = save;
++
++  const notifyChange = useCallback(
++    (data: T) => {
++      latest.current = data;
++      if (timer.current) clearTimeout(timer.current);
++      timer.current = setTimeout(() => {
++        setStatus('saving');
++        void Promise.resolve(saveRef.current(latest.current as T))
++          .then(() => setStatus('saved'))
++          .catch(() => setStatus('idle')); // 실패 시 idle 복귀(에러 처리 강화는 P5)
++      }, delayMs);
++    },
++    [delayMs],
++  );
++
++  // 언마운트 시 보류 중인 타이머 정리.
++  useEffect(
++    () => () => {
++      if (timer.current) clearTimeout(timer.current);
++    },
++    [],
++  );
++
++  return { status, notifyChange };
++}
+diff --git a/context/page/status.md b/context/page/status.md
+index 78f1905..1b2a02a 100644
+--- a/context/page/status.md
++++ b/context/page/status.md
+@@ -33,9 +33,9 @@
+ 
+ | 항목 | 사용자 스토리 | 핵심 수용 기준 | 상태 | Phase | 비고 |
+ |------|-------------|--------------|------|-------|------|
+-| US-EDIT-01 | 페이지에서 텍스트를 입력하고 수정하고 싶다 | contenteditable 기반 블록 단위 에디터 동작, Enter 새 블록·Backspace 빈 블록 삭제 | ⬜ | P3 | |
+-| US-EDIT-02 | 편집 내용이 자동으로 저장되길 원한다 | debounce 500ms 후 자동저장 (협업 시 CRDT op 즉시 전송) | ⬜ | P3 | |
+-| US-EDIT-03 | 기본 블록 타입을 사용하고 싶다 | paragraph / heading1~3 / bullet list 지원, 추가 타입은 post-MVP | ⬜ | P3 | 슬래시(/) 메뉴·이미지·파일 블록은 Out-of-Scope |
++| US-EDIT-01 | 페이지에서 텍스트를 입력하고 수정하고 싶다 | contenteditable 기반 블록 단위 에디터 동작, Enter 새 블록·Backspace 빈 블록 삭제 | ✅ | P3 | controlled 블록 에디터 `Editor.tsx` + 순수 모델 `document.ts`(분할/병합) (PR #8). 캐럿 복원 best-effort |
++| US-EDIT-02 | 편집 내용이 자동으로 저장되길 원한다 | debounce 500ms 후 자동저장 (협업 시 CRDT op 즉시 전송) | ⬜ | P3/P5 | 자동저장 **메커니즘**(`useAutosave` debounce 500ms + 상태표시)은 P3 완료(PR #8). 실제 영속화는 save-port 뒤로 격리 → P5(CrdtOp/Snapshot)에서 연결 |
++| US-EDIT-03 | 기본 블록 타입을 사용하고 싶다 | paragraph / heading1~3 / bullet list 지원, 추가 타입은 post-MVP | ✅ | P3 | 타입별 시맨틱 렌더(h1~3/p/li) + 마크다운 단축(`# ## ### -`) (PR #8). 슬래시 메뉴·이미지/파일 블록은 Out-of-Scope |
+ | US-EDIT (CRDT) | — | 에디터 내용은 RGA CRDT 상태로 관리, 렌더링은 CRDT 상태에서 파생 | ⬜ | P4 | 단일 사용자 모드에서도 동일하게 동작 |
+ 
+ ---

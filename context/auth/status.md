@@ -53,11 +53,11 @@
 
 | 항목 ID | 설명 | 상태 | Phase | 비고 |
 |---------|------|------|-------|------|
-| INV-01 | OWNER의 이메일 기반 초대 생성 (256-bit token, 7일 만료) | ⬜ | P7 | `POST /api/workspaces/:id/invitations` |
+| INV-01 | OWNER의 이메일 기반 초대 생성 (256-bit token, 7일 만료) | ✅ | P7 | `InvitationService.createInvitation` — OWNER 검증·SecureRandom 32B 토큰·+7일·PENDING 저장, 메일 fallback. `POST /api/workspaces/:id/invitations` 인증 배선 (PR #19) |
 | INV-02 | 초대 수락: 토큰 검증 → Membership 생성 (트랜잭션, 경쟁 조건 방지) | ⬜ | P7 | `POST /api/invitations/accept` |
 | INV-03 | 초대 취소(REVOKE): OWNER만 가능 | ⬜ | P7 | `DELETE /api/workspaces/:id/invitations/:invId` |
 | INV-04 | 초대 만료 처리: lazy(수락 시 expiresAt 검사) + 스케줄러(일 1회) | ⬜ | P7 | 스케줄러 구현은 별도 |
-| INV-05 | 이미 멤버인 이메일로 초대 시 409 반환 | ⬜ | P7 | INV-01 구현 내 포함 |
+| INV-05 | 이미 멤버인 이메일로 초대 시 409 반환 | ✅ | P7 | `findByEmail`→멤버십 조회→`ConflictException`(신규)→`ApiExceptionHandler` 409 (PR #19) |
 | INV-06 | 초대 이메일과 다른 계정으로 수락 시도 시 403 반환 | ⬜ | P7 | INV-02 구현 내 포함 |
 | INV-07 | 초대 이메일 발송 (초대 링크 포함) | ✅ | P7 | Resend 연동으로 MVP 발송 (확정). 발송 실패 시 초대는 PENDING 유지, OWNER가 링크 수동 전달 가능 (fallback) |
 

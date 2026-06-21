@@ -1,10 +1,14 @@
 package com.ieum.invitation;
 
+import com.ieum.common.ConflictException;
 import com.ieum.common.email.ResendEmailClient;
+import com.ieum.common.security.AccessGuard;
 import com.ieum.invitation.dto.*;
 import com.ieum.user.UserRepository;
+import com.ieum.workspace.MemberRole;
 import com.ieum.workspace.Membership;
 import com.ieum.workspace.MembershipRepository;
+import com.ieum.workspace.Workspace;
 import com.ieum.workspace.WorkspaceRepository;
 import com.ieum.workspace.WorkspaceService;
 import lombok.RequiredArgsConstructor;
@@ -41,9 +45,11 @@ public class InvitationService {
     private final UserRepository userRepository;
     private final WorkspaceService workspaceService; // 권한 검사 헬퍼 재사용
     private final ResendEmailClient resendEmailClient; // BDATA 팀이 정의, 주입만
+    private final AccessGuard accessGuard; // OWNER 권한 검증(슬라이스 ① 정본 헬퍼)
 
     private static final int TOKEN_BYTE_LENGTH = 32;
     private static final int INVITATION_EXPIRY_DAYS = 7;
+    private static final String INVITE_URL_PREFIX = "https://ieum.app/invite?token=";
 
     // ───────────────────────────────────────────────
     // 초대 생성
@@ -67,41 +73,51 @@ public class InvitationService {
     @Transactional
     public InvitationDto createInvitation(UUID currentUserId, UUID wsId,
                                           CreateInvitationRequest request) {
-        // TODO(Phase 1):
-        //   workspaceService.requireOwner(currentUserId, wsId);
-        //
-        //   // 중복 초대 방지 (선택적 — Phase 2에서 정교화)
-        //   // invitationRepository.findByWorkspaceIdAndEmailAndStatus(wsId, email, PENDING)
-        //   //   .ifPresent(i -> { throw new IllegalStateException("이미 PENDING 초대가 존재합니다"); });
-        //
-        //   String token = generateSecureToken();
-        //   Instant expiresAt = Instant.now().plus(INVITATION_EXPIRY_DAYS, ChronoUnit.DAYS);
-        //
-        //   Invitation invitation = Invitation.builder()
-        //       .workspaceId(wsId)
-        //       .email(request.email())
-        //       .invitedById(currentUserId)
-        //       .role(request.role())
-        //       .token(token)
-        //       .status(InvitationStatus.PENDING)
-        //       .expiresAt(expiresAt)
-        //       .build();
-        //   invitationRepository.save(invitation);
-        //
-        //   // 이메일 발송 — 실패해도 PENDING 유지 (fallback)
-        //   // inviteUrl 형식은 Phase 1에서 확정: 예) "https://ieum.app/invite?token=" + token
-        //   String workspaceName = workspaceRepository.findById(wsId)
-        //       .map(w -> w.getName()).orElse("워크스페이스");
-        //   try {
-        //       resendEmailClient.sendInvitationEmail(request.email(),
-        //           "https://ieum.app/invite?token=" + token, workspaceName);
-        //   } catch (Exception e) {
-        //       log.warn("초대 이메일 발송 실패 (token={}, email={}): {}", token, request.email(), e.getMessage());
-        //       // 예외 미전파: invitation은 DB에 저장되어 있으므로 목록에서 재발송 가능
-        //   }
-        //
-        //   return toDto(invitation);
-        throw new UnsupportedOperationException("TODO(Phase 1): createInvitation");
+        // 서비스 경계 방어(cross-review MEDIUM / PR #19): request null → 진입부에서 400으로 거부.
+        if (request == null) {
+            throw new IllegalArgumentException("초대 요청 정보가 누락되었습니다.");
+        }
+        accessGuard.requireOwner(currentUserId, wsId); // 비OWNER → AccessDeniedException(403)
+
+        String email = normalizeEmail(request.email());                 // 빈/공백 → IllegalArgumentException(400)
+        MemberRole role = (request.role() != null) ? request.role() : MemberRole.MEMBER;
+
+        // INV-05: 이미 해당 워크스페이스 멤버인 이메일이면 거부(409)
+        userRepository.findByEmail(email)
+                .flatMap(u -> membershipRepository.findByUserIdAndWorkspaceId(u.getId(), wsId))
+                .ifPresent(m -> {
+                    throw new ConflictException("이미 워크스페이스 멤버인 사용자입니다.");
+                });
+
+        Invitation invitation = invitationRepository.save(Invitation.builder()
+                .workspaceId(wsId)
+                .email(email)
+                .invitedById(currentUserId)
+                .role(role)
+                .token(generateSecureToken())
+                .status(InvitationStatus.PENDING)
+                .expiresAt(Instant.now().plus(INVITATION_EXPIRY_DAYS, ChronoUnit.DAYS))
+                .build());
+
+        // M5: 초대 메일 발송 — 실패가 초대 생성을 막지 않는다(PENDING 유지).
+        try {
+            String workspaceName = workspaceRepository.findById(wsId)
+                    .map(Workspace::getName).orElse("워크스페이스");
+            resendEmailClient.sendInvitationEmail(email,
+                    INVITE_URL_PREFIX + invitation.getToken(), workspaceName);
+        } catch (Exception e) {
+            log.warn("초대 이메일 발송 실패 (email={}): {}", email, e.getMessage());
+        }
+
+        return toDto(invitation);
+    }
+
+    private static String normalizeEmail(String raw) {
+        String email = (raw == null) ? "" : raw.trim();
+        if (email.isEmpty()) {
+            throw new IllegalArgumentException("초대 이메일은 비어있을 수 없습니다.");
+        }
+        return email;
     }
 
     // ───────────────────────────────────────────────
@@ -209,7 +225,8 @@ public class InvitationService {
      * Invitation 엔티티 → InvitationDto 변환
      */
     private InvitationDto toDto(Invitation inv) {
-        // TODO(Phase 1): 구현
-        throw new UnsupportedOperationException("TODO(Phase 1): toDto");
+        return new InvitationDto(inv.getId(), inv.getWorkspaceId(), inv.getEmail(),
+                inv.getInvitedById(), inv.getRole(), inv.getStatus(),
+                inv.getExpiresAt(), inv.getCreatedAt());
     }
 }

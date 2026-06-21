@@ -1,0 +1,894 @@
+diff --git a/apps/web/components/sidebar/PageTree.tsx b/apps/web/components/sidebar/PageTree.tsx
+index ee60d79..e6fa14d 100644
+--- a/apps/web/components/sidebar/PageTree.tsx
++++ b/apps/web/components/sidebar/PageTree.tsx
+@@ -7,9 +7,19 @@ interface Props {
+   pages: Page[];
+   onNavigate: (id: string) => void;
+   onCreateChild?: (parentId: string) => void;
++  onRename?: (id: string, title: string) => void;
++  onSetIcon?: (id: string, icon: string) => void;
++  onArchive?: (id: string) => void;
+ }
+ 
+-export default function PageTree({ pages, onNavigate, onCreateChild }: Props) {
++export default function PageTree({
++  pages,
++  onNavigate,
++  onCreateChild,
++  onRename,
++  onSetIcon,
++  onArchive,
++}: Props) {
+   if (pages.length === 0) {
+     return (
+       <p className="px-2.5 py-2 text-[13px] text-faint">페이지가 없습니다. 새 페이지를 만들어 보세요.</p>
+@@ -18,7 +28,16 @@ export default function PageTree({ pages, onNavigate, onCreateChild }: Props) {
+   return (
+     <ul role="tree" aria-label="페이지 트리">
+       {pages.map((p) => (
+-        <PageTreeNode key={p.id} page={p} depth={0} onNavigate={onNavigate} onCreateChild={onCreateChild} />
++        <PageTreeNode
++          key={p.id}
++          page={p}
++          depth={0}
++          onNavigate={onNavigate}
++          onCreateChild={onCreateChild}
++          onRename={onRename}
++          onSetIcon={onSetIcon}
++          onArchive={onArchive}
++        />
+       ))}
+     </ul>
+   );
+diff --git a/apps/web/components/sidebar/PageTreeNode.tsx b/apps/web/components/sidebar/PageTreeNode.tsx
+index 96d74f6..a0fb29a 100644
+--- a/apps/web/components/sidebar/PageTreeNode.tsx
++++ b/apps/web/components/sidebar/PageTreeNode.tsx
+@@ -8,11 +8,34 @@ interface Props {
+   depth: number;
+   onNavigate: (id: string) => void;
+   onCreateChild?: (parentId: string) => void;
++  onRename?: (id: string, title: string) => void;
++  onSetIcon?: (id: string, icon: string) => void;
++  onArchive?: (id: string) => void;
+ }
+ 
+-export default function PageTreeNode({ page, depth, onNavigate, onCreateChild }: Props) {
++export default function PageTreeNode({
++  page,
++  depth,
++  onNavigate,
++  onCreateChild,
++  onRename,
++  onSetIcon,
++  onArchive,
++}: Props) {
+   const hasChildren = !!page.children && page.children.length > 0;
+   const [expanded, setExpanded] = useState(true);
++  const [editing, setEditing] = useState<'none' | 'title' | 'icon'>('none');
++
++  const commitRename = (value: string) => {
++    const trimmed = value.trim();
++    if (trimmed && trimmed !== page.title) onRename?.(page.id, trimmed);
++    setEditing('none');
++  };
++  const commitIcon = (value: string) => {
++    const v = value.trim();
++    if (v) onSetIcon?.(page.id, v);
++    setEditing('none');
++  };
+ 
+   return (
+     <li role="none">
+@@ -35,23 +58,94 @@ export default function PageTreeNode({ page, depth, onNavigate, onCreateChild }:
+         ) : (
+           <span className="inline-block w-3 flex-none" aria-hidden />
+         )}
+-        <span aria-hidden className="text-[14px]">
+-          {page.icon ?? '📄'}
+-        </span>
+-        <button type="button" onClick={() => onNavigate(page.id)} className="flex-1 truncate text-left">
+-          {page.title}
+-        </button>
+-        {onCreateChild && (
++
++        {/* 아이콘 — onSetIcon 제공 시 클릭하여 이모지 직접 입력 */}
++        {editing === 'icon' ? (
++          <input
++            aria-label="페이지 아이콘"
++            defaultValue={page.icon ?? ''}
++            autoFocus
++            maxLength={8}
++            onKeyDown={(e) => {
++              if (e.key === 'Enter') commitIcon(e.currentTarget.value);
++              else if (e.key === 'Escape') setEditing('none');
++            }}
++            onBlur={(e) => commitIcon(e.currentTarget.value)}
++            className="w-9 flex-none rounded bg-hover px-1 text-[14px] text-ink outline-none"
++          />
++        ) : onSetIcon ? (
++          <button
++            type="button"
++            aria-label={`${page.title} 아이콘 변경`}
++            onClick={() => setEditing('icon')}
++            className="flex-none text-[14px]"
++          >
++            <span aria-hidden>{page.icon ?? '📄'}</span>
++          </button>
++        ) : (
++          <span aria-hidden className="flex-none text-[14px]">
++            {page.icon ?? '📄'}
++          </span>
++        )}
++
++        {/* 제목 — 편집 모드 시 인라인 입력 */}
++        {editing === 'title' ? (
++          <input
++            aria-label="페이지 이름"
++            defaultValue={page.title}
++            autoFocus
++            onKeyDown={(e) => {
++              if (e.key === 'Enter') commitRename(e.currentTarget.value);
++              else if (e.key === 'Escape') setEditing('none');
++            }}
++            onBlur={(e) => commitRename(e.currentTarget.value)}
++            className="min-w-0 flex-1 rounded bg-hover px-1 text-[13.5px] text-ink outline-none"
++          />
++        ) : (
+           <button
+             type="button"
+-            aria-label={`${page.title} 하위 추가`}
+-            onClick={() => onCreateChild(page.id)}
+-            className="flex-none text-faint opacity-0 transition group-hover:opacity-100"
++            onClick={() => onNavigate(page.id)}
++            className="min-w-0 flex-1 truncate text-left"
+           >
+-            <span aria-hidden>＋</span>
++            {page.title}
+           </button>
+         )}
++
++        {/* 행 액션 (hover 시 노출) */}
++        <div className="flex flex-none items-center gap-1.5 opacity-0 transition group-hover:opacity-100">
++          {onRename && (
++            <button
++              type="button"
++              aria-label={`${page.title} 이름 변경`}
++              onClick={() => setEditing('title')}
++              className="text-faint hover:text-ink"
++            >
++              <span aria-hidden>✎</span>
++            </button>
++          )}
++          {onArchive && (
++            <button
++              type="button"
++              aria-label={`${page.title} 아카이브`}
++              onClick={() => onArchive(page.id)}
++              className="text-faint hover:text-danger"
++            >
++              <span aria-hidden>🗑</span>
++            </button>
++          )}
++          {onCreateChild && (
++            <button
++              type="button"
++              aria-label={`${page.title} 하위 추가`}
++              onClick={() => onCreateChild(page.id)}
++              className="text-faint hover:text-ink"
++            >
++              <span aria-hidden>＋</span>
++            </button>
++          )}
++        </div>
+       </div>
++
+       {hasChildren && expanded && (
+         <ul role="group">
+           {page.children?.map((child) => (
+@@ -61,6 +155,9 @@ export default function PageTreeNode({ page, depth, onNavigate, onCreateChild }:
+               depth={depth + 1}
+               onNavigate={onNavigate}
+               onCreateChild={onCreateChild}
++              onRename={onRename}
++              onSetIcon={onSetIcon}
++              onArchive={onArchive}
+             />
+           ))}
+         </ul>
+diff --git a/apps/web/components/sidebar/Sidebar.tsx b/apps/web/components/sidebar/Sidebar.tsx
+index a811ae2..3d6d94e 100644
+--- a/apps/web/components/sidebar/Sidebar.tsx
++++ b/apps/web/components/sidebar/Sidebar.tsx
+@@ -3,7 +3,7 @@
+ import { useEffect, useRef, useState } from 'react';
+ import { useRouter } from 'next/navigation';
+ import { listWorkspaces } from '@/src/lib/workspaces';
+-import { getPageTree, createPage } from '@/src/lib/pages';
++import { getPageTree, createPage, updatePage, archivePage } from '@/src/lib/pages';
+ import { ApiError } from '@/src/lib/api';
+ import type { Page, Workspace } from '@/src/lib/types';
+ import WorkspaceSwitcher from './WorkspaceSwitcher';
+@@ -114,6 +114,40 @@ export default function Sidebar({ onNavigate }: Props = {}) {
+     }
+   };
+ 
++  /** 페이지 이름 변경 → updatePage 후 트리 재조회 */
++  const handleRename = async (id: string, title: string) => {
++    if (!selectedWsId) return;
++    try {
++      await updatePage(selectedWsId, id, { title });
++      await loadTree(selectedWsId);
++    } catch (e) {
++      handleError(e);
++    }
++  };
++
++  /** 페이지 아이콘 설정 → updatePage 후 트리 재조회 */
++  const handleSetIcon = async (id: string, icon: string) => {
++    if (!selectedWsId) return;
++    try {
++      await updatePage(selectedWsId, id, { icon });
++      await loadTree(selectedWsId);
++    } catch (e) {
++      handleError(e);
++    }
++  };
++
++  /** 페이지 아카이브(재귀 soft delete) — 파괴적이므로 확인 후 실행 */
++  const handleArchive = async (id: string) => {
++    if (!selectedWsId) return;
++    if (!window.confirm('이 페이지와 하위 페이지를 모두 아카이브할까요?')) return;
++    try {
++      await archivePage(selectedWsId, id);
++      await loadTree(selectedWsId);
++    } catch (e) {
++      handleError(e);
++    }
++  };
++
+   return (
+     <aside
+       aria-label="사이드바"
+@@ -129,7 +163,14 @@ export default function Sidebar({ onNavigate }: Props = {}) {
+           </p>
+         )}
+         {status === 'ready' && (
+-          <PageTree pages={pages} onNavigate={navigate} onCreateChild={(parentId) => handleCreate(parentId)} />
++          <PageTree
++            pages={pages}
++            onNavigate={navigate}
++            onCreateChild={(parentId) => handleCreate(parentId)}
++            onRename={handleRename}
++            onSetIcon={handleSetIcon}
++            onArchive={handleArchive}
++          />
+         )}
+       </div>
+ 
+diff --git a/apps/web/components/sidebar/__tests__/PageTree.test.tsx b/apps/web/components/sidebar/__tests__/PageTree.test.tsx
+index 74f36f1..38d9f81 100644
+--- a/apps/web/components/sidebar/__tests__/PageTree.test.tsx
++++ b/apps/web/components/sidebar/__tests__/PageTree.test.tsx
+@@ -1,5 +1,5 @@
+ import { describe, it, expect, vi } from 'vitest';
+-import { render, screen } from '@testing-library/react';
++import { render, screen, fireEvent } from '@testing-library/react';
+ import userEvent from '@testing-library/user-event';
+ import PageTree from '@/components/sidebar/PageTree';
+ import type { Page } from '@/src/lib/types';
+@@ -66,6 +66,55 @@ describe('PageTree', () => {
+     expect(onCreateChild).toHaveBeenCalledWith('a');
+   });
+ 
++  it('AC-F3: 인라인 이름 변경 — "이름 변경" 클릭 → 입력 → Enter → onRename(id, newTitle)', async () => {
++    const user = userEvent.setup();
++    const onRename = vi.fn();
++    render(<PageTree pages={[node({ id: 'a', title: 'A' })]} onNavigate={vi.fn()} onRename={onRename} />);
++
++    await user.click(screen.getByRole('button', { name: 'A 이름 변경' }));
++    const input = screen.getByRole('textbox', { name: '페이지 이름' });
++    fireEvent.change(input, { target: { value: 'B' } });
++    fireEvent.keyDown(input, { key: 'Enter' });
++
++    expect(onRename).toHaveBeenCalledWith('a', 'B');
++  });
++
++  it('AC-F4: 이름 변경 중 Escape를 누르면 취소되고 onRename이 호출되지 않는다', async () => {
++    const user = userEvent.setup();
++    const onRename = vi.fn();
++    render(<PageTree pages={[node({ id: 'a', title: 'A' })]} onNavigate={vi.fn()} onRename={onRename} />);
++
++    await user.click(screen.getByRole('button', { name: 'A 이름 변경' }));
++    const input = screen.getByRole('textbox', { name: '페이지 이름' });
++    fireEvent.change(input, { target: { value: 'X' } });
++    fireEvent.keyDown(input, { key: 'Escape' });
++
++    expect(onRename).not.toHaveBeenCalled();
++    expect(screen.queryByRole('textbox', { name: '페이지 이름' })).not.toBeInTheDocument();
++  });
++
++  it('AC-F5: 아이콘 설정 — "아이콘 변경" 클릭 → 이모지 입력 → Enter → onSetIcon(id, value)', async () => {
++    const user = userEvent.setup();
++    const onSetIcon = vi.fn();
++    render(<PageTree pages={[node({ id: 'a', title: 'A' })]} onNavigate={vi.fn()} onSetIcon={onSetIcon} />);
++
++    await user.click(screen.getByRole('button', { name: 'A 아이콘 변경' }));
++    const input = screen.getByRole('textbox', { name: '페이지 아이콘' });
++    fireEvent.change(input, { target: { value: '🔥' } });
++    fireEvent.keyDown(input, { key: 'Enter' });
++
++    expect(onSetIcon).toHaveBeenCalledWith('a', '🔥');
++  });
++
++  it('AC-F6: 아카이브 — "아카이브" 클릭 → onArchive(id)', async () => {
++    const user = userEvent.setup();
++    const onArchive = vi.fn();
++    render(<PageTree pages={[node({ id: 'a', title: 'A' })]} onNavigate={vi.fn()} onArchive={onArchive} />);
++
++    await user.click(screen.getByRole('button', { name: 'A 아카이브' }));
++    expect(onArchive).toHaveBeenCalledWith('a');
++  });
++
+   it('PR리뷰: WAI-ARIA Tree 마크업(treeitem/aria-expanded/group)을 따른다', () => {
+     const tree = [node({ id: 'a', title: 'A', children: [node({ id: 'b', parentPageId: 'a', title: 'B' })] })];
+     render(<PageTree pages={tree} onNavigate={vi.fn()} />);
+diff --git a/apps/web/components/sidebar/__tests__/Sidebar.test.tsx b/apps/web/components/sidebar/__tests__/Sidebar.test.tsx
+index c98bedd..f38a486 100644
+--- a/apps/web/components/sidebar/__tests__/Sidebar.test.tsx
++++ b/apps/web/components/sidebar/__tests__/Sidebar.test.tsx
+@@ -1,15 +1,20 @@
+ import { describe, it, expect, vi, beforeEach } from 'vitest';
+-import { render, screen, waitFor, act } from '@testing-library/react';
++import { render, screen, waitFor, act, fireEvent } from '@testing-library/react';
+ import userEvent from '@testing-library/user-event';
+ 
+ const { pushMock } = vi.hoisted(() => ({ pushMock: vi.fn() }));
+ vi.mock('next/navigation', () => ({ useRouter: () => ({ push: pushMock }) }));
+ vi.mock('@/src/lib/workspaces', () => ({ listWorkspaces: vi.fn() }));
+-vi.mock('@/src/lib/pages', () => ({ getPageTree: vi.fn(), createPage: vi.fn() }));
++vi.mock('@/src/lib/pages', () => ({
++  getPageTree: vi.fn(),
++  createPage: vi.fn(),
++  updatePage: vi.fn(),
++  archivePage: vi.fn(),
++}));
+ 
+ import Sidebar from '@/components/sidebar/Sidebar';
+ import { listWorkspaces } from '@/src/lib/workspaces';
+-import { getPageTree, createPage } from '@/src/lib/pages';
++import { getPageTree, createPage, updatePage, archivePage } from '@/src/lib/pages';
+ import { ApiError } from '@/src/lib/api';
+ import type { Page, Workspace } from '@/src/lib/types';
+ 
+@@ -103,6 +108,41 @@ describe('Sidebar', () => {
+     );
+   });
+ 
++  it('AC-F7: 트리 행 이름 변경 시 updatePage 호출 후 트리를 재조회한다', async () => {
++    const user = userEvent.setup();
++    vi.mocked(listWorkspaces).mockResolvedValue([ws({ id: 'w1', name: '내 워크스페이스', type: 'PERSONAL' })]);
++    vi.mocked(getPageTree).mockResolvedValue([page({ id: 'a', title: 'A' })]);
++    vi.mocked(updatePage).mockResolvedValue(page({ id: 'a', title: 'New' }));
++    render(<Sidebar />);
++    await screen.findByText('A');
++
++    await user.click(screen.getByRole('button', { name: 'A 이름 변경' }));
++    const input = screen.getByRole('textbox', { name: '페이지 이름' });
++    fireEvent.change(input, { target: { value: 'New' } });
++    fireEvent.keyDown(input, { key: 'Enter' });
++
++    await waitFor(() => expect(updatePage).toHaveBeenCalledWith('w1', 'a', { title: 'New' }));
++    await waitFor(() => expect(getPageTree).toHaveBeenCalledTimes(2)); // 초기 + 재조회
++  });
++
++  it('AC-F8: 아카이브는 confirm 승인 시에만 archivePage 호출 + 재조회한다', async () => {
++    const user = userEvent.setup();
++    vi.mocked(listWorkspaces).mockResolvedValue([ws({ id: 'w1', name: '내 워크스페이스', type: 'PERSONAL' })]);
++    vi.mocked(getPageTree).mockResolvedValue([page({ id: 'a', title: 'A' })]);
++    vi.mocked(archivePage).mockResolvedValue(undefined);
++    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
++    render(<Sidebar />);
++    await screen.findByText('A');
++
++    await user.click(screen.getByRole('button', { name: 'A 아카이브' }));
++    expect(archivePage).not.toHaveBeenCalled(); // confirm 취소
++
++    confirmSpy.mockReturnValue(true);
++    await user.click(screen.getByRole('button', { name: 'A 아카이브' }));
++    await waitFor(() => expect(archivePage).toHaveBeenCalledWith('w1', 'a'));
++    await waitFor(() => expect(getPageTree).toHaveBeenCalledTimes(2));
++  });
++
+   it('AC-12: 트리 조회가 에러면 에러 상태를 표시한다', async () => {
+     vi.mocked(listWorkspaces).mockResolvedValue([ws({ id: 'w1', name: '내 워크스페이스', type: 'PERSONAL' })]);
+     vi.mocked(getPageTree).mockRejectedValue(new Error('boom'));
+diff --git a/apps/web/src/lib/__tests__/pages.test.ts b/apps/web/src/lib/__tests__/pages.test.ts
+index db9845f..49a00c3 100644
+--- a/apps/web/src/lib/__tests__/pages.test.ts
++++ b/apps/web/src/lib/__tests__/pages.test.ts
+@@ -1,5 +1,5 @@
+ import { describe, it, expect, vi, beforeEach } from 'vitest';
+-import { getPageTree, createPage } from '@/src/lib/pages';
++import { getPageTree, createPage, updatePage, archivePage } from '@/src/lib/pages';
+ 
+ const node = (over: Record<string, unknown>) => ({
+   id: 'x',
+@@ -50,6 +50,29 @@ describe('pages api', () => {
+     expect(result.id).toBe('p9');
+   });
+ 
++  it('AC-F1: updatePage가 PATCH + JSON 본문으로 호출하고 갱신 Page를 반환한다', async () => {
++    const updated = node({ id: 'p1', title: '수정됨' });
++    const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValue(jsonRes(updated));
++
++    const result = await updatePage('w1', 'p1', { title: '수정됨' });
++
++    const [url, init] = fetchMock.mock.calls[0]!;
++    expect(String(url)).toMatch(/\/api\/workspaces\/w1\/pages\/p1$/);
++    expect(init?.method).toBe('PATCH');
++    expect(JSON.parse(String(init?.body))).toMatchObject({ title: '수정됨' });
++    expect(result.id).toBe('p1');
++  });
++
++  it('AC-F2: archivePage가 DELETE로 호출한다', async () => {
++    const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValue(new Response(null, { status: 204 }));
++
++    await archivePage('w1', 'p1');
++
++    const [url, init] = fetchMock.mock.calls[0]!;
++    expect(String(url)).toMatch(/\/api\/workspaces\/w1\/pages\/p1$/);
++    expect(init?.method).toBe('DELETE');
++  });
++
+   it('PR리뷰: children 필드가 누락된 응답도 파싱한다(children → null)', async () => {
+     const noChildren = {
+       id: 'p',
+diff --git a/apps/web/src/lib/api.ts b/apps/web/src/lib/api.ts
+index 63bb24e..9dcdb41 100644
+--- a/apps/web/src/lib/api.ts
++++ b/apps/web/src/lib/api.ts
+@@ -73,6 +73,14 @@ export async function apiPut<T>(path: string, body?: unknown): Promise<T> {
+   });
+ }
+ 
++/** PATCH 요청 (부분 갱신) */
++export async function apiPatch<T>(path: string, body?: unknown): Promise<T> {
++  return request<T>(path, {
++    method: 'PATCH',
++    body: body !== undefined ? JSON.stringify(body) : undefined,
++  });
++}
++
+ /** DELETE 요청 */
+ export async function apiDelete<T>(path: string): Promise<T> {
+   return request<T>(path, { method: 'DELETE' });
+diff --git a/apps/web/src/lib/pages.ts b/apps/web/src/lib/pages.ts
+index 6483048..5d5ec72 100644
+--- a/apps/web/src/lib/pages.ts
++++ b/apps/web/src/lib/pages.ts
+@@ -1,6 +1,6 @@
+-import { apiGet, apiPost } from './api';
++import { apiGet, apiPost, apiPatch, apiDelete } from './api';
+ import { pageListSchema, pageSchema } from './schemas';
+-import type { CreatePageInput, Page } from './types';
++import type { CreatePageInput, Page, UpdatePageInput } from './types';
+ 
+ /** 워크스페이스 페이지 트리 — GET /api/workspaces/{wsId}/pages */
+ export async function getPageTree(wsId: string): Promise<Page[]> {
+@@ -13,3 +13,18 @@ export async function createPage(wsId: string, input: CreatePageInput): Promise<
+   const data = await apiPost<unknown>(`/api/workspaces/${wsId}/pages`, input);
+   return pageSchema.parse(data);
+ }
++
++/** 페이지 제목/아이콘 변경 — PATCH /api/workspaces/{wsId}/pages/{pageId} */
++export async function updatePage(
++  wsId: string,
++  pageId: string,
++  input: UpdatePageInput,
++): Promise<Page> {
++  const data = await apiPatch<unknown>(`/api/workspaces/${wsId}/pages/${pageId}`, input);
++  return pageSchema.parse(data);
++}
++
++/** 페이지 아카이브(soft delete) — DELETE /api/workspaces/{wsId}/pages/{pageId} */
++export async function archivePage(wsId: string, pageId: string): Promise<void> {
++  await apiDelete<void>(`/api/workspaces/${wsId}/pages/${pageId}`);
++}
+diff --git a/apps/web/src/lib/types.ts b/apps/web/src/lib/types.ts
+index 0494645..6ed71e6 100644
+--- a/apps/web/src/lib/types.ts
++++ b/apps/web/src/lib/types.ts
+@@ -30,3 +30,9 @@ export interface CreatePageInput {
+   icon?: string | null;
+   position: number;
+ }
++
++/** 페이지 부분 갱신 입력 — 미전달 필드는 변경하지 않음(PATCH) */
++export interface UpdatePageInput {
++  title?: string;
++  icon?: string | null;
++}
+diff --git a/backend/src/main/java/com/ieum/page/PageService.java b/backend/src/main/java/com/ieum/page/PageService.java
+index b05467d..3b0047b 100644
+--- a/backend/src/main/java/com/ieum/page/PageService.java
++++ b/backend/src/main/java/com/ieum/page/PageService.java
+@@ -7,11 +7,16 @@ import lombok.RequiredArgsConstructor;
+ import org.springframework.stereotype.Service;
+ import org.springframework.transaction.annotation.Transactional;
+ 
++import java.time.Instant;
++import java.util.ArrayDeque;
+ import java.util.ArrayList;
+ import java.util.Comparator;
++import java.util.Deque;
+ import java.util.HashMap;
++import java.util.HashSet;
+ import java.util.List;
+ import java.util.Map;
++import java.util.Set;
+ import java.util.UUID;
+ 
+ /**
+@@ -97,8 +102,26 @@ public class PageService {
+      */
+     @Transactional
+     public PageDto updatePage(UUID currentUserId, UUID workspaceId, UUID pageId, UpdatePageRequest request) {
+-        // TODO(다음 사이클): updatePage
+-        throw new UnsupportedOperationException("TODO: updatePage");
++        accessGuard.requireWorkspaceMember(currentUserId, workspaceId);
++
++        Page page = pageRepository.findById(pageId)
++                .orElseThrow(() -> new EntityNotFoundException("페이지를 찾을 수 없습니다."));
++        if (!page.getWorkspaceId().equals(workspaceId)) {
++            throw new IllegalArgumentException("페이지가 다른 워크스페이스에 속합니다.");
++        }
++
++        // 부분 갱신: null 필드는 변경하지 않는다 (rename은 icon 보존, set-icon은 title 보존).
++        if (request.title() != null) {
++            if (request.title().isBlank()) {
++                throw new IllegalArgumentException("페이지 제목은 비어 있을 수 없습니다.");
++            }
++            page.setTitle(request.title());
++        }
++        if (request.icon() != null) {
++            page.setIcon(request.icon());
++        }
++
++        return toDto(pageRepository.save(page), null);
+     }
+ 
+     /**
+@@ -115,8 +138,42 @@ public class PageService {
+      */
+     @Transactional
+     public void archivePage(UUID currentUserId, UUID workspaceId, UUID pageId) {
+-        // TODO(다음 사이클): archivePage (하위 재귀 아카이브 포함)
+-        throw new UnsupportedOperationException("TODO: archivePage");
++        accessGuard.requireWorkspaceMember(currentUserId, workspaceId);
++
++        Page target = pageRepository.findById(pageId)
++                .orElseThrow(() -> new EntityNotFoundException("페이지를 찾을 수 없습니다."));
++        if (!target.getWorkspaceId().equals(workspaceId)) {
++            throw new IllegalArgumentException("페이지가 다른 워크스페이스에 속합니다.");
++        }
++
++        // 활성 페이지로 parentPageId→children 맵 구성 후 대상부터 BFS로 후손 수집(대상 포함).
++        // createPage가 부모 사전 존재를 강제하므로 사이클 없음(유한). seen으로 방어.
++        List<Page> active = pageRepository.findByWorkspaceIdAndArchivedAtIsNull(workspaceId);
++        Map<UUID, List<Page>> byParent = new HashMap<>();
++        Map<UUID, Page> byId = new HashMap<>();
++        for (Page p : active) {
++            byParent.computeIfAbsent(p.getParentPageId(), k -> new ArrayList<>()).add(p);
++            byId.put(p.getId(), p);
++        }
++
++        Instant now = Instant.now();
++        List<Page> toArchive = new ArrayList<>();
++        Set<UUID> seen = new HashSet<>();
++        Deque<UUID> queue = new ArrayDeque<>();
++        queue.add(pageId);
++        while (!queue.isEmpty()) {
++            UUID id = queue.poll();
++            if (!seen.add(id)) continue;
++            Page p = byId.get(id);
++            if (p == null) continue; // 이미 아카이브됐거나 활성 목록에 없음
++            p.setArchivedAt(now);
++            toArchive.add(p);
++            for (Page child : byParent.getOrDefault(id, List.of())) {
++                queue.add(child.getId());
++            }
++        }
++
++        pageRepository.saveAll(toArchive);
+     }
+ 
+     private static PageDto toDto(Page p, List<PageDto> children) {
+diff --git a/backend/src/test/java/com/ieum/page/PageIntegrationTest.java b/backend/src/test/java/com/ieum/page/PageIntegrationTest.java
+index 1e8b275..0b0e720 100644
+--- a/backend/src/test/java/com/ieum/page/PageIntegrationTest.java
++++ b/backend/src/test/java/com/ieum/page/PageIntegrationTest.java
+@@ -22,7 +22,9 @@ import java.time.Instant;
+ import java.util.UUID;
+ 
+ import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oauth2Login;
++import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
++import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+@@ -119,4 +121,64 @@ class PageIntegrationTest extends AbstractIntegrationTest {
+                         .with(asUser("G-OTHER")))
+                 .andExpect(status().isForbidden());
+     }
++
++    // ── AC-I1 e2e: 제목 변경 후 트리에 반영 ────────────────────────────
++    @Test
++    @DisplayName("AC-I1 e2e: 멤버가 PATCH로 제목 변경(200) 후 트리 조회 시 새 제목이 반영된다")
++    void member_updateTitle_reflectedInTree() throws Exception {
++        Page page = pageRepository.save(Page.builder()
++                .workspaceId(workspaceId).title("원제목").position(1000).createdById(userId).build());
++
++        mockMvc.perform(patch("/api/workspaces/{wsId}/pages/{pageId}", workspaceId, page.getId())
++                        .with(asUser(GOOGLE_ID))
++                        .contentType(MediaType.APPLICATION_JSON)
++                        .content("{\"title\":\"수정됨\",\"icon\":null}"))
++                .andExpect(status().isOk())
++                .andExpect(jsonPath("$.title").value("수정됨"));
++
++        mockMvc.perform(get("/api/workspaces/{wsId}/pages", workspaceId)
++                        .with(asUser(GOOGLE_ID)))
++                .andExpect(status().isOk())
++                .andExpect(jsonPath("$.length()").value(1))
++                .andExpect(jsonPath("$[0].title").value("수정됨"));
++    }
++
++    // ── AC-I2 e2e: 아카이브 시 부모·자식 트리에서 제외 ─────────────────
++    @Test
++    @DisplayName("AC-I2 e2e: 멤버가 부모 페이지 DELETE(204) 시 부모·자식 모두 트리에서 제외된다")
++    void member_archiveParent_excludesSubtree() throws Exception {
++        Page parent = pageRepository.save(Page.builder()
++                .workspaceId(workspaceId).title("부모").position(1000).createdById(userId).build());
++        pageRepository.save(Page.builder()
++                .workspaceId(workspaceId).parentPageId(parent.getId()).title("자식").position(1000).createdById(userId).build());
++
++        mockMvc.perform(delete("/api/workspaces/{wsId}/pages/{pageId}", workspaceId, parent.getId())
++                        .with(asUser(GOOGLE_ID)))
++                .andExpect(status().isNoContent());
++
++        mockMvc.perform(get("/api/workspaces/{wsId}/pages", workspaceId)
++                        .with(asUser(GOOGLE_ID)))
++                .andExpect(status().isOk())
++                .andExpect(jsonPath("$.length()").value(0));
++    }
++
++    // ── AC-I3 e2e: 비멤버 PATCH/DELETE → 403 ──────────────────────────
++    @Test
++    @DisplayName("AC-I3 e2e: 비멤버의 PATCH·DELETE는 403")
++    void nonMember_updateOrArchive_returns403() throws Exception {
++        userRepository.save(User.builder()
++                .googleId("G-OTHER").email("other@test.com").name("외부인").image("img").build());
++        Page page = pageRepository.save(Page.builder()
++                .workspaceId(workspaceId).title("보호됨").position(1000).createdById(userId).build());
++
++        mockMvc.perform(patch("/api/workspaces/{wsId}/pages/{pageId}", workspaceId, page.getId())
++                        .with(asUser("G-OTHER"))
++                        .contentType(MediaType.APPLICATION_JSON)
++                        .content("{\"title\":\"해킹\",\"icon\":null}"))
++                .andExpect(status().isForbidden());
++
++        mockMvc.perform(delete("/api/workspaces/{wsId}/pages/{pageId}", workspaceId, page.getId())
++                        .with(asUser("G-OTHER")))
++                .andExpect(status().isForbidden());
++    }
+ }
+diff --git a/backend/src/test/java/com/ieum/page/PageServiceTest.java b/backend/src/test/java/com/ieum/page/PageServiceTest.java
+index 669d22b..1c967e1 100644
+--- a/backend/src/test/java/com/ieum/page/PageServiceTest.java
++++ b/backend/src/test/java/com/ieum/page/PageServiceTest.java
+@@ -3,6 +3,8 @@ package com.ieum.page;
+ import com.ieum.common.security.AccessGuard;
+ import com.ieum.page.dto.CreatePageRequest;
+ import com.ieum.page.dto.PageDto;
++import com.ieum.page.dto.UpdatePageRequest;
++import jakarta.persistence.EntityNotFoundException;
+ import org.junit.jupiter.api.DisplayName;
+ import org.junit.jupiter.api.Test;
+ import org.junit.jupiter.api.extension.ExtendWith;
+@@ -222,4 +224,194 @@ class PageServiceTest {
+ 
+         verify(pageRepository, never()).findByWorkspaceIdAndArchivedAtIsNull(any());
+     }
++
++    // ── updatePage ─────────────────────────────────────────────────────
++
++    @Test
++    @DisplayName("AC-B1: updatePage — 제목을 변경하고 아이콘은 보존한다(부분 갱신)")
++    void updatePage_changesTitle_preservesIcon() {
++        UUID userId = UUID.randomUUID();
++        UUID wsId = UUID.randomUUID();
++        UUID pageId = UUID.randomUUID();
++        Page page = Page.builder().id(pageId).workspaceId(wsId).title("T").icon("📄").position(0).createdById(userId).build();
++        when(pageRepository.findById(pageId)).thenReturn(Optional.of(page));
++        when(pageRepository.save(any(Page.class))).thenAnswer(inv -> inv.getArgument(0));
++
++        PageDto result = pageService.updatePage(userId, wsId, pageId, new UpdatePageRequest("새제목", null));
++
++        ArgumentCaptor<Page> captor = ArgumentCaptor.forClass(Page.class);
++        verify(pageRepository).save(captor.capture());
++        assertThat(captor.getValue().getTitle()).isEqualTo("새제목");
++        assertThat(captor.getValue().getIcon()).isEqualTo("📄"); // 미전달 → 보존
++        assertThat(result.title()).isEqualTo("새제목");
++    }
++
++    @Test
++    @DisplayName("AC-B2: updatePage — 아이콘을 변경하고 제목은 보존한다")
++    void updatePage_changesIcon_preservesTitle() {
++        UUID userId = UUID.randomUUID();
++        UUID wsId = UUID.randomUUID();
++        UUID pageId = UUID.randomUUID();
++        Page page = Page.builder().id(pageId).workspaceId(wsId).title("T").icon(null).position(0).createdById(userId).build();
++        when(pageRepository.findById(pageId)).thenReturn(Optional.of(page));
++        when(pageRepository.save(any(Page.class))).thenAnswer(inv -> inv.getArgument(0));
++
++        pageService.updatePage(userId, wsId, pageId, new UpdatePageRequest(null, "🔥"));
++
++        ArgumentCaptor<Page> captor = ArgumentCaptor.forClass(Page.class);
++        verify(pageRepository).save(captor.capture());
++        assertThat(captor.getValue().getIcon()).isEqualTo("🔥");
++        assertThat(captor.getValue().getTitle()).isEqualTo("T"); // 미전달 → 보존
++    }
++
++    @Test
++    @DisplayName("AC-B3: updatePage — 제목이 공백뿐이면 IllegalArgumentException, 저장 안 함")
++    void updatePage_blankTitle_throws() {
++        UUID userId = UUID.randomUUID();
++        UUID wsId = UUID.randomUUID();
++        UUID pageId = UUID.randomUUID();
++        Page page = Page.builder().id(pageId).workspaceId(wsId).title("T").position(0).createdById(userId).build();
++        when(pageRepository.findById(pageId)).thenReturn(Optional.of(page));
++
++        assertThatThrownBy(() -> pageService.updatePage(userId, wsId, pageId, new UpdatePageRequest("   ", null)))
++                .isInstanceOf(IllegalArgumentException.class);
++
++        verify(pageRepository, never()).save(any());
++    }
++
++    @Test
++    @DisplayName("AC-B4: updatePage — 비멤버면 AccessDeniedException, 조회·저장 안 함")
++    void updatePage_nonMember_throws() {
++        UUID userId = UUID.randomUUID();
++        UUID wsId = UUID.randomUUID();
++        UUID pageId = UUID.randomUUID();
++        when(accessGuard.requireWorkspaceMember(userId, wsId))
++                .thenThrow(new AccessDeniedException("워크스페이스 멤버가 아닙니다."));
++
++        assertThatThrownBy(() -> pageService.updatePage(userId, wsId, pageId, new UpdatePageRequest("x", null)))
++                .isInstanceOf(AccessDeniedException.class);
++
++        verify(pageRepository, never()).findById(any());
++        verify(pageRepository, never()).save(any());
++    }
++
++    @Test
++    @DisplayName("AC-B5: updatePage — 페이지가 없으면 EntityNotFoundException")
++    void updatePage_notFound_throws() {
++        UUID userId = UUID.randomUUID();
++        UUID wsId = UUID.randomUUID();
++        UUID pageId = UUID.randomUUID();
++        when(pageRepository.findById(pageId)).thenReturn(Optional.empty());
++
++        assertThatThrownBy(() -> pageService.updatePage(userId, wsId, pageId, new UpdatePageRequest("x", null)))
++                .isInstanceOf(EntityNotFoundException.class);
++
++        verify(pageRepository, never()).save(any());
++    }
++
++    @Test
++    @DisplayName("AC-B6: updatePage — 페이지가 다른 워크스페이스면 IllegalArgumentException, 저장 안 함")
++    void updatePage_otherWorkspace_throws() {
++        UUID userId = UUID.randomUUID();
++        UUID wsId = UUID.randomUUID();
++        UUID otherWsId = UUID.randomUUID();
++        UUID pageId = UUID.randomUUID();
++        Page page = Page.builder().id(pageId).workspaceId(otherWsId).title("T").position(0).createdById(userId).build();
++        when(pageRepository.findById(pageId)).thenReturn(Optional.of(page));
++
++        assertThatThrownBy(() -> pageService.updatePage(userId, wsId, pageId, new UpdatePageRequest("x", null)))
++                .isInstanceOf(IllegalArgumentException.class);
++
++        verify(pageRepository, never()).save(any());
++    }
++
++    // ── archivePage ────────────────────────────────────────────────────
++
++    @Test
++    @DisplayName("AC-B7: archivePage — 페이지를 soft delete(archivedAt 설정)한다")
++    @SuppressWarnings("unchecked")
++    void archivePage_softDeletes() {
++        UUID userId = UUID.randomUUID();
++        UUID wsId = UUID.randomUUID();
++        UUID pageId = UUID.randomUUID();
++        Page page = Page.builder().id(pageId).workspaceId(wsId).parentPageId(null).title("T").position(0).createdById(userId).build();
++        when(pageRepository.findById(pageId)).thenReturn(Optional.of(page));
++        when(pageRepository.findByWorkspaceIdAndArchivedAtIsNull(wsId)).thenReturn(List.of(page));
++
++        pageService.archivePage(userId, wsId, pageId);
++
++        ArgumentCaptor<List<Page>> captor = ArgumentCaptor.forClass(List.class);
++        verify(pageRepository).saveAll(captor.capture());
++        assertThat(captor.getValue()).hasSize(1);
++        assertThat(captor.getValue()).allMatch(p -> p.getArchivedAt() != null);
++    }
++
++    @Test
++    @DisplayName("AC-B8: archivePage — 부모 아카이브 시 하위(자식·손자)도 재귀 아카이브된다")
++    @SuppressWarnings("unchecked")
++    void archivePage_recursivelyArchivesDescendants() {
++        UUID userId = UUID.randomUUID();
++        UUID wsId = UUID.randomUUID();
++        UUID p = UUID.randomUUID();
++        UUID c = UUID.randomUUID();
++        UUID g = UUID.randomUUID();
++        Page parent = Page.builder().id(p).workspaceId(wsId).parentPageId(null).title("P").position(0).createdById(userId).build();
++        Page child = Page.builder().id(c).workspaceId(wsId).parentPageId(p).title("C").position(0).createdById(userId).build();
++        Page grand = Page.builder().id(g).workspaceId(wsId).parentPageId(c).title("G").position(0).createdById(userId).build();
++        when(pageRepository.findById(p)).thenReturn(Optional.of(parent));
++        when(pageRepository.findByWorkspaceIdAndArchivedAtIsNull(wsId)).thenReturn(List.of(parent, child, grand));
++
++        pageService.archivePage(userId, wsId, p);
++
++        ArgumentCaptor<List<Page>> captor = ArgumentCaptor.forClass(List.class);
++        verify(pageRepository).saveAll(captor.capture());
++        assertThat(captor.getValue()).hasSize(3);
++        assertThat(captor.getValue()).allMatch(pg -> pg.getArchivedAt() != null);
++        assertThat(captor.getValue()).extracting(Page::getId).containsExactlyInAnyOrder(p, c, g);
++    }
++
++    @Test
++    @DisplayName("AC-B9: archivePage — 비멤버면 AccessDeniedException, 저장 안 함")
++    void archivePage_nonMember_throws() {
++        UUID userId = UUID.randomUUID();
++        UUID wsId = UUID.randomUUID();
++        UUID pageId = UUID.randomUUID();
++        when(accessGuard.requireWorkspaceMember(userId, wsId))
++                .thenThrow(new AccessDeniedException("워크스페이스 멤버가 아닙니다."));
++
++        assertThatThrownBy(() -> pageService.archivePage(userId, wsId, pageId))
++                .isInstanceOf(AccessDeniedException.class);
++
++        verify(pageRepository, never()).saveAll(any());
++    }
++
++    @Test
++    @DisplayName("AC-B10: archivePage — 페이지가 없으면 EntityNotFoundException")
++    void archivePage_notFound_throws() {
++        UUID userId = UUID.randomUUID();
++        UUID wsId = UUID.randomUUID();
++        UUID pageId = UUID.randomUUID();
++        when(pageRepository.findById(pageId)).thenReturn(Optional.empty());
++
++        assertThatThrownBy(() -> pageService.archivePage(userId, wsId, pageId))
++                .isInstanceOf(EntityNotFoundException.class);
++
++        verify(pageRepository, never()).saveAll(any());
++    }
++
++    @Test
++    @DisplayName("AC-B11: archivePage — 페이지가 다른 워크스페이스면 IllegalArgumentException, 저장 안 함")
++    void archivePage_otherWorkspace_throws() {
++        UUID userId = UUID.randomUUID();
++        UUID wsId = UUID.randomUUID();
++        UUID otherWsId = UUID.randomUUID();
++        UUID pageId = UUID.randomUUID();
++        Page page = Page.builder().id(pageId).workspaceId(otherWsId).title("T").position(0).createdById(userId).build();
++        when(pageRepository.findById(pageId)).thenReturn(Optional.of(page));
++
++        assertThatThrownBy(() -> pageService.archivePage(userId, wsId, pageId))
++                .isInstanceOf(IllegalArgumentException.class);
++
++        verify(pageRepository, never()).saveAll(any());
++    }
+ }

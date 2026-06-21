@@ -1,5 +1,6 @@
 package com.ieum.invitation;
 
+import com.ieum.common.security.CurrentUserService;
 import com.ieum.invitation.dto.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -20,6 +21,7 @@ import java.util.UUID;
 public class InvitationController {
 
     private final InvitationService invitationService;
+    private final CurrentUserService currentUserService;
 
     /**
      * POST /api/workspaces/{wsId}/invitations
@@ -29,7 +31,7 @@ public class InvitationController {
     public ResponseEntity<InvitationDto> createInvitation(
             @PathVariable UUID wsId,
             @RequestBody CreateInvitationRequest request) {
-        UUID currentUserId = null; // TODO(Phase 1): 인증 컨텍스트에서 추출
+        UUID currentUserId = currentUserService.requireCurrentUserId();
         InvitationDto created = invitationService.createInvitation(currentUserId, wsId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
