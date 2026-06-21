@@ -36,6 +36,8 @@ function newSiteId(): string {
 
 // P6: presence 표시 이름은 siteId 기반 자동 생성(실 인증 전 목 신원, BR-4 상응).
 // 서버는 displayName만 신뢰 중계하고 색상은 서버가 할당한다.
+// siteId 앞 4자만 쓰므로 우연히 동일 displayName이 생길 수 있으나, BR-7이 다중 탭 동일 이름을
+// 독립 presence(clientId·색상 분리)로 허용하므로 스펙상 무해하다(CR-3, 실 인증 시 대체).
 function displayNameFromSiteId(siteId: string): string {
   return `사용자 #${siteId.slice(0, 4)}`;
 }

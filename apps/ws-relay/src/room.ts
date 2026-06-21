@@ -148,7 +148,12 @@ export class RoomRegistry {
     return PRESENCE_COLORS[slot]!;
   }
 
-  /** 빈/미제공 displayName을 room별 "익명 #N"으로 흡수(BR-4). */
+  /**
+   * 빈/미제공 displayName을 room별 "익명 #N"으로 흡수(BR-4).
+   * 카운터(anonCounters)는 room별 단조 증가이며 room이 완전히 빌 때만(leave의 size===0) 리셋된다.
+   * 따라서 (a) room이 안 비면 "익명 #N"이 계속 증가하고, (b) room이 빈 뒤 재입장하면 #1부터 재시작한다.
+   * BR-4는 "비어있지 않은 문자열"만 요구하므로 번호 고유성은 스펙 밖(walking skeleton 수용, CR-1).
+   */
   private resolveDisplayName(pageId: string, raw?: string): string {
     const trimmed = raw?.trim();
     if (trimmed) return trimmed;

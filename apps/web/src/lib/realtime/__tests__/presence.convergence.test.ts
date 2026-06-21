@@ -59,6 +59,8 @@ describe('2탭 presence 수렴 (in-memory relay)', () => {
     clientB.join(PAGE);
 
     clientA.dispose(); // transport.close → inMemoryRelay close → reg.leave deliver
+    // 통합 테스트는 presence-leave 전달만 검증한다(roomSize는 in-memory 하네스에서 미노출).
+    // AC-3의 "roomSize=1 감소" 단정은 room.presence.test의 단위 테스트가 커버한다(CR-2).
     expect(bLeaves).toContain('a');
   });
 
