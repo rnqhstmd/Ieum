@@ -22,6 +22,39 @@ describe('relayClient', () => {
     expect(t.sent).toContain(JSON.stringify({ type: 'join', pageId: PAGE }));
   });
 
+  // WS-AUTH T5 / AC-8: getUserId가 현재 userId를 주면 join에 trust-relay로 싣는다.
+  it('AC-8: getUserId가 있으면 join 메시지에 userId를 포함한다', () => {
+    const t = createFakeTransport();
+    createRelayClient(t, PAGE, { onRemoteOp: () => {} }, { getUserId: () => 'U1' });
+    t.emitOpen();
+    expect(t.sent).toContain(JSON.stringify({ type: 'join', pageId: PAGE, userId: 'U1' }));
+  });
+
+  it('AC-8: getUserId가 undefined를 주면 userId 없이 join한다(회귀 방지)', () => {
+    const t = createFakeTransport();
+    createRelayClient(t, PAGE, { onRemoteOp: () => {} }, { getUserId: () => undefined });
+    t.emitOpen();
+    expect(t.sent).toContain(JSON.stringify({ type: 'join', pageId: PAGE }));
+  });
+
+  // WS-AUTH(레이스 수정): ready가 있으면 join을 ready 완료 후로 미뤄 userId를 보장한다.
+  it('AC-8(레이스): ready가 있으면 join을 ready 완료 후로 미루고 그때 userId를 싣는다', async () => {
+    const t = createFakeTransport();
+    let resolveReady!: () => void;
+    const ready = new Promise<void>((r) => {
+      resolveReady = r;
+    });
+    let userId: string | undefined;
+    createRelayClient(t, PAGE, { onRemoteOp: () => {} }, { getUserId: () => userId, ready });
+    t.emitOpen();
+    expect(t.sent).toHaveLength(0); // ready 전엔 join하지 않는다
+    userId = 'U2'; // ready 완료 시점에 fetch된 userId
+    resolveReady();
+    await ready;
+    await Promise.resolve();
+    expect(t.sent).toContain(JSON.stringify({ type: 'join', pageId: PAGE, userId: 'U2' }));
+  });
+
   it('AC-5: sendOp은 {type:"op",pageId,op:WireEnvelope} 형식으로 전송한다', () => {
     const t = createFakeTransport();
     const client = createRelayClient(t, PAGE, { onRemoteOp: () => {} });

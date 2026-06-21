@@ -32,7 +32,14 @@ export function createRelayClient(
   transport: Transport,
   pageId: string,
   handlers: RelayClientHandlers,
-  opts?: { displayName?: string },
+  // getUserId: join 시점에 현재 userId를 읽는다(비동기 /me fetch와 연결 타이밍 디커플).
+  // ready: 주어지면 auto-join을 이 Promise(예: userId fetch) 완료 후로 미룬다 — 게이트 활성 시
+  // 첫 connect가 userId 없이 close(4003)되는 레이스를 제거(재연결도 동일). 미설정이면 즉시 join.
+  opts?: {
+    displayName?: string;
+    getUserId?: () => string | undefined;
+    ready?: Promise<unknown>;
+  },
 ): RelayClient {
   const unsubscribers: Array<() => void> = [];
 
@@ -72,18 +79,24 @@ export function createRelayClient(
   );
 
   function join(page: string): void {
-    // opts.displayName이 있으면 presence를 실어 보낸다(없으면 P5 그대로 — 회귀 방지).
-    transport.send(
-      JSON.stringify(
-        opts?.displayName
-          ? { type: 'join', pageId: page, presence: { displayName: opts.displayName } }
-          : { type: 'join', pageId: page },
-      ),
-    );
+    // WS-AUTH: userId(있으면)·presence(displayName 있으면)를 실어 보낸다. 둘 다 없으면 P5 그대로.
+    const msg: { type: 'join'; pageId: string; userId?: string; presence?: { displayName: string } } = {
+      type: 'join',
+      pageId: page,
+    };
+    const userId = opts?.getUserId?.();
+    if (userId) msg.userId = userId;
+    if (opts?.displayName) msg.presence = { displayName: opts.displayName };
+    transport.send(JSON.stringify(msg));
   }
 
-  // 연결되면 자동으로 room 참여.
-  unsubscribers.push(transport.onOpen(() => join(pageId)));
+  // 연결되면 자동으로 room 참여. ready가 있으면 그 완료(예: userId fetch) 후 join한다.
+  unsubscribers.push(
+    transport.onOpen(() => {
+      if (opts?.ready) void opts.ready.then(() => join(pageId));
+      else join(pageId);
+    }),
+  );
 
   return {
     join,

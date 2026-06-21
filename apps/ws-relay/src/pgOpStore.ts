@@ -10,8 +10,8 @@ import type { OpStore, AppendOutcome } from './opStore.js';
 import type { WireEnvelope } from '@ieum/crdt';
 
 const INSERT_SQL = `
-  INSERT INTO crdt_ops (id, page_id, site_id, seq, op_type, payload)
-  VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+  INSERT INTO crdt_ops (id, page_id, site_id, seq, op_type, payload, created_by_id)
+  VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
   ON CONFLICT (page_id, site_id, seq) DO NOTHING
   RETURNING server_seq`;
 
@@ -27,7 +27,7 @@ export class PgOpStore implements OpStore {
     });
   }
 
-  async append(pageId: string, op: WireEnvelope): Promise<AppendOutcome> {
+  async append(pageId: string, op: WireEnvelope, userId?: string | null): Promise<AppendOutcome> {
     // UUID 형식 사전 차단 — DB round-trip 없이 거부(22P02와 동형 결과).
     if (!isUuid(pageId)) return 'rejected';
     try {
@@ -38,6 +38,7 @@ export class PgOpStore implements OpStore {
         op.seq,
         op.opType,
         JSON.stringify(op.payload),
+        userId ?? null, // WS-AUTH-03: 연결 인증 userId(미인가 경로는 null)
       ]);
       // ON CONFLICT DO NOTHING → 충돌 시 0행(이미 영속), 신규 시 1행.
       return r.rowCount === 1 ? 'persisted' : 'duplicate';

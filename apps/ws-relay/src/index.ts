@@ -8,6 +8,9 @@ export type { ClientHandle, Dispatch } from './room.js';
 // op 영속화 포트 — InMemoryOpStore/포트는 ws·pg 의존이 없어 barrel 안전(PgOpStore는 pgOpStore.js 별도).
 export { InMemoryOpStore, isUuid } from './opStore.js';
 export type { OpStore, AppendOutcome } from './opStore.js';
+// WS-AUTH 멤버십 인가 포트 (PgMembershipStore는 pgMembershipStore.js 별도 — pg 의존).
+export { InMemoryMembershipStore } from './membershipStore.js';
+export type { MembershipStore } from './membershipStore.js';
 export {
   parseClientMessage,
 } from './protocol.js';
