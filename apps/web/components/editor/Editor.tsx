@@ -29,9 +29,13 @@ function getCaretOffset(el: HTMLElement, fallback: number): number {
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0) {
       const range = sel.getRangeAt(0);
-      // M2: startContainer가 블록 내 텍스트노드일 때만 startOffset이 가시 index. 그 외(빈 블록 등)는 fallback.
-      if (el.contains(range.startContainer) && range.startContainer.nodeType === Node.TEXT_NODE) {
-        return range.startOffset;
+      if (el.contains(range.startContainer)) {
+        // 블록 시작~caret 범위의 텍스트 길이 = 가시 offset. range.startOffset(노드 내 상대값)과 달리
+        // 멀티 텍스트노드·빈 블록·IME 조합에서도 정확하다(PR #12 리뷰, M2 견고화).
+        const pre = range.cloneRange();
+        pre.selectNodeContents(el);
+        pre.setEnd(range.startContainer, range.startOffset);
+        return pre.toString().length;
       }
     }
   } catch {
@@ -171,6 +175,9 @@ export default function Editor({
         const info = presences.find((p) => p.clientId === c.clientId);
         if (!info) return null; // lookup 실패 시 skip(presence-leave 1프레임 불일치 방어)
         const idx = resolveCursorIndex ? resolveCursorIndex(block.id, c.anchorId) : 0;
+        // left를 `${idx}ch`로 근사한다. ch는 '0' 글자 폭 기준이라 가변폭 폰트에서는 위치가
+        // 어긋난다(walking skeleton 수용 — 픽셀 정확도는 비목표). 정밀 좌표는 후속에서
+        // Range.getBoundingClientRect로 측정한다(PR #12 리뷰).
         return (
           <span
             key={c.clientId}

@@ -3,7 +3,6 @@
 // resolveAnchorToIndex는 tombstone 포함 전체 순회가 필요하므로 RgaState.sentinel.next를
 // 직접 따라간다(getVisibleNodes는 tombstone 제외라 fallback 계산 불가).
 
-import { getVisibleNodes } from './rga.js';
 import { idEquals, idKey } from './id.js';
 import type { DocState } from './block.js';
 import type { RgaId } from './types.js';
@@ -46,6 +45,7 @@ export function resolveAnchorToIndex(
 /**
  * 가시 index(caret 위치)를 직전 문자 id로 변환한다(송신측 캡처).
  * visibleIndex<=0 → null(맨 앞). localInsert/localInlineInsert의 originId 관례와 일치.
+ * 커서 이동은 빈번하므로 getVisibleNodes 배열 할당 없이 링크드리스트를 직접 순회한다(PR #12 리뷰).
  */
 export function indexToAnchorId(
   doc: DocState,
@@ -55,5 +55,14 @@ export function indexToAnchorId(
   if (visibleIndex <= 0) return null;
   const inline = doc.inlineRgas.get(idKey(blockId));
   if (!inline) return null;
-  return getVisibleNodes(inline)[visibleIndex - 1]?.id ?? null;
+  let count = 0;
+  let cursor = inline.sentinel.next;
+  while (cursor) {
+    if (!cursor.deleted) {
+      count += 1;
+      if (count === visibleIndex) return cursor.id;
+    }
+    cursor = cursor.next;
+  }
+  return null;
 }
