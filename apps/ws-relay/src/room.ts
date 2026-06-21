@@ -4,6 +4,7 @@
 // P6: presence(아바타 목록) 상태/색상 슬롯을 registry가 소유하며, ClientHandle은 불투명 유지.
 
 import type { ServerToClient, OpMsg, CursorMsg, PresenceInfo, PresenceUpdateMsg } from './protocol.js';
+import type { AppendOutcome } from './opStore.js';
 
 /** 불투명 클라이언트 식별자 — server.ts가 실제 소켓과 매핑한다. */
 export interface ClientHandle {
@@ -89,13 +90,21 @@ export class RoomRegistry {
     return dispatches;
   }
 
-  handleOp(client: ClientHandle, msg: OpMsg): Dispatch[] {
+  /**
+   * op 처리 — 영속화 outcome(append 결과)에 따라 Dispatch[]를 결정한다(순수, I/O 없음).
+   * - rejected: 미영속(invalid pageId/FK) → ack·broadcast 없음 (AC-5/AC-6).
+   * - duplicate: 이미 영속·전파됨 → op-ack만 재전송, 재-broadcast 금지 (AC-2).
+   * - persisted: op-ack(영속화 확인, S1) + 같은 room 다른 클라에 broadcast (AC-1).
+   */
+  handleOp(client: ClientHandle, msg: OpMsg, outcome: AppendOutcome): Dispatch[] {
+    if (outcome === 'rejected') return [];
     const dispatches: Dispatch[] = [];
-    // op-ack는 발신자에게 항상 반환 (AC-4, AC-9: broadcast 대상이 없어도).
+    // op-ack = 영속화 확인 응답(06-api §308). persisted/duplicate 모두 발신자에게 반환.
     dispatches.push({
       target: client,
       message: { type: 'op-ack', siteId: msg.op.siteId, seq: msg.op.seq },
     });
+    if (outcome === 'duplicate') return dispatches; // 이미 전파됨 — 재-broadcast 안 함.
     // 보안: 클라이언트가 **실제 join한 room**으로만 broadcast한다. msg.pageId가 join한
     // room과 다르면(또는 join 안 했으면) broadcast하지 않는다(교차 room op 주입 차단).
     const joinedPage = this.clientRoom.get(client.id);
