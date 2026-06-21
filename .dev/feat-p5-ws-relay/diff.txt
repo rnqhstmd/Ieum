@@ -1,0 +1,38 @@
+ apps/web/.env.local.example                        |   8 +-
+ apps/web/app/(app)/page/[pageId]/page.tsx          |   5 +-
+ apps/web/components/editor/Editor.tsx              | 145 +++++++--------------
+ apps/web/components/editor/EditorContainer.tsx     |  34 ++---
+ .../components/editor/__tests__/Editor.test.tsx    | 140 ++++++++------------
+ apps/web/next.config.ts                            |  11 ++
+ apps/web/package.json                              |   3 +-
+ .../src/lib/editor/__tests__/crdtDocument.test.ts  |  93 +++++++++++++
+ .../lib/editor/__tests__/useCrdtDocument.test.tsx  |  56 ++++++++
+ apps/web/src/lib/editor/crdtDocument.ts            |  72 ++++++++++
+ apps/web/src/lib/editor/useCrdtDocument.ts         |  85 ++++++++++++
+ .../src/lib/realtime/__tests__/convergence.test.ts |  79 +++++++++++
+ .../src/lib/realtime/__tests__/fakeTransport.ts    |  54 ++++++++
+ .../src/lib/realtime/__tests__/inMemoryRelay.ts    |  51 ++++++++
+ .../src/lib/realtime/__tests__/protocol.test.ts    |  40 ++++++
+ .../src/lib/realtime/__tests__/relayClient.test.ts |  68 ++++++++++
+ .../realtime/__tests__/retryingTransport.test.ts   |  69 ++++++++++
+ apps/web/src/lib/realtime/protocol.ts              |  75 +++++++++++
+ apps/web/src/lib/realtime/relayClient.ts           |  63 +++++++++
+ apps/web/src/lib/realtime/transport.ts             | 109 ++++++++++++++++
+ apps/web/src/lib/ws.ts                             |  45 -------
+ apps/ws-relay/package.json                         |  30 +++++
+ apps/ws-relay/src/index.ts                         |  18 +++
+ apps/ws-relay/src/main.ts                          |  15 +++
+ apps/ws-relay/src/protocol.ts                      |  77 +++++++++++
+ apps/ws-relay/src/room.ts                          |  70 ++++++++++
+ apps/ws-relay/src/server.ts                        |  86 ++++++++++++
+ apps/ws-relay/tests/protocol.test.ts               |  60 +++++++++
+ apps/ws-relay/tests/room.test.ts                   | 102 +++++++++++++++
+ apps/ws-relay/tests/server.test.ts                 |  74 +++++++++++
+ apps/ws-relay/tsconfig.json                        |   9 ++
+ context/collaboration/architecture.md              |   5 +
+ context/collaboration/glossary.md                  |   5 +
+ context/collaboration/status.md                    |   6 +-
+ pnpm-lock.yaml                                     |  37 +++++-
+ 35 files changed, 1638 insertions(+), 261 deletions(-)
+---
+위는 요약입니다. 변경된 파일을 Read 도구로 직접 확인하라.

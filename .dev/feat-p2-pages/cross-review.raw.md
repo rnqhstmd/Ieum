@@ -1,0 +1,1 @@
+unexpected status 402 Payment Required: {"detail":{"code":"deactivated_workspace"}}, url: https://chatgpt.com/backend-api/codex/responses, cf-ray: a0d993a1b8e4d1e6-ICN, request id: 1da1c35c-7c8c-455d-a860-d330cf819700, auth error: upstream_authorization_error

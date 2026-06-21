@@ -1,0 +1,297 @@
+diff --git a/backend/src/main/java/com/ieum/workspace/WorkspaceController.java b/backend/src/main/java/com/ieum/workspace/WorkspaceController.java
+index 0c4a25b..0eccf1d 100644
+--- a/backend/src/main/java/com/ieum/workspace/WorkspaceController.java
++++ b/backend/src/main/java/com/ieum/workspace/WorkspaceController.java
+@@ -42,7 +42,7 @@ public class WorkspaceController {
+      */
+     @PostMapping
+     public ResponseEntity<WorkspaceDto> createWorkspace(@RequestBody CreateWorkspaceRequest request) {
+-        UUID currentUserId = null; // TODO(Phase 1): 인증 컨텍스트에서 추출
++        UUID currentUserId = currentUserService.requireCurrentUserId();
+         WorkspaceDto created = workspaceService.createSharedWorkspace(currentUserId, request);
+         return ResponseEntity.status(HttpStatus.CREATED).body(created);
+     }
+diff --git a/backend/src/main/java/com/ieum/workspace/WorkspaceService.java b/backend/src/main/java/com/ieum/workspace/WorkspaceService.java
+index 26dd39b..61f4e5c 100644
+--- a/backend/src/main/java/com/ieum/workspace/WorkspaceService.java
++++ b/backend/src/main/java/com/ieum/workspace/WorkspaceService.java
+@@ -27,6 +27,8 @@ public class WorkspaceService {
+     private final MembershipRepository membershipRepository;
+     private final UserRepository userRepository;
+ 
++    private static final int NAME_MAX = 100; // 워크스페이스 이름 최대 길이 (US-WS-02)
++
+     // ───────────────────────────────────────────────
+     // 개인 워크스페이스 보장
+     // ───────────────────────────────────────────────
+@@ -73,11 +75,24 @@ public class WorkspaceService {
+      */
+     @Transactional
+     public WorkspaceDto createSharedWorkspace(UUID currentUserId, CreateWorkspaceRequest request) {
+-        // TODO(Phase 1):
+-        //   1. Workspace(type=SHARED, ownerId=currentUserId, name=request.name()) 저장
+-        //   2. Membership(userId=currentUserId, workspaceId=saved.id(), role=OWNER) 저장
+-        //   3. WorkspaceDto 반환
+-        throw new UnsupportedOperationException("TODO(Phase 1): createSharedWorkspace");
++        String name = normalizeName(request.name());
++        Workspace ws = workspaceRepository.save(Workspace.builder()
++                .type(WorkspaceType.SHARED).ownerId(currentUserId).name(name).build());
++        membershipRepository.save(Membership.builder()
++                .userId(currentUserId).workspaceId(ws.getId()).role(MemberRole.OWNER).build());
++        return toDto(ws);
++    }
++
++    /**
++     * 워크스페이스 이름 정규화: 앞뒤 공백 제거 후 1~100자 검증 (US-WS-02).
++     * 위반(빈 문자열/공백만/100자 초과) 시 IllegalArgumentException → ApiExceptionHandler가 400 매핑.
++     */
++    private static String normalizeName(String raw) {
++        String name = (raw == null) ? "" : raw.trim();
++        if (name.isEmpty() || name.length() > NAME_MAX) {
++            throw new IllegalArgumentException("워크스페이스 이름은 1자 이상 " + NAME_MAX + "자 이하여야 합니다.");
++        }
++        return name;
+     }
+ 
+     /**
+diff --git a/backend/src/test/java/com/ieum/workspace/WorkspaceCreateIntegrationTest.java b/backend/src/test/java/com/ieum/workspace/WorkspaceCreateIntegrationTest.java
+new file mode 100644
+index 0000000..191dfea
+--- /dev/null
++++ b/backend/src/test/java/com/ieum/workspace/WorkspaceCreateIntegrationTest.java
+@@ -0,0 +1,97 @@
++package com.ieum.workspace;
++
++import com.ieum.page.PageRepository;
++import com.ieum.support.AbstractIntegrationTest;
++import com.ieum.user.User;
++import com.ieum.user.UserRepository;
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.DisplayName;
++import org.junit.jupiter.api.Test;
++import org.springframework.beans.factory.annotation.Autowired;
++import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
++import org.springframework.http.MediaType;
++import org.springframework.test.web.servlet.MockMvc;
++import org.springframework.test.web.servlet.request.RequestPostProcessor;
++
++import java.util.List;
++import java.util.UUID;
++
++import static org.assertj.core.api.Assertions.assertThat;
++import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oauth2Login;
++import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
++import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
++import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
++
++// US-WS-02 / 슬라이스 ①: POST /api/workspaces — 공유 워크스페이스 생성(생성자 OWNER) REST 통합.
++@AutoConfigureMockMvc
++class WorkspaceCreateIntegrationTest extends AbstractIntegrationTest {
++
++    @Autowired private MockMvc mockMvc;
++    @Autowired private UserRepository userRepository;
++    @Autowired private WorkspaceRepository workspaceRepository;
++    @Autowired private MembershipRepository membershipRepository;
++    @Autowired private PageRepository pageRepository;
++
++    private static final String GOOGLE_ID = "G-WSC";
++    private UUID userId;
++
++    @BeforeEach
++    void setUp() {
++        // FK 순서: page → membership → workspace → user
++        pageRepository.deleteAll();
++        membershipRepository.deleteAll();
++        workspaceRepository.deleteAll();
++        userRepository.deleteAll();
++        User user = userRepository.save(User.builder()
++                .googleId(GOOGLE_ID).email("wsc@test.com").name("WSC유저").image("img").build());
++        userId = user.getId();
++    }
++
++    private static RequestPostProcessor asUser(String googleId) {
++        return oauth2Login().attributes(a -> a.put("sub", googleId));
++    }
++
++    // ObjectMapper 빈이 이 컨텍스트에 없으므로 JSON 본문을 직접 구성한다(테스트 이름은 특수문자 없음).
++    private static String body(String name) {
++        return "{\"name\":\"" + name + "\"}";
++    }
++
++    @Test
++    @DisplayName("AC-4: 인증 사용자 POST /api/workspaces 유효 이름 → 201 + SHARED·ownerId + OWNER 멤버십 1건")
++    void member_create_returns201_andOwnerMembership() throws Exception {
++        mockMvc.perform(post("/api/workspaces").with(asUser(GOOGLE_ID))
++                        .contentType(MediaType.APPLICATION_JSON).content(body("팀")))
++                .andExpect(status().isCreated())
++                .andExpect(jsonPath("$.type").value("SHARED"))
++                .andExpect(jsonPath("$.ownerId").value(userId.toString()))
++                .andExpect(jsonPath("$.name").value("팀"));
++
++        // OWNER 멤버십이 DB에 정확히 1건 생성되고, 대상 워크스페이스는 SHARED·ownerId=나
++        List<Membership> memberships = membershipRepository.findByUserId(userId);
++        assertThat(memberships).hasSize(1);
++        Membership m = memberships.get(0);
++        assertThat(m.getRole()).isEqualTo(MemberRole.OWNER);
++        Workspace ws = workspaceRepository.findById(m.getWorkspaceId()).orElseThrow();
++        assertThat(ws.getType()).isEqualTo(WorkspaceType.SHARED);
++        assertThat(ws.getOwnerId()).isEqualTo(userId);
++    }
++
++    @Test
++    @DisplayName("AC-5: 빈 이름 POST → 400 INVALID_ARGUMENT")
++    void invalidName_returns400() throws Exception {
++        mockMvc.perform(post("/api/workspaces").with(asUser(GOOGLE_ID))
++                        .contentType(MediaType.APPLICATION_JSON).content(body("")))
++                .andExpect(status().isBadRequest())
++                .andExpect(jsonPath("$.code").value("INVALID_ARGUMENT"));
++    }
++
++    @Test
++    @DisplayName("AC-6: 미인증 POST → 401, 워크스페이스 미생성")
++    void unauthenticated_returns401_andNoWorkspace() throws Exception {
++        long before = workspaceRepository.count();
++        mockMvc.perform(post("/api/workspaces")
++                        .contentType(MediaType.APPLICATION_JSON).content(body("팀")))
++                .andExpect(status().isUnauthorized());
++        assertThat(workspaceRepository.count()).isEqualTo(before);
++    }
++}
+diff --git a/backend/src/test/java/com/ieum/workspace/WorkspaceServiceTest.java b/backend/src/test/java/com/ieum/workspace/WorkspaceServiceTest.java
+index 680a6e1..91392fd 100644
+--- a/backend/src/test/java/com/ieum/workspace/WorkspaceServiceTest.java
++++ b/backend/src/test/java/com/ieum/workspace/WorkspaceServiceTest.java
+@@ -9,6 +9,7 @@ import org.mockito.Mock;
+ import org.mockito.junit.jupiter.MockitoExtension;
+ 
+ import com.ieum.user.UserRepository;
++import com.ieum.workspace.dto.CreateWorkspaceRequest;
+ import com.ieum.workspace.dto.WorkspaceDto;
+ 
+ import java.util.List;
+@@ -16,6 +17,7 @@ import java.util.Optional;
+ import java.util.UUID;
+ 
+ import static org.assertj.core.api.Assertions.assertThat;
++import static org.assertj.core.api.Assertions.assertThatThrownBy;
+ import static org.mockito.ArgumentMatchers.any;
+ import static org.mockito.Mockito.*;
+ 
+@@ -155,4 +157,102 @@ class WorkspaceServiceTest {
+         // Then
+         assertThat(result).isEmpty();
+     }
++
++    // ── US-WS-02 / AC-1: 공유 워크스페이스 생성 + OWNER 멤버십 ──────────
++
++    @Test
++    @DisplayName("AC-1: createSharedWorkspace — SHARED 워크스페이스와 생성자 OWNER 멤버십을 저장하고 dto를 반환한다")
++    void createSharedWorkspace_savesSharedWorkspaceAndOwnerMembership() {
++        // Given
++        UUID ownerId = UUID.randomUUID();
++        UUID savedWsId = UUID.randomUUID();
++
++        when(workspaceRepository.save(any(Workspace.class))).thenAnswer(inv -> {
++            Workspace ws = inv.getArgument(0);
++            return Workspace.builder()
++                    .id(savedWsId)
++                    .name(ws.getName())
++                    .type(ws.getType())
++                    .ownerId(ws.getOwnerId())
++                    .build();
++        });
++        when(membershipRepository.save(any(Membership.class))).thenAnswer(inv -> inv.getArgument(0));
++
++        // When
++        WorkspaceDto result = workspaceService.createSharedWorkspace(
++                ownerId, new CreateWorkspaceRequest("팀 워크스페이스"));
++
++        // Then: Workspace 저장 내용 검증
++        ArgumentCaptor<Workspace> wsCaptor = ArgumentCaptor.forClass(Workspace.class);
++        verify(workspaceRepository).save(wsCaptor.capture());
++        Workspace savedWs = wsCaptor.getValue();
++        assertThat(savedWs.getType()).isEqualTo(WorkspaceType.SHARED);
++        assertThat(savedWs.getOwnerId()).isEqualTo(ownerId);
++        assertThat(savedWs.getName()).isEqualTo("팀 워크스페이스");
++
++        // Then: OWNER Membership 저장 내용 검증
++        ArgumentCaptor<Membership> memberCaptor = ArgumentCaptor.forClass(Membership.class);
++        verify(membershipRepository).save(memberCaptor.capture());
++        Membership savedMembership = memberCaptor.getValue();
++        assertThat(savedMembership.getRole()).isEqualTo(MemberRole.OWNER);
++        assertThat(savedMembership.getUserId()).isEqualTo(ownerId);
++        assertThat(savedMembership.getWorkspaceId()).isEqualTo(savedWsId);
++
++        // Then: 반환 dto 검증
++        assertThat(result.type()).isEqualTo(WorkspaceType.SHARED);
++        assertThat(result.ownerId()).isEqualTo(ownerId);
++        assertThat(result.name()).isEqualTo("팀 워크스페이스");
++    }
++
++    // ── AC-2: 이름 길이 경계값(1자·100자)은 저장된다 ───────────────────
++
++    @Test
++    @DisplayName("AC-2: createSharedWorkspace — 이름 1자/100자 경계값은 저장되고 반환 name이 입력과 같다")
++    void createSharedWorkspace_nameBoundary_1and100_ok() {
++        // Given
++        UUID ownerId = UUID.randomUUID();
++        when(workspaceRepository.save(any(Workspace.class))).thenAnswer(inv -> {
++            Workspace ws = inv.getArgument(0);
++            return Workspace.builder()
++                    .id(UUID.randomUUID())
++                    .name(ws.getName())
++                    .type(ws.getType())
++                    .ownerId(ws.getOwnerId())
++                    .build();
++        });
++        when(membershipRepository.save(any(Membership.class))).thenAnswer(inv -> inv.getArgument(0));
++
++        String name1 = "가";
++        String name100 = "a".repeat(100);
++
++        // When
++        WorkspaceDto r1 = workspaceService.createSharedWorkspace(ownerId, new CreateWorkspaceRequest(name1));
++        WorkspaceDto r100 = workspaceService.createSharedWorkspace(ownerId, new CreateWorkspaceRequest(name100));
++
++        // Then
++        assertThat(r1.name()).isEqualTo(name1);
++        assertThat(r100.name()).isEqualTo(name100);
++        verify(workspaceRepository, times(2)).save(any(Workspace.class));
++    }
++
++    // ── AC-3: 빈/공백/100자 초과 이름은 거부되고 아무것도 저장되지 않는다 ──
++
++    @Test
++    @DisplayName("AC-3: createSharedWorkspace — 빈/공백/101자 이름은 IllegalArgumentException, 저장 없음")
++    void createSharedWorkspace_invalidName_throwsAndSavesNothing() {
++        // Given
++        UUID ownerId = UUID.randomUUID();
++        String tooLong = "a".repeat(101);
++
++        // When / Then: 각 무효 이름마다 예외
++        for (String invalid : new String[] {"", "   ", tooLong}) {
++            assertThatThrownBy(() ->
++                    workspaceService.createSharedWorkspace(ownerId, new CreateWorkspaceRequest(invalid)))
++                    .isInstanceOf(IllegalArgumentException.class);
++        }
++
++        // Then: 어떤 저장도 발생하지 않음
++        verify(workspaceRepository, never()).save(any());
++        verify(membershipRepository, never()).save(any());
++    }
+ }
+diff --git a/context/workspace/status.md b/context/workspace/status.md
+index 2d9d1b9..65acecd 100644
+--- a/context/workspace/status.md
++++ b/context/workspace/status.md
+@@ -23,8 +23,8 @@
+ |------|--------------|---------------|------|-------|------|
+ | US-WS-01 | 로그인 시 개인 워크스페이스 자동 존재 | 최초 로그인 시 `type=PERSONAL` 워크스페이스 1개 자동 생성 | ✅ | P1 | OAuth2 로그인 성공 시 `WorkspaceService.ensurePersonalWorkspace` 자동 생성 (PR #3) |
+ | US-WS-01 | 〃 | 개인 워크스페이스 추가 생성·삭제 불가 (1인 1개 고정) | ✅ | P1 | `ensurePersonalWorkspace` 멱등(기존 반환), PERSONAL 생성·삭제 불가 정책 (PR #3) |
+-| US-WS-02 | 새 공유 워크스페이스 생성 | 생성 시 생성자에게 OWNER Membership 자동 생성 | ⬜ | P7 | |
+-| US-WS-02 | 〃 | 워크스페이스 이름 1자 이상 100자 이하 | ⬜ | P7 | |
++| US-WS-02 | 새 공유 워크스페이스 생성 | 생성 시 생성자에게 OWNER Membership 자동 생성 | ✅ | P7 | `WorkspaceService.createSharedWorkspace` SHARED 저장+생성자 OWNER 멤버십 자동, `POST /api/workspaces` 인증 배선(`requireCurrentUserId`) (PR #18) |
++| US-WS-02 | 〃 | 워크스페이스 이름 1자 이상 100자 이하 | ✅ | P7 | `normalizeName` trim 후 1~100자 검증, 위반 시 IllegalArgumentException→400 (PR #18) |
+ | US-WS-03 | 사이드바에서 워크스페이스 목록 확인·전환 | 사이드바에 개인·공유 워크스페이스 목록 표시 | ✅ | P2 | 목록 API 백엔드(PR #4) + 프론트 `WorkspaceSwitcher` 목록/전환 UI (PR #5). 공유 WS 생성은 P7 |
+ | US-WS-04 | OWNER로서 공유 워크스페이스 삭제 | OWNER만 삭제 가능; 삭제 시 하위 페이지·멤버십 함께 삭제 | ⬜ | P7 | |
+ | US-WS-04 | 〃 | MEMBER는 나가기 가능 (Membership 삭제); 마지막 OWNER 나가기 시 경고 | ⬜ | P7 | |

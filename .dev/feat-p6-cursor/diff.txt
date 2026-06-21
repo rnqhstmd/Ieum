@@ -1,0 +1,1567 @@
+diff --git a/apps/web/components/editor/Editor.tsx b/apps/web/components/editor/Editor.tsx
+index 5f2d04a..34c6bd0 100644
+--- a/apps/web/components/editor/Editor.tsx
++++ b/apps/web/components/editor/Editor.tsx
+@@ -1,19 +1,26 @@
+ 'use client';
+ 
+-// ─── P5 CRDT 블록 에디터 (AC-7, FR-6) ──────────────────────────────
++// ─── P5/P6 CRDT 블록 에디터 (AC-7, FR-6 + 라이브 커서) ─────────────
+ // DocState 파생 EditorBlockView(id:RgaId)를 렌더한다. contenteditable은 입력 수단일
+-// 뿐 상태를 보유하지 않으며, 텍스트 변경은 onBlockInput(blockId,newText)으로만 전달한다
+-// (diff→op는 상위 useCrdtDocument가 수행). walking skeleton: 구조 편집(Enter 분할/
+-// Backspace 병합)·마크다운 단축키는 비활성(블록 단위 op 전송은 후속 슬라이스).
++// 뿐 상태를 보유하지 않으며, 텍스트 변경은 onBlockInput(blockId,newText)으로만 전달한다.
++// P6 커서: caret 이동을 50ms debounce 후 onCursorMove(blockId, offset)로 올리고(상위가
++// anchorId 변환·전송), 원격 협업자 커서를 블록 안 절대 위치 오버레이로 렌더한다.
+ 
+ import { useEffect, useRef } from 'react';
+-import type { FormEvent, KeyboardEvent } from 'react';
+-import { idKey } from '@ieum/crdt';
++import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
++import { idKey, idEquals } from '@ieum/crdt';
+ import type { EditorBlockView, RgaId } from '@ieum/crdt';
++import type { CursorInfo, PresenceInfo } from '@/src/lib/realtime/protocol';
+ 
+ interface EditorProps {
+   blocks: EditorBlockView[];
+   onBlockInput: (blockId: RgaId, newText: string) => void;
++  // P6 커서 (선택적 — 미주입 시 커서 비활성, 기존 호출부 호환)
++  cursors?: CursorInfo[];
++  presences?: PresenceInfo[];
++  localClientId?: string | null;
++  resolveCursorIndex?: (blockId: RgaId, anchorId: RgaId | null) => number;
++  onCursorMove?: (blockId: RgaId, caretOffset: number) => void;
+ }
+ 
+ /** 현재 선택 영역의 블록 내 캐럿 offset. 미지원(jsdom) 시 fallback. */
+@@ -22,7 +29,10 @@ function getCaretOffset(el: HTMLElement, fallback: number): number {
+     const sel = window.getSelection();
+     if (sel && sel.rangeCount > 0) {
+       const range = sel.getRangeAt(0);
+-      if (el.contains(range.startContainer)) return range.startOffset;
++      // M2: startContainer가 블록 내 텍스트노드일 때만 startOffset이 가시 index. 그 외(빈 블록 등)는 fallback.
++      if (el.contains(range.startContainer) && range.startContainer.nodeType === Node.TEXT_NODE) {
++        return range.startOffset;
++      }
+     }
+   } catch {
+     /* selection 미지원 환경 */
+@@ -44,11 +54,24 @@ interface BlockViewProps {
+   onCompositionStart: () => void;
+   onCompositionEnd: (e: { currentTarget: HTMLElement }) => void;
+   onKeyDown: (e: KeyboardEvent<HTMLElement>) => void;
++  onCaret: (el: HTMLElement) => void; // P6: caret 이동 캡처(keyUp/click)
++  onFocus: () => void;
++  onBlur: () => void;
++  overlays: ReactNode; // P6: 원격 커서 오버레이(contentEditable 형제로 렌더 — 편집 대상 아님)
+ }
+ 
+-function BlockView({ block, onInput, onCompositionStart, onCompositionEnd, onKeyDown }: BlockViewProps) {
++function BlockView({
++  block,
++  onInput,
++  onCompositionStart,
++  onCompositionEnd,
++  onKeyDown,
++  onCaret,
++  onFocus,
++  onBlur,
++  overlays,
++}: BlockViewProps) {
+   const ref = useRef<HTMLElement | null>(null);
+-  // 콜백 ref: HTMLElement를 받아 각 시맨틱 태그(h1/li/p…)에 공통 적용(타입 분산 회피).
+   const setRef = (el: HTMLElement | null) => {
+     ref.current = el;
+   };
+@@ -67,30 +90,50 @@ function BlockView({ block, onInput, onCompositionStart, onCompositionEnd, onKey
+     onCompositionStart,
+     onCompositionEnd,
+     onKeyDown,
++    onKeyUp: (e: KeyboardEvent<HTMLElement>) => onCaret(e.currentTarget),
++    onClick: (e: { currentTarget: HTMLElement }) => onCaret(e.currentTarget),
++    onFocus,
++    onBlur,
+     className: `${BLOCK_CLASS[block.type]} px-1 outline-none focus:bg-hover/40 rounded`,
+   } as const;
+ 
+-  switch (block.type) {
+-    case 'heading1':
+-      return <h1 ref={setRef} {...common} />;
+-    case 'heading2':
+-      return <h2 ref={setRef} {...common} />;
+-    case 'heading3':
+-      return <h3 ref={setRef} {...common} />;
+-    case 'bullet':
+-      return (
+-        <ul className="list-disc pl-6">
+-          <li ref={setRef} {...common} />
+-        </ul>
+-      );
+-    default:
+-      return <p ref={setRef} {...common} />;
+-  }
++  const editable =
++    block.type === 'heading1' ? (
++      <h1 ref={setRef} {...common} />
++    ) : block.type === 'heading2' ? (
++      <h2 ref={setRef} {...common} />
++    ) : block.type === 'heading3' ? (
++      <h3 ref={setRef} {...common} />
++    ) : block.type === 'bullet' ? (
++      <ul className="list-disc pl-6">
++        <li ref={setRef} {...common} />
++      </ul>
++    ) : (
++      <p ref={setRef} {...common} />
++    );
++
++  // 커서 오버레이는 contentEditable 형제(absolute)로 — 편집 콘텐츠/textContent 관리에 영향 없음.
++  return (
++    <div className="relative">
++      {editable}
++      {overlays}
++    </div>
++  );
+ }
+ 
+-export default function Editor({ blocks, onBlockInput }: EditorProps) {
+-  // IME 조합 추적 — 조합 중 input은 무시하고 compositionend에서 최종 텍스트만 emit.
++export default function Editor({
++  blocks,
++  onBlockInput,
++  cursors = [],
++  presences = [],
++  localClientId = null,
++  resolveCursorIndex,
++  onCursorMove,
++}: EditorProps) {
++  // IME 조합 추적 — 조합 중 input/cursor는 무시한다.
+   const composing = useRef(false);
++  const cursorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
++  const focusedBlock = useRef<string | null>(null);
+ 
+   const handleInput = (blockId: RgaId, e: FormEvent<HTMLElement>) => {
+     if (composing.current) return;
+@@ -98,7 +141,6 @@ export default function Editor({ blocks, onBlockInput }: EditorProps) {
+   };
+ 
+   const handleKeyDown = (e: KeyboardEvent<HTMLElement>, block: EditorBlockView) => {
+-    // 구조 편집 비활성: Enter(블록 분할)·블록 시작 Backspace(병합) 차단.
+     if (e.key === 'Enter' && !e.shiftKey) {
+       e.preventDefault();
+       return;
+@@ -109,6 +151,49 @@ export default function Editor({ blocks, onBlockInput }: EditorProps) {
+     }
+   };
+ 
++  // P6 FR-2/BR-3: caret 이동 → 50ms debounce → onCursorMove. FR-8: 포커스 블록만. composing 가드.
++  const scheduleCursor = (block: EditorBlockView, el: HTMLElement) => {
++    if (!onCursorMove || composing.current) return;
++    if (focusedBlock.current !== idKey(block.id)) return; // FR-8
++    const len = (el.textContent ?? '').length;
++    const offset = Math.max(0, Math.min(getCaretOffset(el, len), len)); // M2: clamp
++    if (cursorTimer.current) clearTimeout(cursorTimer.current);
++    cursorTimer.current = setTimeout(() => onCursorMove(block.id, offset), 50);
++  };
++
++  const overlaysFor = (block: EditorBlockView): ReactNode =>
++    cursors
++      // blockId가 이 블록과 일치하는 커서만 렌더 → 존재하지 않는/삭제된 blockId 커서는 어느 블록에도
++      // 매칭되지 않아 자동 제외(C5/C12 유령 블록 방어). 자기 커서 제외(AC-7)는 localClientId 비교 —
++      // localClientId=null(join-ack 전)이어도 서버가 발신자를 제외(BR-8)하므로 자기 커서 수신 경로 없음(C11).
++      .filter((c) => idEquals(c.blockId, block.id) && c.clientId !== localClientId)
++      .map((c) => {
++        const info = presences.find((p) => p.clientId === c.clientId);
++        if (!info) return null; // lookup 실패 시 skip(presence-leave 1프레임 불일치 방어)
++        const idx = resolveCursorIndex ? resolveCursorIndex(block.id, c.anchorId) : 0;
++        return (
++          <span
++            key={c.clientId}
++            data-cursor-client-id={c.clientId}
++            data-color={info.color}
++            aria-hidden="true"
++            className="pointer-events-none absolute top-0 select-none"
++            style={{ left: `calc(${idx}ch + 0.25rem)` }}
++          >
++            <span
++              className="inline-block h-5 w-0.5 align-text-bottom"
++              style={{ backgroundColor: info.color }}
++            />
++            <span
++              className="ml-0.5 whitespace-nowrap rounded px-1 align-top text-[10px] leading-none text-white"
++              style={{ backgroundColor: info.color }}
++            >
++              {info.displayName}
++            </span>
++          </span>
++        );
++      });
++
+   return (
+     <div role="group" aria-label="페이지 본문" className="space-y-1">
+       {blocks.map((b) => (
+@@ -124,6 +209,14 @@ export default function Editor({ blocks, onBlockInput }: EditorProps) {
+             onBlockInput(b.id, e.currentTarget.textContent ?? '');
+           }}
+           onKeyDown={(e) => handleKeyDown(e, b)}
++          onCaret={(el) => scheduleCursor(b, el)}
++          onFocus={() => {
++            focusedBlock.current = idKey(b.id);
++          }}
++          onBlur={() => {
++            if (focusedBlock.current === idKey(b.id)) focusedBlock.current = null;
++          }}
++          overlays={overlaysFor(b)}
+         />
+       ))}
+     </div>
+diff --git a/apps/web/components/editor/EditorContainer.tsx b/apps/web/components/editor/EditorContainer.tsx
+index 50a395b..40bf0cd 100644
+--- a/apps/web/components/editor/EditorContainer.tsx
++++ b/apps/web/components/editor/EditorContainer.tsx
+@@ -26,7 +26,8 @@ const STATUS_LABEL: Record<SaveStatus, string> = {
+ 
+ export default function EditorContainer({ pageId, initialTitle = '' }: EditorContainerProps) {
+   const [title, setTitle] = useState(initialTitle);
+-  const { blocks, presences, onBlockInput } = useCrdtDocument(pageId);
++  const { blocks, presences, cursors, localClientId, onBlockInput, onCursorMove, resolveCursorIndex } =
++    useCrdtDocument(pageId);
+ 
+   // 제목 save-port 스텁: 영속화 슬라이스에서 실제 저장으로 교체.
+   const save = useCallback(async (_title: string) => {
+@@ -46,7 +47,15 @@ export default function EditorContainer({ pageId, initialTitle = '' }: EditorCon
+         {STATUS_LABEL[status]}
+       </div>
+       <TitleEditor title={title} onChange={handleTitleChange} />
+-      <Editor blocks={blocks} onBlockInput={onBlockInput} />
++      <Editor
++        blocks={blocks}
++        onBlockInput={onBlockInput}
++        cursors={cursors}
++        presences={presences}
++        localClientId={localClientId}
++        resolveCursorIndex={resolveCursorIndex}
++        onCursorMove={onCursorMove}
++      />
+     </div>
+   );
+ }
+diff --git a/apps/web/components/editor/__tests__/Editor.cursor.test.tsx b/apps/web/components/editor/__tests__/Editor.cursor.test.tsx
+new file mode 100644
+index 0000000..0a11269
+--- /dev/null
++++ b/apps/web/components/editor/__tests__/Editor.cursor.test.tsx
+@@ -0,0 +1,94 @@
++import { describe, it, expect, vi } from 'vitest';
++import { render, fireEvent } from '@testing-library/react';
++import { idKey } from '@ieum/crdt';
++import type { EditorBlockView, RgaId } from '@ieum/crdt';
++import Editor from '@/components/editor/Editor';
++import type { CursorInfo, PresenceInfo } from '@/src/lib/realtime/protocol';
++
++// P6 라이브 커서 / AC-5,7,8: 송신 debounce + 원격 커서 오버레이 렌더.
++const BLOCK: RgaId = { counter: 0, siteId: 'genesis' };
++const block = (text = ''): EditorBlockView => ({ id: BLOCK, type: 'paragraph', text });
++const cursor = (clientId: string): CursorInfo => ({ clientId, blockId: BLOCK, anchorId: null });
++const presence = (clientId: string, displayName: string, color: string): PresenceInfo => ({
++  clientId,
++  displayName,
++  color,
++});
++
++const baseProps = {
++  blocks: [block()],
++  onBlockInput: vi.fn(),
++  cursors: [] as CursorInfo[],
++  presences: [] as PresenceInfo[],
++  localClientId: null as string | null,
++  resolveCursorIndex: () => 0,
++  onCursorMove: vi.fn(),
++};
++
++describe('Editor — 라이브 커서', () => {
++  it('AC-5: caret 이동 5회가 50ms 내면 onCursorMove가 1회 호출된다(debounce)', () => {
++    vi.useFakeTimers();
++    try {
++      const onCursorMove = vi.fn();
++      const { container } = render(<Editor {...baseProps} onCursorMove={onCursorMove} />);
++      const el = container.querySelector(`[data-block-id="${idKey(BLOCK)}"]`) as HTMLElement;
++      fireEvent.focus(el);
++      for (let i = 0; i < 5; i++) fireEvent.keyUp(el);
++      vi.advanceTimersByTime(50);
++      expect(onCursorMove).toHaveBeenCalledTimes(1);
++    } finally {
++      vi.useRealTimers();
++    }
++  });
++
++  it('AC-7: 자기 커서(localClientId)는 렌더하지 않는다', () => {
++    const { container } = render(
++      <Editor
++        {...baseProps}
++        cursors={[cursor('site-local')]}
++        presences={[presence('site-local', '나', '#E57373')]}
++        localClientId="site-local"
++      />,
++    );
++    expect(container.querySelector('[data-cursor-client-id="site-local"]')).toBeNull();
++  });
++
++  it('AC-8: 원격 커서를 색상·이름 레이블로 렌더한다', () => {
++    const { container } = render(
++      <Editor
++        {...baseProps}
++        cursors={[cursor('site-b')]}
++        presences={[presence('site-b', '사용자 #bbbb', '#64B5F6')]}
++        localClientId="site-local"
++      />,
++    );
++    const cur = container.querySelector('[data-cursor-client-id="site-b"]');
++    expect(cur).not.toBeNull();
++    expect(cur).toHaveAttribute('data-color', '#64B5F6');
++    expect(cur!.textContent).toContain('사용자 #bbbb');
++  });
++
++  it('CONSIDER: presence lookup 실패 시 커서를 렌더하지 않는다(1프레임 불일치 방어)', () => {
++    const { container } = render(
++      <Editor {...baseProps} cursors={[cursor('site-b')]} presences={[]} localClientId="site-local" />,
++    );
++    expect(container.querySelector('[data-cursor-client-id="site-b"]')).toBeNull();
++  });
++
++  it('C5/C12: 현재 blocks에 없는 blockId 커서는 렌더하지 않는다(유령 블록 방어)', () => {
++    const otherBlock: CursorInfo = {
++      clientId: 'site-b',
++      blockId: { counter: 99, siteId: 'other' },
++      anchorId: null,
++    };
++    const { container } = render(
++      <Editor
++        {...baseProps}
++        cursors={[otherBlock]}
++        presences={[presence('site-b', '사용자 #bbbb', '#64B5F6')]}
++        localClientId="site-local"
++      />,
++    );
++    expect(container.querySelector('[data-cursor-client-id="site-b"]')).toBeNull();
++  });
++});
+diff --git a/apps/web/src/lib/editor/__tests__/useCrdtDocument.test.tsx b/apps/web/src/lib/editor/__tests__/useCrdtDocument.test.tsx
+index 392412a..36cae89 100644
+--- a/apps/web/src/lib/editor/__tests__/useCrdtDocument.test.tsx
++++ b/apps/web/src/lib/editor/__tests__/useCrdtDocument.test.tsx
+@@ -45,13 +45,16 @@ describe('useCrdtDocument', () => {
+     expect(result.current.blocks[0]!.text).toBe('굿');
+   });
+ 
+-  it('join-ack 수신 시 connectedClients가 갱신된다', () => {
++  it('join-ack 수신 시 connectedClients와 localClientId가 갱신된다', () => {
+     const fake = createFakeTransport();
+     const { result } = renderHook(() =>
+       useCrdtDocument(PAGE, { transportFactory: () => fake }),
+     );
+-    act(() => fake.emitMessage(JSON.stringify({ type: 'join-ack', pageId: PAGE, connectedClients: 2 })));
++    act(() =>
++      fake.emitMessage(JSON.stringify({ type: 'join-ack', pageId: PAGE, connectedClients: 2, clientId: 'c1' })),
++    );
+     expect(result.current.connectedClients).toBe(2);
++    expect(result.current.localClientId).toBe('c1'); // P6 커서: 자기 식별
+   });
+ 
+   it('P6: presence-update/leave 수신 시 presences가 갱신된다', () => {
+@@ -66,4 +69,29 @@ describe('useCrdtDocument', () => {
+     act(() => fake.emitMessage(JSON.stringify({ type: 'presence-leave', clientId: 'c2' })));
+     expect(result.current.presences.map((p) => p.clientId)).not.toContain('c2');
+   });
++
++  it('P6 커서: cursor-update 수신 시 cursors 갱신, presence-leave 시 커서 제거(BR-7)', () => {
++    const fake = createFakeTransport();
++    const { result } = renderHook(() => useCrdtDocument(PAGE, { transportFactory: () => fake }));
++    const blockId = result.current.blocks[0]!.id;
++    act(() =>
++      fake.emitMessage(JSON.stringify({ type: 'cursor-update', clientId: 'c2', blockId, anchorId: null })),
++    );
++    expect(result.current.cursors.map((c) => c.clientId)).toContain('c2');
++    // presence-leave가 커서도 제거한다(BR-7 연동).
++    act(() => fake.emitMessage(JSON.stringify({ type: 'presence-leave', clientId: 'c2' })));
++    expect(result.current.cursors.map((c) => c.clientId)).not.toContain('c2');
++  });
++
++  it('P6 커서: onCursorMove(blockId, offset)가 indexToAnchorId 변환 후 cursor를 전송한다', () => {
++    const fake = createFakeTransport();
++    const { result } = renderHook(() => useCrdtDocument(PAGE, { transportFactory: () => fake }));
++    const blockId = result.current.blocks[0]!.id;
++    act(() => result.current.onBlockInput(blockId, '안녕')); // 텍스트 입력
++    act(() => result.current.onCursorMove(blockId, 1)); // caret index 1(첫 글자 뒤)
++    const cursorMsg = fake.sent.map((s) => JSON.parse(s)).find((m) => m.type === 'cursor');
++    expect(cursorMsg).toBeDefined();
++    expect(cursorMsg.blockId).toEqual(blockId);
++    expect(cursorMsg.anchorId).not.toBeNull(); // index 1 → 직전 문자 id
++  });
+ });
+diff --git a/apps/web/src/lib/editor/useCrdtDocument.ts b/apps/web/src/lib/editor/useCrdtDocument.ts
+index 579b158..b642dab 100644
+--- a/apps/web/src/lib/editor/useCrdtDocument.ts
++++ b/apps/web/src/lib/editor/useCrdtDocument.ts
+@@ -5,7 +5,15 @@
+ // applyDocOp로 적용한다. DocState는 가변 객체이므로 version 카운터로 리렌더한다.
+ 
+ import { useCallback, useEffect, useRef, useState } from 'react';
+-import { applyDocOp, docToBlocks, fromWire, toWire, idEquals } from '@ieum/crdt';
++import {
++  applyDocOp,
++  docToBlocks,
++  fromWire,
++  toWire,
++  idEquals,
++  resolveAnchorToIndex,
++  indexToAnchorId,
++} from '@ieum/crdt';
+ import type { DocState, EditorBlockView, RgaId } from '@ieum/crdt';
+ import { createCollaborativeDocument, diffBlockText } from './crdtDocument';
+ import { createRetryingTransport } from '@/src/lib/realtime/transport';
+@@ -13,7 +21,8 @@ import type { Transport } from '@/src/lib/realtime/transport';
+ import { createRelayClient } from '@/src/lib/realtime/relayClient';
+ import type { RelayClient } from '@/src/lib/realtime/relayClient';
+ import { usePresence } from '@/src/lib/realtime/usePresence';
+-import type { PresenceInfo } from '@/src/lib/realtime/protocol';
++import { useCursor } from '@/src/lib/realtime/useCursor';
++import type { PresenceInfo, CursorInfo } from '@/src/lib/realtime/protocol';
+ 
+ const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? 'ws://localhost:3001';
+ 
+@@ -22,6 +31,14 @@ export interface UseCrdtDocumentResult {
+   connectedClients: number;
+   presences: PresenceInfo[];
+   onBlockInput: (blockId: RgaId, newText: string) => void;
++  // P6 커서
++  cursors: CursorInfo[];
++  /** 서버 부여 자기 clientId — 자기 커서 렌더 제외(AC-7). 배선 전 null. */
++  localClientId: string | null;
++  /** Editor가 DOM caret offset(가시 index)을 올리면 직전 문자 id로 변환해 전송. */
++  onCursorMove: (blockId: RgaId, caretOffset: number) => void;
++  /** 원격 커서 anchorId → 현재 가시 index(Editor 오버레이 위치). */
++  resolveCursorIndex: (blockId: RgaId, anchorId: RgaId | null) => number;
+ }
+ 
+ // 탭별 고유 siteId. crypto.randomUUID(현대 브라우저 표준)를 우선 사용한다.
+@@ -57,10 +74,20 @@ export function useCrdtDocument(
+   const clientRef = useRef<RelayClient | null>(null);
+   const [, setVersion] = useState(0);
+   const [connectedClients, setConnectedClients] = useState(0);
++  const [localClientId, setLocalClientId] = useState<string | null>(null);
+   const bump = useCallback(() => setVersion((v) => v + 1), []);
+-  // P6: presence(아바타) 상태는 DocState와 분리된 별도 훅 — op 경로에 영향 없음(AC-9).
++  // P6: presence(아바타)·cursor 상태는 DocState와 분리된 별도 훅 — op 경로에 영향 없음(AC-9).
+   const presence = usePresence();
++  const cursor = useCursor();
+   const displayName = displayNameFromSiteId(doc.siteId);
++  // presence-leave 시 커서도 제거(BR-7). 두 안정 콜백(useCallback[])을 합성해 안정화(C4 — stale closure 방지).
++  const handlePresenceLeave = useCallback(
++    (id: string) => {
++      presence.onPresenceLeave(id);
++      cursor.onCursorLeave(id);
++    },
++    [presence.onPresenceLeave, cursor.onCursorLeave],
++  );
+ 
+   useEffect(() => {
+     const factory = opts?.transportFactory ?? ((url: string) => createRetryingTransport(url));
+@@ -73,10 +100,15 @@ export function useCrdtDocument(
+           applyDocOp(doc, fromWire(env));
+           bump();
+         },
+-        onJoinAck: (n) => setConnectedClients(n),
++        onJoinAck: (n, clientId) => {
++          setConnectedClients(n);
++          setLocalClientId(clientId); // 자기 식별(AC-7)
++        },
+         // presence 핸들러는 usePresence의 안정 콜백 — op 경로(onRemoteOp)와 분리.
+         onPresenceUpdate: presence.onPresenceUpdate,
+-        onPresenceLeave: presence.onPresenceLeave,
++        // presence-leave 시 커서도 함께 제거(BR-7) — 안정화된 합성 콜백(C4).
++        onPresenceLeave: handlePresenceLeave,
++        onCursorUpdate: cursor.onCursorUpdate,
+       },
+       { displayName },
+     );
+@@ -107,5 +139,28 @@ export function useCrdtDocument(
+     [doc, bump],
+   );
+ 
+-  return { blocks: docToBlocks(doc), connectedClients, presences: presence.presences, onBlockInput };
++  // P6 커서: Editor가 올린 caret 가시 index를 직전 문자 id로 변환해 전송.
++  const onCursorMove = useCallback(
++    (blockId: RgaId, caretOffset: number) => {
++      const anchorId = indexToAnchorId(doc, blockId, caretOffset);
++      clientRef.current?.sendCursor(blockId, anchorId); // 배선 전 null이면 조용히 skip
++    },
++    [doc],
++  );
++  // 원격 커서 anchorId → 현재 가시 index (op 적용 후에도 올바른 위치, tombstone fallback).
++  const resolveCursorIndex = useCallback(
++    (blockId: RgaId, anchorId: RgaId | null) => resolveAnchorToIndex(doc, blockId, anchorId),
++    [doc],
++  );
++
++  return {
++    blocks: docToBlocks(doc),
++    connectedClients,
++    presences: presence.presences,
++    onBlockInput,
++    cursors: cursor.cursors,
++    localClientId,
++    onCursorMove,
++    resolveCursorIndex,
++  };
+ }
+diff --git a/apps/web/src/lib/realtime/__tests__/cursor.convergence.test.ts b/apps/web/src/lib/realtime/__tests__/cursor.convergence.test.ts
+new file mode 100644
+index 0000000..62e6f41
+--- /dev/null
++++ b/apps/web/src/lib/realtime/__tests__/cursor.convergence.test.ts
+@@ -0,0 +1,71 @@
++import { describe, it, expect } from 'vitest';
++import {
++  applyDocOp,
++  docToBlocks,
++  fromWire,
++  toWire,
++  getVisibleNodes,
++  idKey,
++  idEquals,
++  resolveAnchorToIndex,
++} from '@ieum/crdt';
++import { createCollaborativeDocument, diffBlockText } from '@/src/lib/editor/crdtDocument';
++import { createRelayClient } from '../relayClient';
++import { createInMemoryRelay } from './inMemoryRelay';
++import type { CursorInfo } from '../protocol';
++
++// P6 라이브 커서 / AC-10: 2탭이 실 RoomRegistry(in-memory relay)를 거쳐 커서를 broadcast하고,
++// 앵커 앞 삽입 후에도 anchorId가 동일 노드를 +N으로 가리킨다(M1: 삽입 위치 명시).
++const PAGE = 'pg_test001';
++
++describe('2탭 커서 수렴 (in-memory relay)', () => {
++  it('AC-10: B 커서가 A에 broadcast되고, A가 앵커 앞에 삽입하면 resolve가 +1(동일 노드)', () => {
++    const relay = createInMemoryRelay();
++    const docA = createCollaborativeDocument('site_a');
++    const docB = createCollaborativeDocument('site_b');
++    let aCursor: CursorInfo | null = null;
++    const clientA = createRelayClient(relay.connect('a'), PAGE, {
++      onRemoteOp: (env) => applyDocOp(docA, fromWire(env)),
++      onCursorUpdate: (info) => {
++        aCursor = info;
++      },
++    });
++    const clientB = createRelayClient(relay.connect('b'), PAGE, {
++      onRemoteOp: (env) => applyDocOp(docB, fromWire(env)),
++    });
++    clientA.join(PAGE);
++    clientB.join(PAGE);
++
++    const blockId = docToBlocks(docB)[0]!.id;
++    // B가 "abc" 입력 → A에 op 수렴.
++    let seqB = 0;
++    for (const op of diffBlockText(docB, blockId, '', 'abc')) clientB.sendOp(toWire(op, ++seqB, 'site_b'));
++    expect(docToBlocks(docA)[0]!.text).toBe('abc');
++
++    // B가 'b'(가시 index 1) 뒤에 caret → anchorId = 'b'의 id. cursor 전송.
++    const anchorB = getVisibleNodes(docB.inlineRgas.get(idKey(blockId))!)[1]!.id;
++    clientB.sendCursor(blockId, anchorB);
++
++    // A가 B의 커서를 받았다(broadcast).
++    expect(aCursor).not.toBeNull();
++    expect(idEquals(aCursor!.anchorId!, anchorB)).toBe(true);
++
++    // A에서 resolve = 2(caret이 'b' 뒤). 삽입 전.
++    expect(resolveAnchorToIndex(docA, blockId, aCursor!.anchorId)).toBe(2);
++
++    // 앵커('b') '앞'(index 1, 'a'와 'b' 사이)에 1문자 삽입 → 'aXbc'.
++    // M1: B가 삽입(B의 새 counter > 자신의 'b' counter라 RGA tie-break상 'X'가 'b' 앞에 확정).
++    let seqB2 = seqB;
++    for (const op of diffBlockText(docB, blockId, 'abc', 'aXbc')) {
++      clientB.sendOp(toWire(op, ++seqB2, 'site_b'));
++    }
++    expect(docToBlocks(docA)[0]!.text).toBe('aXbc');
++
++    // anchorId는 그대로 'b'를 가리키고 가시 index만 +1 → resolve = 3.
++    expect(resolveAnchorToIndex(docA, blockId, aCursor!.anchorId)).toBe(3);
++    // 여전히 'b' 노드를 가리킨다.
++    const resolved = getVisibleNodes(docA.inlineRgas.get(idKey(blockId))!)[3 - 1]!;
++    expect(idEquals(resolved.id, anchorB)).toBe(true);
++    expect(resolved.value).toBe('b');
++  });
++});
+diff --git a/apps/web/src/lib/realtime/__tests__/inMemoryRelay.ts b/apps/web/src/lib/realtime/__tests__/inMemoryRelay.ts
+index 24c9d32..3ae6213 100644
+--- a/apps/web/src/lib/realtime/__tests__/inMemoryRelay.ts
++++ b/apps/web/src/lib/realtime/__tests__/inMemoryRelay.ts
+@@ -31,7 +31,9 @@ export function createInMemoryRelay(): InMemoryRelay {
+           deliver(
+             msg.type === 'join'
+               ? reg.join(handle, msg.pageId, msg.presence) // P6: presence(displayName) 전달
+-              : reg.handleOp(handle, msg),
++              : msg.type === 'cursor'
++                ? reg.handleCursor(handle, msg) // P6 커서: broadcast
++                : reg.handleOp(handle, msg),
+           );
+         },
+         onMessage(cb) {
+diff --git a/apps/web/src/lib/realtime/__tests__/protocol.test.ts b/apps/web/src/lib/realtime/__tests__/protocol.test.ts
+index 47dd99a..b83d772 100644
+--- a/apps/web/src/lib/realtime/__tests__/protocol.test.ts
++++ b/apps/web/src/lib/realtime/__tests__/protocol.test.ts
+@@ -17,11 +17,19 @@ describe('parseServerMessage', () => {
+     expect((msg as OpMsg).op.payload).toEqual(env.payload);
+   });
+ 
+-  it('join-ack / op-ack를 파싱한다', () => {
+-    expect(parseServerMessage(JSON.stringify({ type: 'join-ack', pageId: 'p', connectedClients: 2 }))).not.toBeNull();
++  it('join-ack(clientId 포함) / op-ack를 파싱한다', () => {
++    const ack = parseServerMessage(
++      JSON.stringify({ type: 'join-ack', pageId: 'p', connectedClients: 2, clientId: 'c1' }),
++    ) as { type: 'join-ack'; clientId: string } | null;
++    expect(ack).not.toBeNull();
++    expect(ack!.clientId).toBe('c1'); // P6 커서: localClientId 채널
+     expect(parseServerMessage(JSON.stringify({ type: 'op-ack', siteId: 's', seq: 1 }))).not.toBeNull();
+   });
+ 
++  it('P6: clientId 없는 join-ack는 null이다', () => {
++    expect(parseServerMessage(JSON.stringify({ type: 'join-ack', pageId: 'p', connectedClients: 2 }))).toBeNull();
++  });
++
+   it('보안: op 봉투 필드(siteId/seq/opType/payload)가 불완전하면 null을 반환한다', () => {
+     expect(parseServerMessage(JSON.stringify({ type: 'op', pageId: 'p', op: { siteId: 's' } }))).toBeNull();
+     expect(parseServerMessage(JSON.stringify({ type: 'op', pageId: 'p', op: { siteId: 's', seq: 1, opType: 'insert' } }))).toBeNull();
+@@ -98,3 +106,44 @@ describe('parseServerMessage — presence', () => {
+     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+   });
+ });
++
++// P6 라이브 커서 / AC-10 채널: cursor-update 파싱.
++describe('parseServerMessage — cursor-update', () => {
++  const blockId = { counter: 0, siteId: 'genesis' };
++
++  it('cursor-update(anchorId null/RgaId)를 파싱한다', () => {
++    const m1 = parseServerMessage(
++      JSON.stringify({ type: 'cursor-update', clientId: 'c2', blockId, anchorId: null }),
++    ) as { type: 'cursor-update'; clientId: string; anchorId: unknown } | null;
++    expect(m1).not.toBeNull();
++    expect(m1!.clientId).toBe('c2');
++    expect(m1!.anchorId).toBeNull();
++
++    const anchorId = { counter: 7, siteId: 'site_b' };
++    const m2 = parseServerMessage(
++      JSON.stringify({ type: 'cursor-update', clientId: 'c2', blockId, anchorId }),
++    ) as { anchorId: unknown } | null;
++    expect(m2).not.toBeNull();
++    expect((m2 as { anchorId: unknown }).anchorId).toEqual(anchorId);
++  });
++
++  it('blockId가 RgaId가 아니거나 clientId 누락이면 null', () => {
++    expect(
++      parseServerMessage(JSON.stringify({ type: 'cursor-update', clientId: 'c2', blockId: { counter: 'x' }, anchorId: null })),
++    ).toBeNull();
++    expect(parseServerMessage(JSON.stringify({ type: 'cursor-update', blockId, anchorId: null }))).toBeNull();
++  });
++
++  it('보안: cursor-update의 __proto__는 null이며 prototype을 오염시키지 않는다', () => {
++    const raw = '{"type":"cursor-update","clientId":"c2","blockId":{"counter":0,"siteId":"g"},"anchorId":null,"__proto__":{"polluted":1}}';
++    expect(parseServerMessage(raw)).toBeNull();
++    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
++  });
++
++  it('보안(C1/C2): counter 비정수·음수·무한 또는 siteId 과길이는 null', () => {
++    expect(parseServerMessage(JSON.stringify({ type: 'cursor-update', clientId: 'c2', blockId: { counter: 1.5, siteId: 'g' }, anchorId: null }))).toBeNull();
++    expect(parseServerMessage('{"type":"cursor-update","clientId":"c2","blockId":{"counter":1e999,"siteId":"g"},"anchorId":null}')).toBeNull();
++    const longSite = 's'.repeat(100);
++    expect(parseServerMessage(JSON.stringify({ type: 'cursor-update', clientId: 'c2', blockId: { counter: 0, siteId: longSite }, anchorId: null }))).toBeNull();
++  });
++});
+diff --git a/apps/web/src/lib/realtime/__tests__/relayClient.test.ts b/apps/web/src/lib/realtime/__tests__/relayClient.test.ts
+index 0dc65c5..aeec93f 100644
+--- a/apps/web/src/lib/realtime/__tests__/relayClient.test.ts
++++ b/apps/web/src/lib/realtime/__tests__/relayClient.test.ts
+@@ -45,14 +45,14 @@ describe('relayClient', () => {
+     expect(onRemoteOp).toHaveBeenCalledWith(e);
+   });
+ 
+-  it('join-ack / op-ack를 핸들러로 라우팅한다', () => {
++  it('join-ack(clientId 포함) / op-ack를 핸들러로 라우팅한다', () => {
+     const t = createFakeTransport();
+     const onJoinAck = vi.fn();
+     const onOpAck = vi.fn();
+     createRelayClient(t, PAGE, { onRemoteOp: () => {}, onJoinAck, onOpAck });
+-    t.emitMessage(JSON.stringify({ type: 'join-ack', pageId: PAGE, connectedClients: 2 }));
++    t.emitMessage(JSON.stringify({ type: 'join-ack', pageId: PAGE, connectedClients: 2, clientId: 'c1' }));
+     t.emitMessage(JSON.stringify({ type: 'op-ack', siteId: 'site_a', seq: 5 }));
+-    expect(onJoinAck).toHaveBeenCalledWith(2);
++    expect(onJoinAck).toHaveBeenCalledWith(2, 'c1'); // P6: localClientId 채널
+     expect(onOpAck).toHaveBeenCalledWith('site_a', 5);
+   });
+ 
+@@ -66,6 +66,27 @@ describe('relayClient', () => {
+     expect(onRemoteOp).not.toHaveBeenCalled();
+   });
+ 
++  // P6 라이브 커서
++  it('AC-10: cursor-update를 onCursorUpdate(info)로 라우팅한다', () => {
++    const t = createFakeTransport();
++    const onCursorUpdate = vi.fn();
++    createRelayClient(t, PAGE, { onRemoteOp: () => {}, onCursorUpdate });
++    const blockId = { counter: 0, siteId: 'genesis' };
++    const anchorId = { counter: 5, siteId: 'site_b' };
++    t.emitMessage(JSON.stringify({ type: 'cursor-update', clientId: 'c2', blockId, anchorId }));
++    expect(onCursorUpdate).toHaveBeenCalledTimes(1);
++    expect(onCursorUpdate).toHaveBeenCalledWith({ clientId: 'c2', blockId, anchorId });
++  });
++
++  it('FR-1: sendCursor는 {type:"cursor",pageId,blockId,anchorId} 형식으로 전송한다', () => {
++    const t = createFakeTransport();
++    const client = createRelayClient(t, PAGE, { onRemoteOp: () => {} });
++    const blockId = { counter: 0, siteId: 'genesis' };
++    client.sendCursor(blockId, null);
++    const last = JSON.parse(t.sent[t.sent.length - 1]!);
++    expect(last).toEqual({ type: 'cursor', pageId: PAGE, blockId, anchorId: null });
++  });
++
+   // P6 presence (아바타 목록)
+   it('AC-4: presence-update를 onPresenceUpdate(info)로 라우팅한다', () => {
+     const t = createFakeTransport();
+diff --git a/apps/web/src/lib/realtime/__tests__/useCursor.test.ts b/apps/web/src/lib/realtime/__tests__/useCursor.test.ts
+new file mode 100644
+index 0000000..d1e494c
+--- /dev/null
++++ b/apps/web/src/lib/realtime/__tests__/useCursor.test.ts
+@@ -0,0 +1,52 @@
++import { describe, it, expect } from 'vitest';
++import { renderHook, act } from '@testing-library/react';
++import { applyCursorUpdate, applyCursorLeave, useCursor } from '../useCursor';
++import type { CursorMap } from '../useCursor';
++import type { CursorInfo } from '../protocol';
++
++// P6 라이브 커서 / AC-4 유사·AC-9: 커서 상태는 순수 reducer로 분리되어 React 없이 검증.
++const BLOCK = { counter: 0, siteId: 'genesis' };
++const info = (clientId: string, anchorId: CursorInfo['anchorId'] = null): CursorInfo => ({
++  clientId,
++  blockId: BLOCK,
++  anchorId,
++});
++
++describe('useCursor — 순수 reducer', () => {
++  it('applyCursorUpdate는 추가/갱신하고 입력 맵을 변형하지 않는다', () => {
++    const m0: CursorMap = new Map();
++    const m1 = applyCursorUpdate(m0, info('c2', { counter: 5, siteId: 'b' }));
++    expect(m0.size).toBe(0); // 입력 불변
++    expect(m1.size).toBe(1);
++    expect(m1.get('c2')).toEqual(info('c2', { counter: 5, siteId: 'b' }));
++    // 동일 clientId 갱신(중복 추가 아님)
++    const m2 = applyCursorUpdate(m1, info('c2', { counter: 9, siteId: 'b' }));
++    expect(m2.size).toBe(1);
++    expect(m2.get('c2')!.anchorId).toEqual({ counter: 9, siteId: 'b' });
++  });
++
++  it('AC-9: applyCursorLeave는 제거하고 입력 맵을 변형하지 않는다', () => {
++    const m0: CursorMap = new Map([
++      ['c1', info('c1')],
++      ['c2', info('c2')],
++    ]);
++    const m1 = applyCursorLeave(m0, 'c1');
++    expect(m0.size).toBe(2); // 입력 불변
++    expect(m1.has('c1')).toBe(false);
++    expect([...m1.keys()]).toEqual(['c2']);
++  });
++});
++
++describe('useCursor — 훅', () => {
++  it('onCursorUpdate/Leave가 cursors(clientId 정렬)를 갱신한다', () => {
++    const { result } = renderHook(() => useCursor());
++    expect(result.current.cursors).toEqual([]);
++
++    act(() => result.current.onCursorUpdate(info('c2')));
++    act(() => result.current.onCursorUpdate(info('c1')));
++    expect(result.current.cursors.map((c) => c.clientId)).toEqual(['c1', 'c2']);
++
++    act(() => result.current.onCursorLeave('c1'));
++    expect(result.current.cursors.map((c) => c.clientId)).toEqual(['c2']);
++  });
++});
+diff --git a/apps/web/src/lib/realtime/protocol.ts b/apps/web/src/lib/realtime/protocol.ts
+index 08b368b..69e2f4a 100644
+--- a/apps/web/src/lib/realtime/protocol.ts
++++ b/apps/web/src/lib/realtime/protocol.ts
+@@ -2,7 +2,7 @@
+ // 서버(@ieum/ws-relay protocol.ts)와 동일 계약. walking skeleton에선 복제하며
+ // 공유 패키지화는 범위 밖. op 필드는 @ieum/crdt WireEnvelope(결정2: 소문자 opType).
+ 
+-import type { WireEnvelope } from '@ieum/crdt';
++import type { WireEnvelope, RgaId } from '@ieum/crdt';
+ 
+ export interface JoinMsg {
+   type: 'join';
+@@ -19,6 +19,8 @@ export interface JoinAckMsg {
+   type: 'join-ack';
+   pageId: string;
+   connectedClients: number;
++  // P6 커서: 서버 부여 clientId — 자기 커서를 렌더에서 제외(AC-7).
++  clientId: string;
+ }
+ export interface OpAckMsg {
+   type: 'op-ack';
+@@ -43,8 +45,39 @@ export interface PresenceLeaveMsg {
+   clientId: string;
+ }
+ 
+-export type ClientToServer = JoinMsg | OpMsg;
+-export type ServerToClient = JoinAckMsg | OpMsg | OpAckMsg | PresenceUpdateMsg | PresenceLeaveMsg;
++// ─── P6 라이브 커서 (US-PRES-02) — ws-relay protocol.ts와 대칭 복제 ──
++/** 원격 커서 1건. 색·이름은 미포함 — 렌더 시 PresenceInfo에서 lookup(단일 출처). */
++export interface CursorInfo {
++  clientId: string;
++  blockId: RgaId;
++  anchorId: RgaId | null;
++}
++/** C→S: caret 위치 보고(clientId 미전송 — 서버 태깅). */
++export interface CursorMsg {
++  type: 'cursor';
++  pageId: string;
++  blockId: RgaId;
++  anchorId: RgaId | null;
++}
++/** S→C: 협업자 커서 broadcast(발신자 제외). */
++export interface CursorUpdateMsg {
++  type: 'cursor-update';
++  clientId: string;
++  blockId: RgaId;
++  anchorId: RgaId | null;
++}
++
++export type ClientToServer = JoinMsg | OpMsg | CursorMsg;
++export type ServerToClient =
++  | JoinAckMsg
++  | OpMsg
++  | OpAckMsg
++  | PresenceUpdateMsg
++  | PresenceLeaveMsg
++  | CursorUpdateMsg;
++
++// RgaId siteId 상한 — 커서 anchorId siteId로 대용량 문자열 broadcast 증폭 차단(C2).
++const MAX_SITE_ID = 64;
+ 
+ // prototype pollution 방어: JSON.parse는 __proto__ 등을 own 속성으로 만들 수 있다.
+ const DANGEROUS_KEYS = ['__proto__', 'constructor', 'prototype'];
+@@ -52,6 +85,19 @@ function hasDangerousKey(o: object): boolean {
+   return DANGEROUS_KEYS.some((k) => Object.prototype.hasOwnProperty.call(o, k));
+ }
+ 
++/** RgaId 구조 검증 (커서 blockId/anchorId). proto 가드 + 범위/길이 가드(C1·C2) — 서버와 대칭. */
++function isRgaId(v: unknown): v is RgaId {
++  if (typeof v !== 'object' || v === null || hasDangerousKey(v)) return false;
++  const o = v as Record<string, unknown>;
++  return (
++    typeof o.counter === 'number' &&
++    Number.isInteger(o.counter) && // C1: Infinity/NaN/소수 차단
++    o.counter >= 0 &&
++    typeof o.siteId === 'string' &&
++    o.siteId.length <= MAX_SITE_ID // C2
++  );
++}
++
+ /** op 봉투(WireEnvelope) 구조 검증 — 서버 parseClientMessage와 대칭. */
+ function isWireEnvelope(v: unknown): v is WireEnvelope {
+   if (typeof v !== 'object' || v === null || hasDangerousKey(v)) return false;
+@@ -77,7 +123,9 @@ export function parseServerMessage(raw: string): ServerToClient | null {
+   const o = parsed as Record<string, unknown>;
+   switch (o.type) {
+     case 'join-ack':
+-      return typeof o.pageId === 'string' && typeof o.connectedClients === 'number'
++      return typeof o.pageId === 'string' &&
++        typeof o.connectedClients === 'number' &&
++        typeof o.clientId === 'string'
+         ? (o as unknown as JoinAckMsg)
+         : null;
+     case 'op':
+@@ -100,6 +148,12 @@ export function parseServerMessage(raw: string): ServerToClient | null {
+         : null;
+     case 'presence-leave':
+       return typeof o.clientId === 'string' ? (o as unknown as PresenceLeaveMsg) : null;
++    case 'cursor-update':
++      return typeof o.clientId === 'string' &&
++        isRgaId(o.blockId) &&
++        (o.anchorId === null || isRgaId(o.anchorId))
++        ? (o as unknown as CursorUpdateMsg)
++        : null;
+     default:
+       return null;
+   }
+diff --git a/apps/web/src/lib/realtime/relayClient.ts b/apps/web/src/lib/realtime/relayClient.ts
+index 351f434..f0f1547 100644
+--- a/apps/web/src/lib/realtime/relayClient.ts
++++ b/apps/web/src/lib/realtime/relayClient.ts
+@@ -1,25 +1,30 @@
+ // ─── P5 클라이언트 relay 세션 (순수, Transport 주입) ─────────────
+ // join/op 송신과 수신 메시지 라우팅. React 무관 — useCrdtDocument가 배선한다.
+ 
+-import type { WireEnvelope } from '@ieum/crdt';
++import type { WireEnvelope, RgaId } from '@ieum/crdt';
+ import type { Transport } from './transport';
+ import { parseServerMessage } from './protocol';
+-import type { PresenceInfo } from './protocol';
++import type { PresenceInfo, CursorInfo } from './protocol';
+ 
+ export interface RelayClientHandlers {
+   /** 원격 op 수신 → 훅이 applyDocOp. */
+   onRemoteOp(env: WireEnvelope): void;
+-  onJoinAck?(connectedClients: number): void;
++  /** P6 커서: clientId(서버 부여)는 자기 커서 렌더 제외에 사용. */
++  onJoinAck?(connectedClients: number, clientId: string): void;
+   onOpAck?(siteId: string, seq: number): void;
+   /** P6: 접속자 참여/갱신 → usePresence 맵 갱신. */
+   onPresenceUpdate?(info: PresenceInfo): void;
+   /** P6: 접속자 이탈 → usePresence 맵 제거. */
+   onPresenceLeave?(clientId: string): void;
++  /** P6 커서: 협업자 커서 위치 수신 → useCursor 맵 갱신. */
++  onCursorUpdate?(info: CursorInfo): void;
+ }
+ 
+ export interface RelayClient {
+   join(pageId: string): void;
+   sendOp(env: WireEnvelope): void;
++  /** P6 커서: caret 위치 전송(anchorId=직전 문자 id). */
++  sendCursor(blockId: RgaId, anchorId: RgaId | null): void;
+   dispose(): void;
+ }
+ 
+@@ -40,7 +45,7 @@ export function createRelayClient(
+           handlers.onRemoteOp(msg.op);
+           break;
+         case 'join-ack':
+-          handlers.onJoinAck?.(msg.connectedClients);
++          handlers.onJoinAck?.(msg.connectedClients, msg.clientId);
+           break;
+         case 'op-ack':
+           handlers.onOpAck?.(msg.siteId, msg.seq);
+@@ -55,6 +60,13 @@ export function createRelayClient(
+         case 'presence-leave':
+           handlers.onPresenceLeave?.(msg.clientId);
+           break;
++        case 'cursor-update':
++          handlers.onCursorUpdate?.({
++            clientId: msg.clientId,
++            blockId: msg.blockId,
++            anchorId: msg.anchorId,
++          });
++          break;
+       }
+     }),
+   );
+@@ -78,6 +90,9 @@ export function createRelayClient(
+     sendOp(env) {
+       transport.send(JSON.stringify({ type: 'op', pageId, op: env }));
+     },
++    sendCursor(blockId, anchorId) {
++      transport.send(JSON.stringify({ type: 'cursor', pageId, blockId, anchorId }));
++    },
+     dispose() {
+       for (const unsub of unsubscribers.splice(0)) unsub();
+       transport.close();
+diff --git a/apps/web/src/lib/realtime/useCursor.ts b/apps/web/src/lib/realtime/useCursor.ts
+new file mode 100644
+index 0000000..0097d8e
+--- /dev/null
++++ b/apps/web/src/lib/realtime/useCursor.ts
+@@ -0,0 +1,50 @@
++'use client';
++
++// ─── P6 라이브 커서 상태 훅 ───────────────────────────────────────
++// 협업자 커서(clientId → blockId·anchorId)를 CRDT DocState·presence와 분리해 관리한다.
++// 색·이름은 미보유 — 렌더 시 PresenceInfo에서 lookup(단일 출처). 상태 전이는 순수 reducer.
++
++import { useCallback, useMemo, useState } from 'react';
++import type { CursorInfo } from './protocol';
++
++export type CursorMap = Map<string, CursorInfo>;
++
++/** 커서 추가/갱신 — 입력 맵 불변(immutable). */
++export function applyCursorUpdate(map: CursorMap, info: CursorInfo): CursorMap {
++  const next = new Map(map);
++  next.set(info.clientId, info);
++  return next;
++}
++
++/** 커서 제거 — 입력 맵 불변. presence-leave와 연동(BR-7). */
++export function applyCursorLeave(map: CursorMap, clientId: string): CursorMap {
++  if (!map.has(clientId)) return map;
++  const next = new Map(map);
++  next.delete(clientId);
++  return next;
++}
++
++export interface UseCursorResult {
++  /** clientId 오름차순 정렬된 커서 목록 — 렌더 안정성. */
++  cursors: CursorInfo[];
++  onCursorUpdate(info: CursorInfo): void;
++  onCursorLeave(clientId: string): void;
++}
++
++export function useCursor(): UseCursorResult {
++  const [map, setMap] = useState<CursorMap>(() => new Map());
++
++  const onCursorUpdate = useCallback((info: CursorInfo) => {
++    setMap((m) => applyCursorUpdate(m, info));
++  }, []);
++  const onCursorLeave = useCallback((clientId: string) => {
++    setMap((m) => applyCursorLeave(m, clientId));
++  }, []);
++
++  const cursors = useMemo(
++    () => [...map.values()].sort((a, b) => a.clientId.localeCompare(b.clientId)),
++    [map],
++  );
++
++  return { cursors, onCursorUpdate, onCursorLeave };
++}
+diff --git a/apps/ws-relay/src/index.ts b/apps/ws-relay/src/index.ts
+index 820dea8..3bef9da 100644
+--- a/apps/ws-relay/src/index.ts
++++ b/apps/ws-relay/src/index.ts
+@@ -16,6 +16,8 @@ export type {
+   PresenceInfo,
+   PresenceUpdateMsg,
+   PresenceLeaveMsg,
++  CursorMsg,
++  CursorUpdateMsg,
+   ClientToServer,
+   ServerToClient,
+ } from './protocol.js';
+diff --git a/apps/ws-relay/src/protocol.ts b/apps/ws-relay/src/protocol.ts
+index 02ad565..ac0c2ec 100644
+--- a/apps/ws-relay/src/protocol.ts
++++ b/apps/ws-relay/src/protocol.ts
+@@ -3,7 +3,7 @@
+ // (결정2: WireEnvelope.opType은 소문자 op.type — relay는 op를 불투명 전달).
+ // relay 서버는 @ieum/crdt를 타입 용도로만 import한다 (런타임 CRDT 미적용).
+ 
+-import type { WireEnvelope } from '@ieum/crdt';
++import type { WireEnvelope, RgaId } from '@ieum/crdt';
+ 
+ export interface JoinMsg {
+   type: 'join';
+@@ -16,6 +16,8 @@ export interface JoinAckMsg {
+   type: 'join-ack';
+   pageId: string;
+   connectedClients: number;
++  // P6 커서: 서버가 부여한 clientId 회신 — 클라가 자기 커서를 렌더에서 제외(AC-7).
++  clientId: string;
+ }
+ 
+ export interface OpMsg {
+@@ -50,11 +52,35 @@ export interface PresenceLeaveMsg {
+   clientId: string;
+ }
+ 
+-export type ClientToServer = JoinMsg | OpMsg;
+-export type ServerToClient = JoinAckMsg | OpMsg | OpAckMsg | PresenceUpdateMsg | PresenceLeaveMsg;
++// ─── P6 라이브 커서 (US-PRES-02) ──────────────────────────────────
++/** C→S: caret 위치 보고. clientId는 서버가 태깅(클라 미전송). anchorId=caret 직전 문자 id. */
++export interface CursorMsg {
++  type: 'cursor';
++  pageId: string;
++  blockId: RgaId;
++  anchorId: RgaId | null;
++}
++/** S→C: 협업자 커서 broadcast (발신자 제외). 비영속(저장/roster 없음). */
++export interface CursorUpdateMsg {
++  type: 'cursor-update';
++  clientId: string;
++  blockId: RgaId;
++  anchorId: RgaId | null;
++}
++
++export type ClientToServer = JoinMsg | OpMsg | CursorMsg;
++export type ServerToClient =
++  | JoinAckMsg
++  | OpMsg
++  | OpAckMsg
++  | PresenceUpdateMsg
++  | PresenceLeaveMsg
++  | CursorUpdateMsg;
+ 
+ // presence displayName 상한 — 64KiB payload를 displayName으로 채워 broadcast 증폭(DoS)하는 것을 차단(S2).
+ const MAX_DISPLAY_NAME = 64;
++// RgaId siteId 상한 — 커서 anchorId의 siteId로 대용량 문자열을 채워 broadcast 증폭하는 것을 차단(C2).
++const MAX_SITE_ID = 64;
+ 
+ // prototype pollution 방어: JSON.parse는 __proto__ 등을 own 속성으로 만들 수 있다.
+ const DANGEROUS_KEYS = ['__proto__', 'constructor', 'prototype'];
+@@ -62,6 +88,19 @@ function hasDangerousKey(o: object): boolean {
+   return DANGEROUS_KEYS.some((k) => Object.prototype.hasOwnProperty.call(o, k));
+ }
+ 
++/** RgaId 구조 검증 (커서 blockId/anchorId). proto 가드 + 범위/길이 가드(C1·C2). */
++function isRgaId(v: unknown): v is RgaId {
++  if (typeof v !== 'object' || v === null || hasDangerousKey(v)) return false;
++  const o = v as Record<string, unknown>;
++  return (
++    typeof o.counter === 'number' &&
++    Number.isInteger(o.counter) && // C1: Infinity/NaN/소수 차단(JSON 직렬화 시 null화로 커서 점프 방지)
++    o.counter >= 0 &&
++    typeof o.siteId === 'string' &&
++    o.siteId.length <= MAX_SITE_ID // C2: broadcast 증폭 차단
++  );
++}
++
+ function isWireEnvelope(v: unknown): v is WireEnvelope {
+   if (typeof v !== 'object' || v === null) return false;
+   const o = v as Record<string, unknown>;
+@@ -111,5 +150,16 @@ export function parseClientMessage(raw: string): ClientToServer | null {
+     if (!isWireEnvelope(o.op) || hasDangerousKey(o.op)) return null;
+     return { type: 'op', pageId: o.pageId, op: o.op };
+   }
++  if (o.type === 'cursor') {
++    if (typeof o.pageId !== 'string') return null;
++    if (!isRgaId(o.blockId)) return null;
++    if (!(o.anchorId === null || isRgaId(o.anchorId))) return null;
++    return {
++      type: 'cursor',
++      pageId: o.pageId,
++      blockId: o.blockId,
++      anchorId: o.anchorId as RgaId | null,
++    };
++  }
+   return null;
+ }
+diff --git a/apps/ws-relay/src/room.ts b/apps/ws-relay/src/room.ts
+index 2af2143..dfa6e10 100644
+--- a/apps/ws-relay/src/room.ts
++++ b/apps/ws-relay/src/room.ts
+@@ -3,7 +3,7 @@
+ // Dispatch[]로 반환만 한다(직접 send 안 함) → fake ClientHandle로 단위 테스트.
+ // P6: presence(아바타 목록) 상태/색상 슬롯을 registry가 소유하며, ClientHandle은 불투명 유지.
+ 
+-import type { ServerToClient, OpMsg, PresenceInfo, PresenceUpdateMsg } from './protocol.js';
++import type { ServerToClient, OpMsg, CursorMsg, PresenceInfo, PresenceUpdateMsg } from './protocol.js';
+ 
+ /** 불투명 클라이언트 식별자 — server.ts가 실제 소켓과 매핑한다. */
+ export interface ClientHandle {
+@@ -61,9 +61,10 @@ export class RoomRegistry {
+ 
+     const dispatches: Dispatch[] = [];
+     // [0] join-ack — 불변식: 항상 Dispatch[0] (server.test/room.test의 join-ack 가정 보존).
++    // clientId(서버 부여)를 회신해 클라가 자기 커서를 렌더에서 제외할 수 있게 한다(P6 커서 AC-7).
+     dispatches.push({
+       target: client,
+-      message: { type: 'join-ack', pageId, connectedClients: room.size },
++      message: { type: 'join-ack', pageId, connectedClients: room.size, clientId: client.id },
+     });
+     // self presence-update — 서버 할당 color를 발신자에게 회신(AC-7/BR-6, self/peer 동일 경로).
+     dispatches.push({ target: client, message: presenceUpdate(selfInfo) });
+@@ -101,6 +102,34 @@ export class RoomRegistry {
+     return dispatches;
+   }
+ 
++  /**
++   * P6 커서: caret 위치를 같은 room의 다른 탭에 broadcast한다(발신자 제외).
++   * 저장/roster/ack 없음(BR-8 비영속) — 신규 접속자는 기존자가 다음 이동 시 받는다.
++   */
++  handleCursor(client: ClientHandle, msg: CursorMsg): Dispatch[] {
++    const dispatches: Dispatch[] = [];
++    // 보안: 실제 join한 room으로만 broadcast(교차 room 주입 차단, handleOp와 동형).
++    const joinedPage = this.clientRoom.get(client.id);
++    if (joinedPage !== undefined && joinedPage === msg.pageId) {
++      const room = this.rooms.get(joinedPage);
++      if (room) {
++        for (const peer of room) {
++          if (peer === client) continue; // 발신자 제외
++          dispatches.push({
++            target: peer,
++            message: {
++              type: 'cursor-update',
++              clientId: client.id,
++              blockId: msg.blockId,
++              anchorId: msg.anchorId,
++            },
++          });
++        }
++      }
++    }
++    return dispatches;
++  }
++
+   /** disconnect 처리 — presence/슬롯 정리 후 남은 peer에게 presence-leave Dispatch[] 반환. */
+   leave(client: ClientHandle): Dispatch[] {
+     const pageId = this.clientRoom.get(client.id);
+diff --git a/apps/ws-relay/src/server.ts b/apps/ws-relay/src/server.ts
+index 0c97469..4ca073c 100644
+--- a/apps/ws-relay/src/server.ts
++++ b/apps/ws-relay/src/server.ts
+@@ -64,7 +64,9 @@ export function createRelayServer(opts: {
+       sendAll(
+         msg.type === 'join'
+           ? registry.join(handle, msg.pageId, msg.presence) // P6: presence(displayName) 전달
+-          : registry.handleOp(handle, msg),
++          : msg.type === 'cursor'
++            ? registry.handleCursor(handle, msg) // P6 커서: broadcast
++            : registry.handleOp(handle, msg),
+       );
+     });
+ 
+diff --git a/apps/ws-relay/tests/protocol.test.ts b/apps/ws-relay/tests/protocol.test.ts
+index a764093..4c21685 100644
+--- a/apps/ws-relay/tests/protocol.test.ts
++++ b/apps/ws-relay/tests/protocol.test.ts
+@@ -108,3 +108,58 @@ describe('relay protocol — parseClientMessage presence 확장', () => {
+     expect(msg!.presence).toBeUndefined();
+   });
+ });
++
++// P6 라이브 커서 / FR-1: cursor 메시지(C→S) — blockId/anchorId는 RgaId.
++describe('relay protocol — parseClientMessage cursor', () => {
++  type CursorParsed = {
++    type: 'cursor';
++    pageId: string;
++    blockId: { counter: number; siteId: string };
++    anchorId: { counter: number; siteId: string } | null;
++  };
++  const blockId = { counter: 0, siteId: 'genesis' };
++
++  it('cursor 메시지(anchorId null)를 파싱한다', () => {
++    const raw = JSON.stringify({ type: 'cursor', pageId: 'pg_x', blockId, anchorId: null });
++    const msg = parseClientMessage(raw) as CursorParsed | null;
++    expect(msg).not.toBeNull();
++    expect(msg!.type).toBe('cursor');
++    expect(msg!.pageId).toBe('pg_x');
++    expect(msg!.blockId).toEqual(blockId);
++    expect(msg!.anchorId).toBeNull();
++  });
++
++  it('cursor 메시지(anchorId가 RgaId)를 파싱한다', () => {
++    const anchorId = { counter: 5, siteId: 'site_b' };
++    const raw = JSON.stringify({ type: 'cursor', pageId: 'pg_x', blockId, anchorId });
++    const msg = parseClientMessage(raw) as CursorParsed | null;
++    expect(msg).not.toBeNull();
++    expect(msg!.anchorId).toEqual(anchorId);
++  });
++
++  it('blockId가 RgaId가 아니거나 누락이면 null', () => {
++    expect(
++      parseClientMessage(JSON.stringify({ type: 'cursor', pageId: 'pg_x', blockId: { counter: 'x' }, anchorId: null })),
++    ).toBeNull();
++    expect(parseClientMessage(JSON.stringify({ type: 'cursor', pageId: 'pg_x', anchorId: null }))).toBeNull();
++  });
++
++  it('보안: blockId에 dangerous key가 있으면 null이고 prototype을 오염시키지 않는다', () => {
++    const raw =
++      '{"type":"cursor","pageId":"x","blockId":{"counter":0,"siteId":"g","__proto__":{"polluted":1}},"anchorId":null}';
++    expect(parseClientMessage(raw)).toBeNull();
++    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
++  });
++
++  it('보안(C1): counter가 정수가 아니거나 음수/무한이면 null', () => {
++    expect(parseClientMessage(JSON.stringify({ type: 'cursor', pageId: 'x', blockId: { counter: 1.5, siteId: 'g' }, anchorId: null }))).toBeNull();
++    expect(parseClientMessage(JSON.stringify({ type: 'cursor', pageId: 'x', blockId: { counter: -1, siteId: 'g' }, anchorId: null }))).toBeNull();
++    // 1e999는 JSON.parse 시 Infinity → 거부(JSON.stringify되면 null이 되어 커서가 맨 앞으로 점프하는 것을 차단).
++    expect(parseClientMessage('{"type":"cursor","pageId":"x","blockId":{"counter":1e999,"siteId":"g"},"anchorId":null}')).toBeNull();
++  });
++
++  it('보안(C2): siteId가 너무 길면(>64) null (broadcast 증폭 차단)', () => {
++    const longSite = 's'.repeat(100);
++    expect(parseClientMessage(JSON.stringify({ type: 'cursor', pageId: 'x', blockId: { counter: 0, siteId: longSite }, anchorId: null }))).toBeNull();
++  });
++});
+diff --git a/apps/ws-relay/tests/room.cursor.test.ts b/apps/ws-relay/tests/room.cursor.test.ts
+new file mode 100644
+index 0000000..939edbe
+--- /dev/null
++++ b/apps/ws-relay/tests/room.cursor.test.ts
+@@ -0,0 +1,60 @@
++import { describe, it, expect } from 'vitest';
++import { RoomRegistry } from '../src/room.js';
++import type { ClientHandle } from '../src/room.js';
++import type { CursorMsg, CursorUpdateMsg, JoinAckMsg } from '../src/protocol.js';
++
++// P6 라이브 커서 / BR-8, AC-7: cursor broadcast(발신자 제외·저장 없음) + join-ack clientId.
++const PAGE = 'pg_test001';
++const BLOCK = { counter: 0, siteId: 'genesis' };
++const A: ClientHandle = { id: 'a' };
++const B: ClientHandle = { id: 'b' };
++const cursorMsg = (anchorId: { counter: number; siteId: string } | null): CursorMsg => ({
++  type: 'cursor',
++  pageId: PAGE,
++  blockId: BLOCK,
++  anchorId,
++});
++
++describe('RoomRegistry — cursor', () => {
++  it('AC-7 채널: join-ack에 서버 부여 clientId가 포함된다', () => {
++    const reg = new RoomRegistry();
++    const d = reg.join(A, PAGE);
++    const ack = d.find((x) => x.message.type === 'join-ack')!.message as JoinAckMsg;
++    expect(ack.clientId).toBe(A.id);
++  });
++
++  it('BR-8: cursor를 같은 room의 다른 탭에 broadcast하고 발신자는 제외한다', () => {
++    const reg = new RoomRegistry();
++    reg.join(A, PAGE);
++    reg.join(B, PAGE);
++    const anchorId = { counter: 5, siteId: 'site_a' };
++    const d = reg.handleCursor(A, cursorMsg(anchorId));
++
++    const cu = d.filter((x) => x.message.type === 'cursor-update');
++    expect(cu).toHaveLength(1);
++    expect(cu[0]!.target).toBe(B);
++    const m = cu[0]!.message as CursorUpdateMsg;
++    expect(m.clientId).toBe(A.id);
++    expect(m.blockId).toEqual(BLOCK);
++    expect(m.anchorId).toEqual(anchorId);
++  });
++
++  it('혼자 접속 시 cursor broadcast가 0건이고 throw하지 않는다', () => {
++    const reg = new RoomRegistry();
++    reg.join(A, PAGE);
++    let d: ReturnType<RoomRegistry['handleCursor']> = [];
++    expect(() => {
++      d = reg.handleCursor(A, cursorMsg(null));
++    }).not.toThrow();
++    expect(d.filter((x) => x.message.type === 'cursor-update')).toHaveLength(0);
++  });
++
++  it('보안: join하지 않은 room의 cursor는 broadcast하지 않는다(교차주입 차단)', () => {
++    const reg = new RoomRegistry();
++    reg.join(A, PAGE);
++    reg.join(B, 'pg_other');
++    const spoof: CursorMsg = { ...cursorMsg(null), pageId: 'pg_other' };
++    const d = reg.handleCursor(A, spoof);
++    expect(d.filter((x) => x.message.type === 'cursor-update')).toHaveLength(0);
++  });
++});
+diff --git a/context/collaboration/architecture.md b/context/collaboration/architecture.md
+index 46657e2..c22ea01 100644
+--- a/context/collaboration/architecture.md
++++ b/context/collaboration/architecture.md
+@@ -61,7 +61,9 @@
+ 
+ ### Presence 흐름
+ 
+-> **P6 walking skeleton 구현 현황 (PR #11)**: 아래는 목표 흐름(라이브 커서 포함)이다. P6 walking skeleton은 **아바타 목록만** 구현했고 커서·debounce·anchorId는 미구현(후속)이다.
++> **P6 라이브 커서 구현 현황 (PR #12, feat/p6-cursor)**: 아래 흐름의 **커서 부분이 구현**되었다(아바타는 PR #11). 단 별도 `awareness` 메시지가 아니라 신규 `cursor`/`cursor-update` 메시지를 쓰고, 커서 위치는 `{blockId, anchorId}`(anchorId=caret 직전 문자 RGA id)로 표현한다. 송신은 Editor에서 50ms debounce, 변환은 `@ieum/crdt`의 `indexToAnchorId`(송신)·`resolveAnchorToIndex`(수신, tombstone fallback). relay `handleCursor`는 발신자 제외 broadcast만(비영속). 자기 커서는 join-ack의 서버 부여 clientId로 식별해 제외. 검증: anchor 순수 단위 + in-memory relay 2탭 수렴. **후속**: 선택영역 커서, 서버 rate-limit, presence 영속화, 실 인증.
++>
++> **(PR #11 시점 노트)**: 아래는 목표 흐름(라이브 커서 포함)이다. PR #11(P6 아바타)은 **아바타 목록만** 구현했고 커서·debounce·anchorId는 PR #12에서 구현되었다.
+ > - presence는 별도 awareness 메시지가 아니라 **기존 `join` 메시지에 `presence:{displayName}`를 실어** 전송한다(1 round-trip 원자 처리). 서버(`RoomRegistry`)가 색상을 할당하고, 발신자에게 **self presence-update**(서버 color 회신)·기존 접속자 roster를, 기존 접속자에게는 발신자 presence-update를 보낸다(join-ack는 항상 Dispatch[0]).
+ > - 이탈은 `leave()`가 남은 접속자에게 `presence-leave` Dispatch[]를 반환하고 ws 어댑터 `close` 핸들러가 전송한다. presence는 메모리만(DB 비영속).
+ > - 클라는 `usePresence`(순수 reducer 훅)로 접속자 맵을 관리하고 `PresenceAvatars`(색 배지+이니셜)로 렌더한다. CRDT op 경로와 분리되어 수렴에 영향 없음.
+diff --git a/context/collaboration/glossary.md b/context/collaboration/glossary.md
+index cb838cb..f6900e5 100644
+--- a/context/collaboration/glossary.md
++++ b/context/collaboration/glossary.md
+@@ -34,3 +34,6 @@
+ | **색상 슬롯 (PRESENCE_COLORS)** | presence 아바타 색상. 서버(RoomRegistry)가 8색 사전 정의 팔레트(`PRESENCE_COLORS`, 07-collaboration-crdt.md:531)에서 room 접속 순서대로 빈 슬롯 인덱스를 할당하고, disconnect 시 슬롯을 반환해 재입장 시 재사용한다. 8명 초과 시 modulo로 순환 재사용한다. 색상은 서버 할당이며 클라가 주입할 수 없다. |
+ | **usePresence** | 클라이언트 presence 상태 훅. `Map<clientId, PresenceInfo>`를 보유하며 presence-update/leave를 순수 reducer(`applyPresenceUpdate`/`applyPresenceLeave`, immutable)로 반영하고 clientId 정렬 배열을 노출한다. CRDT DocState(`useCrdtDocument`)와 분리되어 op 동기화 경로에 영향을 주지 않는다(관심사 분리). |
+ | **PresenceAvatars** | 에디터 상단의 접속자 아바타 목록 컴포넌트(presentational, props만). 각 접속자를 색상 배지 + 이니셜(displayName의 `#` 뒤 첫 글자 대문자)로 렌더하며 자기 자신도 동일하게 포함(강조 없음)한다. displayName은 `title`/`aria-label`로 노출하고 빈 목록이면 컨테이너만 렌더한다. |
++| **cursor-update / cursor 메시지** | P6 라이브 커서의 메시지. C→S `cursor {pageId, blockId, anchorId}`(clientId 미전송 — 서버가 태깅), S→C `cursor-update {clientId, blockId, anchorId}`(발신자 제외 broadcast). 커서는 비영속(relay 저장/roster 없음 — 다음 이동 시 재표시)이며 색·이름은 미포함(렌더 시 PresenceInfo lookup). 커서 제거는 `presence-leave` 재사용. blockId/anchorId는 `isRgaId`로 검증(counter 유한 비음수 정수·siteId 길이 상한). |
++| **anchorId / anchor 변환** | 커서 위치를 RGA 문자 id로 표현한 것(caret 직전 문자 id, 맨 앞이면 null). `@ieum/crdt`의 `indexToAnchorId(doc, blockId, 가시index)`(송신측 캡처)와 `resolveAnchorToIndex(doc, blockId, anchorId)`(수신측 가시 index 복원) 순수 함수로 변환한다. resolve는 `RgaState.sentinel.next`를 tombstone 포함 전체 순회하여, 앵커 문자가 삭제되면 다음 살아있는 문자(또는 블록 끝)로 fallback한다 — 타인의 편집 후에도 커서가 올바른 문자 옆에 머문다. |
++| **useCursor** | 클라이언트 커서 상태 훅. `Map<clientId, CursorInfo{clientId,blockId,anchorId}>`를 보유하며 cursor-update/presence-leave를 순수 reducer(`applyCursorUpdate`/`applyCursorLeave`, immutable)로 반영한다. usePresence와 동형이며 DocState·presence와 분리(관심사: 위치). Editor는 50ms debounce 후 caret offset을 올리고, 원격 커서를 contentEditable 형제 오버레이(색막대+이름)로 렌더한다. 자기 커서는 서버 부여 clientId(join-ack)로 식별해 제외한다. |
+diff --git a/context/collaboration/status.md b/context/collaboration/status.md
+index 769e6bc..f434691 100644
+--- a/context/collaboration/status.md
++++ b/context/collaboration/status.md
+@@ -17,6 +17,8 @@
+ > **P5 walking skeleton 완료 (PR #10, WebSocket relay)**: 신규 relay 서버(`apps/ws-relay`, room=pageId, join/op broadcast 발신자 제외/op-ack) + 클라 realtime 레이어(Transport 추상화·relayClient·diff→인라인 op) + 에디터 CRDT(DocState) 연결로 2탭 인라인 타이핑 라이브 수렴 구현. in-memory relay 통합 테스트로 검증(ws-relay 19 + web 94 통과). **후속(이 row 외 ⬜ 유지)**: CrdtOp DB 영속화(US-CRDT-02/03 P5 후반), 실 브라우저 Playwright e2e(TDD 검증 표), sync/snapshot·재접속 복원(P8), presence(P6). 구조 편집(Enter/Backspace) 수렴은 블록 op 전송 후속 슬라이스. 인증은 BR-5 목 처리(localhost, 후속 강화).
+ >
+ > **P6 presence walking skeleton 완료 (PR #11, 아바타 목록)**: relay `RoomRegistry`에 presence 상태/색상 슬롯 확장(join 메시지에 displayName 운반, self+roster+broadcast Dispatch, leave→presence-leave), 신규 메시지 `presence-update`/`presence-leave`, 클라 `usePresence` 훅(순수 reducer)·`PresenceAvatars`(색 배지+이니셜)로 2탭 접속자 목록 실시간 수렴/이탈 구현. in-memory relay 통합 테스트로 검증(ws-relay 33 + web 116). displayName은 siteId 자동생성, 색상 8색 팔레트 서버 할당. **후속(이 row 외 ⬜ 유지)**: 라이브 커서(US-PRES-02, anchorId·debounce), presence 영속화, 실 인증, half-open heartbeat. 인증은 BR-5 연장(displayName 신뢰 중계).
++>
++> **P6 라이브 커서 완료 (PR #12, feat/p6-cursor — feat/p6-presence 위 적층)**: `@ieum/crdt`에 `resolveAnchorToIndex`(tombstone fallback)·`indexToAnchorId`(caret 직전 문자) 순수 함수 추가. relay `cursor`/`cursor-update` 메시지 + `handleCursor`(발신자 제외 broadcast, 비영속) + join-ack `clientId`(자기 식별). 클라 `useCursor` 훅·Editor 50ms debounce 전송·원격 커서 오버레이(색막대+이름). **US-PRES-01/02/03 전부 ✅ — presence 슬라이스 완결.** anchorId↔index·2탭 수렴은 crdt 순수 단위 + in-memory relay 통합으로 검증(crdt 64 + ws-relay 43 + web 134). **후속**: 선택영역 커서, 서버 cursor rate-limit, FR-7 이름 자동숨김, presence/cursor 영속화·실 인증.
+ 
+ ---
+ 
+@@ -45,9 +47,9 @@
+ |------|------|--------------|------|-------|
+ | US-PRES-01 | 같은 페이지 접속자 아바타 확인 | 현재 페이지 접속자 목록(이름, 아바타)이 에디터 상단에 표시됨 | ✅ | P6 (PR #11) |
+ | US-PRES-01 | 같은 페이지 접속자 아바타 확인 | presence 정보는 서버에 영속 저장하지 않음(메모리 내 상태) | ✅ | P6 (PR #11) |
+-| US-PRES-02 | 협업자 커서 위치가 에디터에 표시 | 협업자 커서 위치가 에디터 내에 컬러 표시(이름 레이블 포함)됨 | ⬜ | P6 (커서 후속) |
+-| US-PRES-02 | 협업자 커서 위치가 에디터에 표시 | 커서 위치가 RGA 노드 id(anchorId)로 표현되어 op 적용 후에도 올바른 위치 유지 | ⬜ | P6 (커서 후속) |
+-| US-PRES-02 | 협업자 커서 위치가 에디터에 표시 | presence 업데이트는 커서 이동 이벤트 시 debounce(50ms) 후 전송 | ⬜ | P6 (커서 후속) |
++| US-PRES-02 | 협업자 커서 위치가 에디터에 표시 | 협업자 커서 위치가 에디터 내에 컬러 표시(이름 레이블 포함)됨 | ✅ | P6 (PR #12) |
++| US-PRES-02 | 협업자 커서 위치가 에디터에 표시 | 커서 위치가 RGA 노드 id(anchorId)로 표현되어 op 적용 후에도 올바른 위치 유지 | ✅ | P6 (PR #12) |
++| US-PRES-02 | 협업자 커서 위치가 에디터에 표시 | presence 업데이트는 커서 이동 이벤트 시 debounce(50ms) 후 전송 | ✅ | P6 (PR #12) |
+ | US-PRES-03 | "이 페이지 보는 중" 표시·소멸 | 페이지 접속 시 relay 서버에 presence 참여 알림, 탭 종료·페이지 이동 시 이탈 알림 | ✅ | P6 (PR #11) |
+ | US-PRES-03 | "이 페이지 보는 중" 표시·소멸 | 사용자가 페이지를 떠나면 아바타가 즉시 사라짐(relay disconnect→presence-leave) | ✅ | P6 (PR #11) |
+ 
+@@ -67,6 +69,6 @@
+ | 항목 | 설명 | 상태 | Phase |
+ |------|------|------|-------|
+ | 재접속 replay | 50개 op 적용 후 Snapshot 생성 → 새 RGA에 Snapshot + 이후 op replay → 원본과 `toText()` 동일 | ⬜ | P8 |
+-| presence 커서 유지 | 사이트 B 커서 anchorId 지정 → 사이트 A가 앞쪽에 삽입 → B의 anchorId가 동일 노드를 가리키는지 확인 | ⬜ | P6 |
+-| tombstone 커서 | 커서가 앵커링된 문자를 삭제 → `resolveAnchorToIndex()` fallback 동작 확인 | ⬜ | P6 |
++| presence 커서 유지 | 사이트 B 커서 anchorId 지정 → 사이트 A가 앞쪽에 삽입 → B의 anchorId가 동일 노드를 가리키는지 확인 | ✅ | P6 (PR #12) |
++| tombstone 커서 | 커서가 앵커링된 문자를 삭제 → `resolveAnchorToIndex()` fallback 동작 확인 | ✅ | P6 (PR #12) |
+ | e2e (Playwright) | 브라우저 2개에서 동시 편집 후 양쪽 텍스트가 동일함을 확인 | ⬜ | P5 |
+diff --git a/packages/crdt/src/anchor.ts b/packages/crdt/src/anchor.ts
+new file mode 100644
+index 0000000..d17debf
+--- /dev/null
++++ b/packages/crdt/src/anchor.ts
+@@ -0,0 +1,59 @@
++// ─── P6 라이브 커서 anchor 변환 (순수) ───────────────────────────
++// caret 위치를 RGA 문자 id(anchorId)로 표현하고 되돌린다. anchorId = caret 직전 문자 id.
++// resolveAnchorToIndex는 tombstone 포함 전체 순회가 필요하므로 RgaState.sentinel.next를
++// 직접 따라간다(getVisibleNodes는 tombstone 제외라 fallback 계산 불가).
++
++import { getVisibleNodes } from './rga.js';
++import { idEquals, idKey } from './id.js';
++import type { DocState } from './block.js';
++import type { RgaId } from './types.js';
++
++/**
++ * anchorId(caret 직전 문자 id)를 현재 가시 index로 변환한다.
++ * - null → 0 (블록 맨 앞).
++ * - 앵커 문자가 살아있으면 → 그 문자의 가시 index + 1 (caret이 그 문자 뒤).
++ * - tombstone이면 → 이후 첫 살아있는 문자의 가시 index로 fallback, 없으면 블록 가시 길이(끝).
++ * - 앵커 미발견 → 블록 가시 길이(방어적).
++ */
++export function resolveAnchorToIndex(
++  doc: DocState,
++  blockId: RgaId,
++  anchorId: RgaId | null,
++): number {
++  if (anchorId === null) return 0;
++  const inline = doc.inlineRgas.get(idKey(blockId));
++  if (!inline) return 0;
++
++  let visibleIndex = 0;
++  let cursor = inline.sentinel.next;
++  while (cursor) {
++    if (idEquals(cursor.id, anchorId)) {
++      if (!cursor.deleted) return visibleIndex + 1; // 살아있는 앵커 문자 뒤
++      // tombstone: 이후 첫 살아있는 문자로 fallback (visibleIndex = 다음 살아있는 문자의 index).
++      let scan = cursor.next;
++      while (scan) {
++        if (!scan.deleted) return visibleIndex;
++        scan = scan.next;
++      }
++      return visibleIndex; // 뒤에 살아있는 문자 없음 → 블록 끝
++    }
++    if (!cursor.deleted) visibleIndex += 1;
++    cursor = cursor.next;
++  }
++  return visibleIndex; // 앵커 미발견 → 블록 끝(가시 길이)
++}
++
++/**
++ * 가시 index(caret 위치)를 직전 문자 id로 변환한다(송신측 캡처).
++ * visibleIndex<=0 → null(맨 앞). localInsert/localInlineInsert의 originId 관례와 일치.
++ */
++export function indexToAnchorId(
++  doc: DocState,
++  blockId: RgaId,
++  visibleIndex: number,
++): RgaId | null {
++  if (visibleIndex <= 0) return null;
++  const inline = doc.inlineRgas.get(idKey(blockId));
++  if (!inline) return null;
++  return getVisibleNodes(inline)[visibleIndex - 1]?.id ?? null;
++}
+diff --git a/packages/crdt/src/index.ts b/packages/crdt/src/index.ts
+index 0c72cf4..0340d9b 100644
+--- a/packages/crdt/src/index.ts
++++ b/packages/crdt/src/index.ts
+@@ -28,6 +28,9 @@ export {
+   localInlineDelete,
+ } from './block.js';
+ 
++// P6 라이브 커서 anchor 변환 (caret 직전 문자 id ↔ 가시 index)
++export { resolveAnchorToIndex, indexToAnchorId } from './anchor.js';
++
+ // wire 봉투 codec
+ export { toWire, fromWire } from './wire.js';
+ 
+diff --git a/packages/crdt/tests/anchor.test.ts b/packages/crdt/tests/anchor.test.ts
+new file mode 100644
+index 0000000..2a14825
+--- /dev/null
++++ b/packages/crdt/tests/anchor.test.ts
+@@ -0,0 +1,83 @@
++import { describe, it, expect } from 'vitest';
++import {
++  createEmptyDocument,
++  applyDocOp,
++  makeBlockInsertOp,
++  localInlineInsert,
++  localInlineDelete,
++  getVisibleNodes,
++  idKey,
++  idEquals,
++} from '../src/index.js';
++import type { DocState, RgaId } from '../src/index.js';
++import { resolveAnchorToIndex, indexToAnchorId } from '../src/anchor.js';
++
++// P6 라이브 커서 / AC-1,2,3,4,6: anchorId(caret 직전 문자 id) ↔ 가시 index 변환 (순수).
++const BLOCK: RgaId = { counter: 0, siteId: 'genesis' };
++
++function docWith(text: string, siteId = 'site_a'): DocState {
++  const doc = createEmptyDocument(siteId);
++  applyDocOp(doc, makeBlockInsertOp(BLOCK, null, 'paragraph'));
++  for (let i = 0; i < text.length; i++) localInlineInsert(doc, BLOCK, i, text[i]!);
++  return doc;
++}
++/** 블록의 가시 문자 RgaId 목록(순서). */
++function charIds(doc: DocState): RgaId[] {
++  return getVisibleNodes(doc.inlineRgas.get(idKey(BLOCK))!).map((n) => n.id);
++}
++
++describe('anchor — indexToAnchorId / resolveAnchorToIndex', () => {
++  it('AC-1: indexToAnchorId는 caret 직전 문자 id를 반환하고 resolve와 왕복한다', () => {
++    const doc = docWith('hello'); // h e l l o
++    const ids = charIds(doc);
++    // caret index 3(= "hel" 뒤) 직전 문자 = index 2 문자(첫 'l').
++    const anchor = indexToAnchorId(doc, BLOCK, 3);
++    expect(anchor).not.toBeNull();
++    expect(idEquals(anchor!, ids[2]!)).toBe(true);
++    // 왕복: 살아있는 앵커 → caret index 복원.
++    expect(resolveAnchorToIndex(doc, BLOCK, anchor)).toBe(3);
++    // 맨 앞 → null, resolve(null)=0.
++    expect(indexToAnchorId(doc, BLOCK, 0)).toBeNull();
++    expect(resolveAnchorToIndex(doc, BLOCK, null)).toBe(0);
++  });
++
++  it('AC-2(M1): 앵커 문자 앞에 N개 삽입하면 resolve가 +N 되고 동일 노드를 가리킨다', () => {
++    const doc = docWith('hello');
++    const ids = charIds(doc);
++    const anchorL = ids[2]!; // 첫 'l'
++    expect(resolveAnchorToIndex(doc, BLOCK, anchorL)).toBe(3); // 'l' 뒤
++    // 앵커 '앞쪽'(index 0)에 2문자 삽입 → 앵커 노드는 그대로, 가시 위치만 +2.
++    localInlineInsert(doc, BLOCK, 0, 'X');
++    localInlineInsert(doc, BLOCK, 1, 'Y');
++    expect(resolveAnchorToIndex(doc, BLOCK, anchorL)).toBe(5); // 3 + 2
++    // 동일 노드(첫 'l')를 여전히 가리킨다.
++    const visibleAtResolve = getVisibleNodes(doc.inlineRgas.get(idKey(BLOCK))!)[5 - 1]!;
++    expect(idEquals(visibleAtResolve.id, anchorL)).toBe(true);
++    expect(visibleAtResolve.value).toBe('l');
++  });
++
++  it('AC-3: 앵커 문자가 tombstone되면 다음 살아있는 문자의 index로 fallback한다', () => {
++    const doc = docWith('abc');
++    const ids = charIds(doc);
++    const anchorB = ids[1]!; // 'b'
++    expect(resolveAnchorToIndex(doc, BLOCK, anchorB)).toBe(2); // 'b' 뒤
++    localInlineDelete(doc, BLOCK, 1); // 'b' 삭제(tombstone) → 가시 "ac"
++    // 'b' 다음 살아있는 문자 'c'의 가시 index(=1)로 fallback.
++    expect(resolveAnchorToIndex(doc, BLOCK, anchorB)).toBe(1);
++  });
++
++  it('AC-4: 마지막 문자가 tombstone되면 블록 가시 길이(끝)를 반환한다', () => {
++    const doc = docWith('ab');
++    const ids = charIds(doc);
++    const anchorB = ids[1]!; // 마지막 'b'
++    localInlineDelete(doc, BLOCK, 1); // 'b' 삭제 → 가시 "a"
++    // 다음 살아있는 문자 없음 → 블록 가시 길이(1) = 끝.
++    expect(resolveAnchorToIndex(doc, BLOCK, anchorB)).toBe(1);
++  });
++
++  it('AC-6: 빈 블록/anchorId null은 0을 반환한다', () => {
++    const empty = docWith('');
++    expect(resolveAnchorToIndex(empty, BLOCK, null)).toBe(0);
++    expect(indexToAnchorId(empty, BLOCK, 0)).toBeNull();
++  });
++});

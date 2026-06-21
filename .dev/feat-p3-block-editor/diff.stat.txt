@@ -1,0 +1,9 @@
+ apps/web/app/(app)/page/[pageId]/page.tsx          |  21 +--
+ apps/web/components/editor/Editor.tsx              | 164 +++++++++++++++++++++
+ apps/web/components/editor/EditorContainer.tsx     |  45 ++++++
+ .../components/editor/__tests__/Editor.test.tsx    |  88 +++++++++++
+ apps/web/src/lib/editor/__tests__/document.test.ts | 116 +++++++++++++++
+ .../src/lib/editor/__tests__/useAutosave.test.ts   |  77 ++++++++++
+ apps/web/src/lib/editor/document.ts                | 123 ++++++++++++++++
+ apps/web/src/lib/editor/useAutosave.ts             |  48 ++++++
+ 8 files changed, 669 insertions(+), 13 deletions(-)
