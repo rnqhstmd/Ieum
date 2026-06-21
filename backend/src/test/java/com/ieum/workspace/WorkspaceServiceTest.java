@@ -255,4 +255,24 @@ class WorkspaceServiceTest {
         verify(workspaceRepository, never()).save(any());
         verify(membershipRepository, never()).save(any());
     }
+
+    // ── 방어(cross-review MEDIUM / PR #18 gemini): 서비스 경계 null 가드 ──
+
+    @Test
+    @DisplayName("방어: createSharedWorkspace — currentUserId/request가 null이면 IllegalArgumentException, 저장 없음")
+    void createSharedWorkspace_nullArgs_throwsAndSavesNothing() {
+        // When / Then: currentUserId null
+        assertThatThrownBy(() ->
+                workspaceService.createSharedWorkspace(null, new CreateWorkspaceRequest("팀")))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        // When / Then: request null
+        assertThatThrownBy(() ->
+                workspaceService.createSharedWorkspace(UUID.randomUUID(), null))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        // Then: 어떤 저장도 발생하지 않음
+        verify(workspaceRepository, never()).save(any());
+        verify(membershipRepository, never()).save(any());
+    }
 }

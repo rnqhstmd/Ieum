@@ -75,6 +75,14 @@ public class WorkspaceService {
      */
     @Transactional
     public WorkspaceDto createSharedWorkspace(UUID currentUserId, CreateWorkspaceRequest request) {
+        // 서비스 경계 방어(cross-review MEDIUM / PR #18): 잘못된 인자를 진입부에서 즉시 거부(→400).
+        // 컨트롤러 경로는 non-null을 보장하나, 후속 슬라이스/직접 호출 시의 NPE·DB 제약위반(500)을 차단.
+        if (currentUserId == null) {
+            throw new IllegalArgumentException("currentUserId는 null일 수 없습니다.");
+        }
+        if (request == null) {
+            throw new IllegalArgumentException("요청 본문은 null일 수 없습니다.");
+        }
         String name = normalizeName(request.name());
         Workspace ws = workspaceRepository.save(Workspace.builder()
                 .type(WorkspaceType.SHARED).ownerId(currentUserId).name(name).build());
