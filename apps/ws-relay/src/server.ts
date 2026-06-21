@@ -49,21 +49,28 @@ export function createRelayServer(opts: {
       // 네트워크 오류/비정상 종료는 무시한다(close 이벤트에서 정리). 프로세스 보호.
     });
 
-    socket.on('message', (raw: { toString(): string }) => {
-      const msg = parseClientMessage(raw.toString());
-      if (!msg) return; // 잘못된 JSON/규격 외 메시지는 무시
-      const dispatches =
-        msg.type === 'join' ? registry.join(handle, msg.pageId) : registry.handleOp(handle, msg);
+    const sendAll = (dispatches: ReturnType<RoomRegistry['join']>) => {
       for (const d of dispatches) {
         const target = sockets.get(d.target.id);
         if (target && target.readyState === WebSocket.OPEN) {
           target.send(JSON.stringify(d.message));
         }
       }
+    };
+
+    socket.on('message', (raw: { toString(): string }) => {
+      const msg = parseClientMessage(raw.toString());
+      if (!msg) return; // 잘못된 JSON/규격 외 메시지는 무시
+      sendAll(
+        msg.type === 'join'
+          ? registry.join(handle, msg.pageId, msg.presence) // P6: presence(displayName) 전달
+          : registry.handleOp(handle, msg),
+      );
     });
 
     socket.on('close', () => {
-      registry.leave(handle);
+      // P6: leave가 남은 peer에게 보낼 presence-leave Dispatch[]를 반환 → send 배선.
+      sendAll(registry.leave(handle));
       sockets.delete(handle.id);
     });
   });

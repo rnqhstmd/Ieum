@@ -61,6 +61,12 @@
 
 ### Presence 흐름
 
+> **P6 walking skeleton 구현 현황 (PR #11)**: 아래는 목표 흐름(라이브 커서 포함)이다. P6 walking skeleton은 **아바타 목록만** 구현했고 커서·debounce·anchorId는 미구현(후속)이다.
+> - presence는 별도 awareness 메시지가 아니라 **기존 `join` 메시지에 `presence:{displayName}`를 실어** 전송한다(1 round-trip 원자 처리). 서버(`RoomRegistry`)가 색상을 할당하고, 발신자에게 **self presence-update**(서버 color 회신)·기존 접속자 roster를, 기존 접속자에게는 발신자 presence-update를 보낸다(join-ack는 항상 Dispatch[0]).
+> - 이탈은 `leave()`가 남은 접속자에게 `presence-leave` Dispatch[]를 반환하고 ws 어댑터 `close` 핸들러가 전송한다. presence는 메모리만(DB 비영속).
+> - 클라는 `usePresence`(순수 reducer 훅)로 접속자 맵을 관리하고 `PresenceAvatars`(색 배지+이니셜)로 렌더한다. CRDT op 경로와 분리되어 수렴에 영향 없음.
+> - 검증: in-memory relay(실 RoomRegistry + FakeTransport) 통합 테스트로 2탭 수렴/이탈 결정적 검증(ws-relay 33 + web 116). half-open 유령 아바타(heartbeat 미도입)는 수용 항목.
+
 ```
 [클라이언트 커서 이동]
   DOM selection 이벤트

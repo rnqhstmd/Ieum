@@ -8,6 +8,7 @@
 import { useCallback, useState } from 'react';
 import Editor from '@/components/editor/Editor';
 import TitleEditor from '@/components/editor/TitleEditor';
+import PresenceAvatars from '@/components/editor/PresenceAvatars';
 import { useCrdtDocument } from '@/src/lib/editor/useCrdtDocument';
 import { useAutosave, type SaveStatus } from '@/src/lib/editor/useAutosave';
 
@@ -25,7 +26,7 @@ const STATUS_LABEL: Record<SaveStatus, string> = {
 
 export default function EditorContainer({ pageId, initialTitle = '' }: EditorContainerProps) {
   const [title, setTitle] = useState(initialTitle);
-  const { blocks, onBlockInput } = useCrdtDocument(pageId);
+  const { blocks, presences, onBlockInput } = useCrdtDocument(pageId);
 
   // 제목 save-port 스텁: 영속화 슬라이스에서 실제 저장으로 교체.
   const save = useCallback(async (_title: string) => {
@@ -40,6 +41,7 @@ export default function EditorContainer({ pageId, initialTitle = '' }: EditorCon
 
   return (
     <div data-page-id={pageId}>
+      <PresenceAvatars presences={presences} />
       <div className="mb-2 h-4 text-xs text-faint" aria-live="polite" data-testid="autosave-status">
         {STATUS_LABEL[status]}
       </div>

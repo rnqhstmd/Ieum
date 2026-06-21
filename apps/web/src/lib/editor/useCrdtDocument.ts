@@ -12,12 +12,15 @@ import { createRetryingTransport } from '@/src/lib/realtime/transport';
 import type { Transport } from '@/src/lib/realtime/transport';
 import { createRelayClient } from '@/src/lib/realtime/relayClient';
 import type { RelayClient } from '@/src/lib/realtime/relayClient';
+import { usePresence } from '@/src/lib/realtime/usePresence';
+import type { PresenceInfo } from '@/src/lib/realtime/protocol';
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? 'ws://localhost:3001';
 
 export interface UseCrdtDocumentResult {
   blocks: EditorBlockView[];
   connectedClients: number;
+  presences: PresenceInfo[];
   onBlockInput: (blockId: RgaId, newText: string) => void;
 }
 
@@ -29,6 +32,14 @@ function newSiteId(): string {
   return c && typeof c.randomUUID === 'function'
     ? c.randomUUID()
     : `site-${Math.random().toString(36).slice(2)}`;
+}
+
+// P6: presence 표시 이름은 siteId 기반 자동 생성(실 인증 전 목 신원, BR-4 상응).
+// 서버는 displayName만 신뢰 중계하고 색상은 서버가 할당한다.
+// siteId 앞 4자만 쓰므로 우연히 동일 displayName이 생길 수 있으나, BR-7이 다중 탭 동일 이름을
+// 독립 presence(clientId·색상 분리)로 허용하므로 스펙상 무해하다(CR-3, 실 인증 시 대체).
+function displayNameFromSiteId(siteId: string): string {
+  return `사용자 #${siteId.slice(0, 4)}`;
 }
 
 export function useCrdtDocument(
@@ -47,25 +58,36 @@ export function useCrdtDocument(
   const [, setVersion] = useState(0);
   const [connectedClients, setConnectedClients] = useState(0);
   const bump = useCallback(() => setVersion((v) => v + 1), []);
+  // P6: presence(아바타) 상태는 DocState와 분리된 별도 훅 — op 경로에 영향 없음(AC-9).
+  const presence = usePresence();
+  const displayName = displayNameFromSiteId(doc.siteId);
 
   useEffect(() => {
     const factory = opts?.transportFactory ?? ((url: string) => createRetryingTransport(url));
     const transport = factory(WS_URL);
-    const client = createRelayClient(transport, pageId, {
-      onRemoteOp: (env) => {
-        applyDocOp(doc, fromWire(env));
-        bump();
+    const client = createRelayClient(
+      transport,
+      pageId,
+      {
+        onRemoteOp: (env) => {
+          applyDocOp(doc, fromWire(env));
+          bump();
+        },
+        onJoinAck: (n) => setConnectedClients(n),
+        // presence 핸들러는 usePresence의 안정 콜백 — op 경로(onRemoteOp)와 분리.
+        onPresenceUpdate: presence.onPresenceUpdate,
+        onPresenceLeave: presence.onPresenceLeave,
       },
-      onJoinAck: (n) => setConnectedClients(n),
-    });
+      { displayName },
+    );
     clientRef.current = client;
     return () => {
       client.dispose();
       clientRef.current = null;
     };
-    // 마운트(pageId) 시 1회 배선. doc/bump는 안정적이며 transportFactory 재구독은 의도적으로 생략.
-    // transportFactory는 마운트 시점 값으로 1회만 캡처된다 — 런타임 교체는 지원하지 않으며
-    // 필요 시 page.tsx의 key={pageId} 교체로 remount해야 한다(테스트 주입 전용).
+    // 마운트(pageId) 시 1회 배선. presence.onPresenceUpdate/onPresenceLeave는 usePresence의
+    // useCallback([]) 안정 콜백이고 displayName은 doc.siteId(useRef) 파생이라 불변 — deps 제외 안전(S5).
+    // transportFactory 재구독은 의도적으로 생략(마운트 시점 값 1회 캡처, 테스트 주입 전용).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageId]);
 
@@ -85,5 +107,5 @@ export function useCrdtDocument(
     [doc, bump],
   );
 
-  return { blocks: docToBlocks(doc), connectedClients, onBlockInput };
+  return { blocks: docToBlocks(doc), connectedClients, presences: presence.presences, onBlockInput };
 }

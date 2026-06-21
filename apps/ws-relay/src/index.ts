@@ -13,6 +13,9 @@ export type {
   JoinAckMsg,
   OpMsg,
   OpAckMsg,
+  PresenceInfo,
+  PresenceUpdateMsg,
+  PresenceLeaveMsg,
   ClientToServer,
   ServerToClient,
 } from './protocol.js';
