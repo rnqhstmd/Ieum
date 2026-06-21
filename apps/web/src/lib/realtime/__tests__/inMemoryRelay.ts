@@ -28,7 +28,11 @@ export function createInMemoryRelay(): InMemoryRelay {
         send(data) {
           const msg = parseClientMessage(data);
           if (!msg) return;
-          deliver(msg.type === 'join' ? reg.join(handle, msg.pageId) : reg.handleOp(handle, msg));
+          deliver(
+            msg.type === 'join'
+              ? reg.join(handle, msg.pageId, msg.presence) // P6: presence(displayName) 전달
+              : reg.handleOp(handle, msg),
+          );
         },
         onMessage(cb) {
           cbs.add(cb);
@@ -44,7 +48,9 @@ export function createInMemoryRelay(): InMemoryRelay {
           return () => {};
         },
         close() {
-          reg.leave(handle);
+          // P6: leave가 남은 peer에게 보낼 presence-leave Dispatch[]를 deliver한다.
+          // inboxes.delete(자기 자신) 이전에 호출 — leave는 남은 peer만 대상이라 순서 안전(M1).
+          deliver(reg.leave(handle));
           inboxes.delete(clientId);
         },
       };

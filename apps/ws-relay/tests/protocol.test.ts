@@ -58,3 +58,53 @@ describe('relay protocol — parseClientMessage', () => {
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
 });
+
+// P6 / FR-1, BR-4: join 메시지의 presence 확장 (아바타 displayName 운반).
+describe('relay protocol — parseClientMessage presence 확장', () => {
+  type JoinWithPresence = { type: 'join'; pageId: string; presence?: { displayName?: string } };
+
+  it('FR-1: join에 presence.displayName이 있으면 채택한다', () => {
+    const raw = JSON.stringify({ type: 'join', pageId: 'pg_p', presence: { displayName: '사용자 #a1b2' } });
+    const msg = parseClientMessage(raw) as JoinWithPresence | null;
+    expect(msg).not.toBeNull();
+    expect(msg!.type).toBe('join');
+    expect(msg!.presence?.displayName).toBe('사용자 #a1b2');
+  });
+
+  it('BR-4: presence가 없는 join도 유효하다(presence는 undefined)', () => {
+    const raw = JSON.stringify({ type: 'join', pageId: 'pg_p' });
+    const msg = parseClientMessage(raw) as JoinWithPresence | null;
+    expect(msg).not.toBeNull();
+    expect(msg!.presence).toBeUndefined();
+  });
+
+  it('BR-4: presence.displayName이 문자열이 아니면 displayName을 버리되 join은 유효하다', () => {
+    const raw = JSON.stringify({ type: 'join', pageId: 'pg_p', presence: { displayName: 123 } });
+    const msg = parseClientMessage(raw) as JoinWithPresence | null;
+    expect(msg).not.toBeNull();
+    expect(msg!.type).toBe('join');
+    expect(msg!.presence?.displayName).toBeUndefined();
+  });
+
+  it('보안: presence에 dangerous key가 있으면 null을 반환한다', () => {
+    const raw = '{"type":"join","pageId":"x","presence":{"__proto__":{"polluted":1}}}';
+    expect(parseClientMessage(raw)).toBeNull();
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
+  it('보안(S2): 과도하게 긴 displayName(>64)은 버리고 join은 유효하게 둔다(브로드캐스트 증폭 차단)', () => {
+    const long = 'x'.repeat(100);
+    const raw = JSON.stringify({ type: 'join', pageId: 'pg_p', presence: { displayName: long } });
+    const msg = parseClientMessage(raw) as JoinWithPresence | null;
+    expect(msg).not.toBeNull();
+    expect(msg!.type).toBe('join');
+    expect(msg!.presence?.displayName).toBeUndefined();
+  });
+
+  it('방어(S2): presence가 배열이면 displayName 없이 join으로 처리한다', () => {
+    const raw = JSON.stringify({ type: 'join', pageId: 'pg_p', presence: ['x'] });
+    const msg = parseClientMessage(raw) as JoinWithPresence | null;
+    expect(msg).not.toBeNull();
+    expect(msg!.presence).toBeUndefined();
+  });
+});

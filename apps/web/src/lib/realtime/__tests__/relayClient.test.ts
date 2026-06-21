@@ -65,4 +65,43 @@ describe('relayClient', () => {
     t.emitMessage(JSON.stringify({ type: 'op', pageId: PAGE, op: env('site_b', 1) }));
     expect(onRemoteOp).not.toHaveBeenCalled();
   });
+
+  // P6 presence (아바타 목록)
+  it('AC-4: presence-update를 onPresenceUpdate(info)로 라우팅한다', () => {
+    const t = createFakeTransport();
+    const onPresenceUpdate = vi.fn();
+    createRelayClient(t, PAGE, { onRemoteOp: () => {}, onPresenceUpdate });
+    t.emitMessage(
+      JSON.stringify({ type: 'presence-update', clientId: 'c2', displayName: '사용자 #c3d4', color: '#64B5F6' }),
+    );
+    expect(onPresenceUpdate).toHaveBeenCalledTimes(1);
+    expect(onPresenceUpdate).toHaveBeenCalledWith({
+      clientId: 'c2',
+      displayName: '사용자 #c3d4',
+      color: '#64B5F6',
+    });
+  });
+
+  it('AC-5: presence-leave를 onPresenceLeave(clientId)로 라우팅한다', () => {
+    const t = createFakeTransport();
+    const onPresenceLeave = vi.fn();
+    createRelayClient(t, PAGE, { onRemoteOp: () => {}, onPresenceLeave });
+    t.emitMessage(JSON.stringify({ type: 'presence-leave', clientId: 'c1' }));
+    expect(onPresenceLeave).toHaveBeenCalledWith('c1');
+  });
+
+  it('FR-1: opts.displayName이 있으면 join에 presence를 포함해 전송한다', () => {
+    const t = createFakeTransport();
+    createRelayClient(t, PAGE, { onRemoteOp: () => {} }, { displayName: '사용자 #a1b2' });
+    t.emitOpen();
+    const join = JSON.parse(t.sent[t.sent.length - 1]!);
+    expect(join).toEqual({ type: 'join', pageId: PAGE, presence: { displayName: '사용자 #a1b2' } });
+  });
+
+  it('회귀가드: opts 미제공 시 join은 presence 없이 {type,pageId}만 전송한다', () => {
+    const t = createFakeTransport();
+    createRelayClient(t, PAGE, { onRemoteOp: () => {} });
+    t.emitOpen();
+    expect(t.sent).toContain(JSON.stringify({ type: 'join', pageId: PAGE }));
+  });
 });

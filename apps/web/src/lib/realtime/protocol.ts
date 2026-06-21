@@ -7,6 +7,8 @@ import type { WireEnvelope } from '@ieum/crdt';
 export interface JoinMsg {
   type: 'join';
   pageId: string;
+  // P6: 참여 시 표시 이름(아바타용). 서버가 색상을 할당한다.
+  presence?: { displayName?: string };
 }
 export interface OpMsg {
   type: 'op';
@@ -24,8 +26,25 @@ export interface OpAckMsg {
   seq: number;
 }
 
+// ─── P6 presence (아바타 목록) — ws-relay protocol.ts와 대칭 복제 ──
+export interface PresenceInfo {
+  clientId: string;
+  displayName: string;
+  color: string;
+}
+export interface PresenceUpdateMsg {
+  type: 'presence-update';
+  clientId: string;
+  displayName: string;
+  color: string;
+}
+export interface PresenceLeaveMsg {
+  type: 'presence-leave';
+  clientId: string;
+}
+
 export type ClientToServer = JoinMsg | OpMsg;
-export type ServerToClient = JoinAckMsg | OpMsg | OpAckMsg;
+export type ServerToClient = JoinAckMsg | OpMsg | OpAckMsg | PresenceUpdateMsg | PresenceLeaveMsg;
 
 // prototype pollution 방어: JSON.parse는 __proto__ 등을 own 속성으로 만들 수 있다.
 const DANGEROUS_KEYS = ['__proto__', 'constructor', 'prototype'];
@@ -71,6 +90,16 @@ export function parseServerMessage(raw: string): ServerToClient | null {
       return typeof o.siteId === 'string' && typeof o.seq === 'number'
         ? (o as unknown as OpAckMsg)
         : null;
+    case 'presence-update':
+      // color는 서버가 PRESENCE_COLORS에서 할당하므로 hex(#RRGGBB)만 허용 — inline style 주입 표면 차단(S3).
+      return typeof o.clientId === 'string' &&
+        typeof o.displayName === 'string' &&
+        typeof o.color === 'string' &&
+        /^#[0-9A-Fa-f]{6}$/.test(o.color)
+        ? (o as unknown as PresenceUpdateMsg)
+        : null;
+    case 'presence-leave':
+      return typeof o.clientId === 'string' ? (o as unknown as PresenceLeaveMsg) : null;
     default:
       return null;
   }

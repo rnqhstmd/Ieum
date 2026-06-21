@@ -8,6 +8,8 @@ import type { WireEnvelope } from '@ieum/crdt';
 export interface JoinMsg {
   type: 'join';
   pageId: string;
+  // P6: 참여 시 자신의 표시 이름(아바타용). 미제공 시 서버가 "익명 #N"으로 fallback(BR-4).
+  presence?: { displayName?: string };
 }
 
 export interface JoinAckMsg {
@@ -28,8 +30,31 @@ export interface OpAckMsg {
   seq: number;
 }
 
+// ─── P6 presence (아바타 목록) ────────────────────────────────────
+/** room 접속자 1명의 presence 정보 — DB 비영속(연결 수명 메모리). */
+export interface PresenceInfo {
+  clientId: string;
+  displayName: string;
+  color: string;
+}
+/** S→C: 접속자 참여/갱신 broadcast (발신자 제외, 단 self는 발신자에게 회신). */
+export interface PresenceUpdateMsg {
+  type: 'presence-update';
+  clientId: string;
+  displayName: string;
+  color: string;
+}
+/** S→C: 접속자 이탈 broadcast. */
+export interface PresenceLeaveMsg {
+  type: 'presence-leave';
+  clientId: string;
+}
+
 export type ClientToServer = JoinMsg | OpMsg;
-export type ServerToClient = JoinAckMsg | OpMsg | OpAckMsg;
+export type ServerToClient = JoinAckMsg | OpMsg | OpAckMsg | PresenceUpdateMsg | PresenceLeaveMsg;
+
+// presence displayName 상한 — 64KiB payload를 displayName으로 채워 broadcast 증폭(DoS)하는 것을 차단(S2).
+const MAX_DISPLAY_NAME = 64;
 
 // prototype pollution 방어: JSON.parse는 __proto__ 등을 own 속성으로 만들 수 있다.
 const DANGEROUS_KEYS = ['__proto__', 'constructor', 'prototype'];
@@ -66,7 +91,20 @@ export function parseClientMessage(raw: string): ClientToServer | null {
   const o = parsed as Record<string, unknown>;
 
   if (o.type === 'join') {
-    return typeof o.pageId === 'string' ? { type: 'join', pageId: o.pageId } : null;
+    if (typeof o.pageId !== 'string') return null;
+    // presence는 선택적. dangerous key는 즉시 null, 그 외 검증 실패는 presence만 버리고
+    // join은 유효하게 둔다(서버가 BR-4 "익명 #N"으로 흡수).
+    if (o.presence !== undefined && o.presence !== null) {
+      if (typeof o.presence === 'object' && !Array.isArray(o.presence)) {
+        if (hasDangerousKey(o.presence)) return null;
+        const p = o.presence as Record<string, unknown>;
+        // 길이 상한 초과 displayName은 버린다(서버가 BR-4 "익명 #N"으로 흡수, S2 증폭 차단).
+        if (typeof p.displayName === 'string' && p.displayName.length <= MAX_DISPLAY_NAME) {
+          return { type: 'join', pageId: o.pageId, presence: { displayName: p.displayName } };
+        }
+      }
+    }
+    return { type: 'join', pageId: o.pageId };
   }
   if (o.type === 'op') {
     if (typeof o.pageId !== 'string') return null;

@@ -4,12 +4,17 @@
 import type { WireEnvelope } from '@ieum/crdt';
 import type { Transport } from './transport';
 import { parseServerMessage } from './protocol';
+import type { PresenceInfo } from './protocol';
 
 export interface RelayClientHandlers {
   /** 원격 op 수신 → 훅이 applyDocOp. */
   onRemoteOp(env: WireEnvelope): void;
   onJoinAck?(connectedClients: number): void;
   onOpAck?(siteId: string, seq: number): void;
+  /** P6: 접속자 참여/갱신 → usePresence 맵 갱신. */
+  onPresenceUpdate?(info: PresenceInfo): void;
+  /** P6: 접속자 이탈 → usePresence 맵 제거. */
+  onPresenceLeave?(clientId: string): void;
 }
 
 export interface RelayClient {
@@ -22,6 +27,7 @@ export function createRelayClient(
   transport: Transport,
   pageId: string,
   handlers: RelayClientHandlers,
+  opts?: { displayName?: string },
 ): RelayClient {
   const unsubscribers: Array<() => void> = [];
 
@@ -39,12 +45,29 @@ export function createRelayClient(
         case 'op-ack':
           handlers.onOpAck?.(msg.siteId, msg.seq);
           break;
+        case 'presence-update':
+          handlers.onPresenceUpdate?.({
+            clientId: msg.clientId,
+            displayName: msg.displayName,
+            color: msg.color,
+          });
+          break;
+        case 'presence-leave':
+          handlers.onPresenceLeave?.(msg.clientId);
+          break;
       }
     }),
   );
 
   function join(page: string): void {
-    transport.send(JSON.stringify({ type: 'join', pageId: page }));
+    // opts.displayName이 있으면 presence를 실어 보낸다(없으면 P5 그대로 — 회귀 방지).
+    transport.send(
+      JSON.stringify(
+        opts?.displayName
+          ? { type: 'join', pageId: page, presence: { displayName: opts.displayName } }
+          : { type: 'join', pageId: page },
+      ),
+    );
   }
 
   // 연결되면 자동으로 room 참여.

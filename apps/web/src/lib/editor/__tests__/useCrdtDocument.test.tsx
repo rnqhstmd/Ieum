@@ -53,4 +53,17 @@ describe('useCrdtDocument', () => {
     act(() => fake.emitMessage(JSON.stringify({ type: 'join-ack', pageId: PAGE, connectedClients: 2 })));
     expect(result.current.connectedClients).toBe(2);
   });
+
+  it('P6: presence-update/leave 수신 시 presences가 갱신된다', () => {
+    const fake = createFakeTransport();
+    const { result } = renderHook(() => useCrdtDocument(PAGE, { transportFactory: () => fake }));
+    act(() =>
+      fake.emitMessage(
+        JSON.stringify({ type: 'presence-update', clientId: 'c2', displayName: '사용자 #c3d4', color: '#64B5F6' }),
+      ),
+    );
+    expect(result.current.presences.map((p) => p.clientId)).toContain('c2');
+    act(() => fake.emitMessage(JSON.stringify({ type: 'presence-leave', clientId: 'c2' })));
+    expect(result.current.presences.map((p) => p.clientId)).not.toContain('c2');
+  });
 });

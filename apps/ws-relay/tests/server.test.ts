@@ -33,7 +33,11 @@ describe('relay server (ws 어댑터)', () => {
     const ack = await new Promise<{ type: string; pageId: string; connectedClients: number }>(
       (resolve, reject) => {
         ws.on('open', () => ws.send(JSON.stringify({ type: 'join', pageId: 'pg_x' })));
-        ws.on('message', (data) => resolve(JSON.parse(data.toString())));
+        // P6: join 응답에 join-ack + (self) presence-update가 함께 오므로 join-ack를 선택 수신.
+        ws.on('message', (data) => {
+          const m = JSON.parse(data.toString());
+          if (m.type === 'join-ack') resolve(m);
+        });
         ws.on('error', reject);
       },
     );

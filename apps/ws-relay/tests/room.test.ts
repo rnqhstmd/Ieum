@@ -21,15 +21,17 @@ describe('RoomRegistry', () => {
   it('AC-2: join 시 발신자에게 join-ack(connectedClients=room size)를 반환한다', () => {
     const reg = new RoomRegistry();
     const d1 = reg.join(A, PAGE);
-    expect(d1).toHaveLength(1);
-    expect(d1[0]!.target).toBe(A);
-    const ack = d1[0]!.message as JoinAckMsg;
+    // P6: join은 join-ack 외 presence-update도 반환하므로 join-ack를 find로 견고화(불변식: [0]=join-ack).
+    const ack1 = d1.find((d) => d.message.type === 'join-ack')!;
+    expect(ack1.target).toBe(A);
+    const ack = ack1.message as JoinAckMsg;
     expect(ack.type).toBe('join-ack');
     expect(ack.pageId).toBe(PAGE);
     expect(ack.connectedClients).toBe(1);
 
     const d2 = reg.join(B, PAGE);
-    expect((d2[0]!.message as JoinAckMsg).connectedClients).toBe(2);
+    const ack2 = d2.find((d) => d.message.type === 'join-ack')!.message as JoinAckMsg;
+    expect(ack2.connectedClients).toBe(2);
   });
 
   it('AC-3/BR-2: op는 같은 room의 다른 클라이언트에 broadcast되고 발신자는 제외된다', () => {
