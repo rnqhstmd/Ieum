@@ -117,9 +117,9 @@ export function useCrdtDocument(
       client.dispose();
       clientRef.current = null;
     };
-    // 마운트(pageId) 시 1회 배선. presence.onPresenceUpdate/onPresenceLeave는 usePresence의
-    // useCallback([]) 안정 콜백이고 displayName은 doc.siteId(useRef) 파생이라 불변 — deps 제외 안전(S5).
-    // transportFactory 재구독은 의도적으로 생략(마운트 시점 값 1회 캡처, 테스트 주입 전용).
+    // 마운트(pageId) 시 1회 배선. presence/cursor 핸들러(usePresence/useCursor)와 handlePresenceLeave는
+    // 모두 useCallback([]) 안정 콜백 합성이라 마운트 내 불변, displayName은 doc.siteId(useRef) 파생이라
+    // 불변 — deps 제외 안전(S5·N-4). transportFactory 재구독은 의도적 생략(마운트 시점 1회 캡처, 테스트 전용).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageId]);
 
@@ -140,6 +140,7 @@ export function useCrdtDocument(
   );
 
   // P6 커서: Editor가 올린 caret 가시 index를 직전 문자 id로 변환해 전송.
+  // deps [doc]: doc은 useRef 파생이라 참조 불변 → 실질적으로 마운트 1회 생성(onBlockInput과 동일, N-3).
   const onCursorMove = useCallback(
     (blockId: RgaId, caretOffset: number) => {
       const anchorId = indexToAnchorId(doc, blockId, caretOffset);

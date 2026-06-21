@@ -194,6 +194,27 @@ export default function Editor({
         );
       });
 
+  // FR-1: keyUp/click 외 selectionchange(전역 이벤트)에서도 포커스 블록의 caret을 캡처한다
+  // (마우스 드래그 선택·화살표 외 선택 변경 포함). cursorTimer는 언마운트 시 정리(CR-2).
+  useEffect(() => {
+    if (!onCursorMove) return;
+    const onSelectionChange = () => {
+      const key = focusedBlock.current;
+      if (!key) return;
+      const block = blocks.find((b) => idKey(b.id) === key);
+      if (!block) return;
+      const el = document.querySelector(`[data-block-id="${key}"]`);
+      if (el instanceof HTMLElement) scheduleCursor(block, el);
+    };
+    document.addEventListener('selectionchange', onSelectionChange);
+    return () => {
+      document.removeEventListener('selectionchange', onSelectionChange);
+      if (cursorTimer.current) clearTimeout(cursorTimer.current);
+    };
+    // blocks/onCursorMove 변경 시 재구독(최신 scheduleCursor 클로저 캡처). 나머지는 안정 ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blocks, onCursorMove]);
+
   return (
     <div role="group" aria-label="페이지 본문" className="space-y-1">
       {blocks.map((b) => (

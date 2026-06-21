@@ -7,6 +7,7 @@ import {
   getVisibleNodes,
   idKey,
   idEquals,
+  localInlineInsert,
   resolveAnchorToIndex,
 } from '@ieum/crdt';
 import { createCollaborativeDocument, diffBlockText } from '@/src/lib/editor/crdtDocument';
@@ -53,13 +54,13 @@ describe('2탭 커서 수렴 (in-memory relay)', () => {
     // A에서 resolve = 2(caret이 'b' 뒤). 삽입 전.
     expect(resolveAnchorToIndex(docA, blockId, aCursor!.anchorId)).toBe(2);
 
-    // 앵커('b') '앞'(index 1, 'a'와 'b' 사이)에 1문자 삽입 → 'aXbc'.
-    // M1: B가 삽입(B의 새 counter > 자신의 'b' counter라 RGA tie-break상 'X'가 'b' 앞에 확정).
-    let seqB2 = seqB;
-    for (const op of diffBlockText(docB, blockId, 'abc', 'aXbc')) {
-      clientB.sendOp(toWire(op, ++seqB2, 'site_b'));
-    }
-    expect(docToBlocks(docA)[0]!.text).toBe('aXbc');
+    // 앵커('b', 가시 index 1) '앞'에 직접 삽입. localInlineInsert(index 1)은 originId='a'(직전 문자)로
+    // 앵커 앞 위치를 코드로 확정한다(M1/CR-1 — diffBlockText 문자열 위임이 아닌 명시적 삽입 위치).
+    // B의 새 counter > 'b' counter라 RGA tie-break상 'X'가 'b' 앞에 확정된다.
+    const insertOp = localInlineInsert(docB, blockId, 1, 'X');
+    expect(docToBlocks(docB)[0]!.text).toBe('aXbc'); // B 로컬: 'X'가 'b' 앞 확정
+    clientB.sendOp(toWire(insertOp, ++seqB, 'site_b'));
+    expect(docToBlocks(docA)[0]!.text).toBe('aXbc'); // A 수렴
 
     // anchorId는 그대로 'b'를 가리키고 가시 index만 +1 → resolve = 3.
     expect(resolveAnchorToIndex(docA, blockId, aCursor!.anchorId)).toBe(3);

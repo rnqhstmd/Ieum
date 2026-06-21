@@ -41,6 +41,21 @@ describe('Editor — 라이브 커서', () => {
     }
   });
 
+  it('N-2(FR-1): selectionchange에서도 caret을 캡처해 onCursorMove를 전송한다', () => {
+    vi.useFakeTimers();
+    try {
+      const onCursorMove = vi.fn();
+      const { container } = render(<Editor {...baseProps} onCursorMove={onCursorMove} />);
+      const el = container.querySelector(`[data-block-id="${idKey(BLOCK)}"]`) as HTMLElement;
+      fireEvent.focus(el); // focusedBlock 설정(FR-8)
+      document.dispatchEvent(new Event('selectionchange'));
+      vi.advanceTimersByTime(50);
+      expect(onCursorMove).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('AC-7: 자기 커서(localClientId)는 렌더하지 않는다', () => {
     const { container } = render(
       <Editor
