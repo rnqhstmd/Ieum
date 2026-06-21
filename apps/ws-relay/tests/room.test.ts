@@ -38,7 +38,7 @@ describe('RoomRegistry', () => {
     const reg = new RoomRegistry();
     reg.join(A, PAGE);
     reg.join(B, PAGE);
-    const dispatches = reg.handleOp(A, opMsg('site_a', 1));
+    const dispatches = reg.handleOp(A, opMsg('site_a', 1), 'persisted');
 
     const broadcastTargets = dispatches.filter((d) => d.message.type === 'op').map((d) => d.target);
     expect(broadcastTargets).toContain(B);
@@ -51,7 +51,7 @@ describe('RoomRegistry', () => {
     const reg = new RoomRegistry();
     reg.join(A, PAGE);
     reg.join(B, PAGE);
-    const dispatches = reg.handleOp(A, opMsg('site_a', 7));
+    const dispatches = reg.handleOp(A, opMsg('site_a', 7), 'persisted');
     const ackDispatch = dispatches.find((d) => d.message.type === 'op-ack');
     expect(ackDispatch).toBeDefined();
     expect(ackDispatch!.target).toBe(A);
@@ -65,7 +65,7 @@ describe('RoomRegistry', () => {
     reg.join(A, PAGE);
     let dispatches: ReturnType<RoomRegistry['handleOp']> = [];
     expect(() => {
-      dispatches = reg.handleOp(A, opMsg('site_a', 1));
+      dispatches = reg.handleOp(A, opMsg('site_a', 1), 'persisted');
     }).not.toThrow();
     expect(dispatches.filter((d) => d.message.type === 'op')).toHaveLength(0);
     expect(dispatches.filter((d) => d.message.type === 'op-ack')).toHaveLength(1);
@@ -77,7 +77,7 @@ describe('RoomRegistry', () => {
     reg.join(B, 'pg_other'); // B는 다른 room
     // A가 자신이 join하지 않은 pg_other로 op를 보내도 B에게 broadcast되면 안 된다.
     const spoof: OpMsg = { ...opMsg('site_a', 1), pageId: 'pg_other' };
-    const dispatches = reg.handleOp(A, spoof);
+    const dispatches = reg.handleOp(A, spoof, 'persisted');
     expect(dispatches.filter((d) => d.message.type === 'op')).toHaveLength(0);
     expect(dispatches.filter((d) => d.message.type === 'op-ack')).toHaveLength(1);
   });
@@ -86,7 +86,7 @@ describe('RoomRegistry', () => {
     const reg = new RoomRegistry();
     reg.join(B, PAGE);
     const C: ClientHandle = { id: 'c' }; // join 안 함
-    const dispatches = reg.handleOp(C, opMsg('site_c', 1));
+    const dispatches = reg.handleOp(C, opMsg('site_c', 1), 'persisted');
     expect(dispatches.filter((d) => d.message.type === 'op')).toHaveLength(0);
     expect(dispatches.filter((d) => d.message.type === 'op-ack')).toHaveLength(1);
   });
@@ -98,7 +98,50 @@ describe('RoomRegistry', () => {
     expect(reg.roomSize(PAGE)).toBe(2);
     reg.leave(B);
     expect(reg.roomSize(PAGE)).toBe(1);
-    const dispatches = reg.handleOp(A, opMsg('site_a', 1));
+    const dispatches = reg.handleOp(A, opMsg('site_a', 1), 'persisted');
     expect(dispatches.filter((d) => d.message.type === 'op')).toHaveLength(0);
+  });
+});
+
+// T2 / AC-1,2,6,7: handleOp는 영속화 outcome을 받아 순수하게 Dispatch[]를 결정한다.
+describe('RoomRegistry — op 영속화 outcome (T2)', () => {
+  const PAGE = 'pg_persist';
+  const A: ClientHandle = { id: 'pa' };
+  const B: ClientHandle = { id: 'pb' };
+  function opMsg(siteId: string, seq: number): OpMsg {
+    const env = toWire(
+      makeInlineInsertOp({ counter: seq, siteId }, null, '안', { counter: 99, siteId }),
+      seq,
+      siteId,
+    );
+    return { type: 'op', pageId: PAGE, op: env };
+  }
+
+  it('AC-1: persisted면 op-ack + peer broadcast', () => {
+    const reg = new RoomRegistry();
+    reg.join(A, PAGE);
+    reg.join(B, PAGE);
+    const d = reg.handleOp(A, opMsg('s1', 1), 'persisted');
+    expect(d.filter((x) => x.message.type === 'op-ack')).toHaveLength(1);
+    const bc = d.filter((x) => x.message.type === 'op');
+    expect(bc).toHaveLength(1);
+    expect(bc[0]!.target).toBe(B);
+  });
+
+  it('AC-2: duplicate면 op-ack만 재전송하고 broadcast는 0', () => {
+    const reg = new RoomRegistry();
+    reg.join(A, PAGE);
+    reg.join(B, PAGE);
+    const d = reg.handleOp(A, opMsg('s1', 1), 'duplicate');
+    expect(d.filter((x) => x.message.type === 'op-ack')).toHaveLength(1);
+    expect(d.filter((x) => x.message.type === 'op')).toHaveLength(0);
+  });
+
+  it('AC-5/AC-6: rejected면 ack도 broadcast도 0(빈 Dispatch[])', () => {
+    const reg = new RoomRegistry();
+    reg.join(A, PAGE);
+    reg.join(B, PAGE);
+    const d = reg.handleOp(A, opMsg('s1', 1), 'rejected');
+    expect(d).toHaveLength(0);
   });
 });

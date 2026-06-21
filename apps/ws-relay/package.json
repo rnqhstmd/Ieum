@@ -14,14 +14,18 @@
     "start": "tsx src/main.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:int": "vitest run --config vitest.int.config.ts"
   },
   "dependencies": {
     "@ieum/crdt": "workspace:*",
+    "pg": "^8.22.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@testcontainers/postgresql": "^12.0.3",
     "@types/node": "^22.10.2",
+    "@types/pg": "^8.20.0",
     "@types/ws": "^8.5.13",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",

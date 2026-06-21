@@ -33,7 +33,7 @@ export function createInMemoryRelay(): InMemoryRelay {
               ? reg.join(handle, msg.pageId, msg.presence) // P6: presence(displayName) 전달
               : msg.type === 'cursor'
                 ? reg.handleCursor(handle, msg) // P6 커서: broadcast
-                : reg.handleOp(handle, msg),
+                : reg.handleOp(handle, msg, 'persisted'), // 인메모리 relay는 비영속 — 항상 broadcast
           );
         },
         onMessage(cb) {

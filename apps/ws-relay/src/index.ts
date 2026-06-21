@@ -5,6 +5,9 @@
 
 export { RoomRegistry } from './room.js';
 export type { ClientHandle, Dispatch } from './room.js';
+// op 영속화 포트 — InMemoryOpStore/포트는 ws·pg 의존이 없어 barrel 안전(PgOpStore는 pgOpStore.js 별도).
+export { InMemoryOpStore, isUuid } from './opStore.js';
+export type { OpStore, AppendOutcome } from './opStore.js';
 export {
   parseClientMessage,
 } from './protocol.js';
