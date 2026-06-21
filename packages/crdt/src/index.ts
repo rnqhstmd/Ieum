@@ -28,6 +28,9 @@ export {
   localInlineDelete,
 } from './block.js';
 
+// P6 라이브 커서 anchor 변환 (caret 직전 문자 id ↔ 가시 index)
+export { resolveAnchorToIndex, indexToAnchorId } from './anchor.js';
+
 // wire 봉투 codec
 export { toWire, fromWire } from './wire.js';
 

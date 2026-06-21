@@ -45,14 +45,14 @@ describe('relayClient', () => {
     expect(onRemoteOp).toHaveBeenCalledWith(e);
   });
 
-  it('join-ack / op-ack를 핸들러로 라우팅한다', () => {
+  it('join-ack(clientId 포함) / op-ack를 핸들러로 라우팅한다', () => {
     const t = createFakeTransport();
     const onJoinAck = vi.fn();
     const onOpAck = vi.fn();
     createRelayClient(t, PAGE, { onRemoteOp: () => {}, onJoinAck, onOpAck });
-    t.emitMessage(JSON.stringify({ type: 'join-ack', pageId: PAGE, connectedClients: 2 }));
+    t.emitMessage(JSON.stringify({ type: 'join-ack', pageId: PAGE, connectedClients: 2, clientId: 'c1' }));
     t.emitMessage(JSON.stringify({ type: 'op-ack', siteId: 'site_a', seq: 5 }));
-    expect(onJoinAck).toHaveBeenCalledWith(2);
+    expect(onJoinAck).toHaveBeenCalledWith(2, 'c1'); // P6: localClientId 채널
     expect(onOpAck).toHaveBeenCalledWith('site_a', 5);
   });
 
@@ -64,6 +64,27 @@ describe('relayClient', () => {
     expect(t.closed).toBe(true);
     t.emitMessage(JSON.stringify({ type: 'op', pageId: PAGE, op: env('site_b', 1) }));
     expect(onRemoteOp).not.toHaveBeenCalled();
+  });
+
+  // P6 라이브 커서
+  it('AC-10: cursor-update를 onCursorUpdate(info)로 라우팅한다', () => {
+    const t = createFakeTransport();
+    const onCursorUpdate = vi.fn();
+    createRelayClient(t, PAGE, { onRemoteOp: () => {}, onCursorUpdate });
+    const blockId = { counter: 0, siteId: 'genesis' };
+    const anchorId = { counter: 5, siteId: 'site_b' };
+    t.emitMessage(JSON.stringify({ type: 'cursor-update', clientId: 'c2', blockId, anchorId }));
+    expect(onCursorUpdate).toHaveBeenCalledTimes(1);
+    expect(onCursorUpdate).toHaveBeenCalledWith({ clientId: 'c2', blockId, anchorId });
+  });
+
+  it('FR-1: sendCursor는 {type:"cursor",pageId,blockId,anchorId} 형식으로 전송한다', () => {
+    const t = createFakeTransport();
+    const client = createRelayClient(t, PAGE, { onRemoteOp: () => {} });
+    const blockId = { counter: 0, siteId: 'genesis' };
+    client.sendCursor(blockId, null);
+    const last = JSON.parse(t.sent[t.sent.length - 1]!);
+    expect(last).toEqual({ type: 'cursor', pageId: PAGE, blockId, anchorId: null });
   });
 
   // P6 presence (아바타 목록)

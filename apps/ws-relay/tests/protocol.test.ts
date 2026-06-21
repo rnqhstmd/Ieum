@@ -108,3 +108,58 @@ describe('relay protocol — parseClientMessage presence 확장', () => {
     expect(msg!.presence).toBeUndefined();
   });
 });
+
+// P6 라이브 커서 / FR-1: cursor 메시지(C→S) — blockId/anchorId는 RgaId.
+describe('relay protocol — parseClientMessage cursor', () => {
+  type CursorParsed = {
+    type: 'cursor';
+    pageId: string;
+    blockId: { counter: number; siteId: string };
+    anchorId: { counter: number; siteId: string } | null;
+  };
+  const blockId = { counter: 0, siteId: 'genesis' };
+
+  it('cursor 메시지(anchorId null)를 파싱한다', () => {
+    const raw = JSON.stringify({ type: 'cursor', pageId: 'pg_x', blockId, anchorId: null });
+    const msg = parseClientMessage(raw) as CursorParsed | null;
+    expect(msg).not.toBeNull();
+    expect(msg!.type).toBe('cursor');
+    expect(msg!.pageId).toBe('pg_x');
+    expect(msg!.blockId).toEqual(blockId);
+    expect(msg!.anchorId).toBeNull();
+  });
+
+  it('cursor 메시지(anchorId가 RgaId)를 파싱한다', () => {
+    const anchorId = { counter: 5, siteId: 'site_b' };
+    const raw = JSON.stringify({ type: 'cursor', pageId: 'pg_x', blockId, anchorId });
+    const msg = parseClientMessage(raw) as CursorParsed | null;
+    expect(msg).not.toBeNull();
+    expect(msg!.anchorId).toEqual(anchorId);
+  });
+
+  it('blockId가 RgaId가 아니거나 누락이면 null', () => {
+    expect(
+      parseClientMessage(JSON.stringify({ type: 'cursor', pageId: 'pg_x', blockId: { counter: 'x' }, anchorId: null })),
+    ).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: 'cursor', pageId: 'pg_x', anchorId: null }))).toBeNull();
+  });
+
+  it('보안: blockId에 dangerous key가 있으면 null이고 prototype을 오염시키지 않는다', () => {
+    const raw =
+      '{"type":"cursor","pageId":"x","blockId":{"counter":0,"siteId":"g","__proto__":{"polluted":1}},"anchorId":null}';
+    expect(parseClientMessage(raw)).toBeNull();
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
+  it('보안(C1): counter가 정수가 아니거나 음수/무한이면 null', () => {
+    expect(parseClientMessage(JSON.stringify({ type: 'cursor', pageId: 'x', blockId: { counter: 1.5, siteId: 'g' }, anchorId: null }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: 'cursor', pageId: 'x', blockId: { counter: -1, siteId: 'g' }, anchorId: null }))).toBeNull();
+    // 1e999는 JSON.parse 시 Infinity → 거부(JSON.stringify되면 null이 되어 커서가 맨 앞으로 점프하는 것을 차단).
+    expect(parseClientMessage('{"type":"cursor","pageId":"x","blockId":{"counter":1e999,"siteId":"g"},"anchorId":null}')).toBeNull();
+  });
+
+  it('보안(C2): siteId가 너무 길면(>64) null (broadcast 증폭 차단)', () => {
+    const longSite = 's'.repeat(100);
+    expect(parseClientMessage(JSON.stringify({ type: 'cursor', pageId: 'x', blockId: { counter: 0, siteId: longSite }, anchorId: null }))).toBeNull();
+  });
+});

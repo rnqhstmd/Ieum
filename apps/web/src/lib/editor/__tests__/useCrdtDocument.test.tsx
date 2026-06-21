@@ -45,13 +45,16 @@ describe('useCrdtDocument', () => {
     expect(result.current.blocks[0]!.text).toBe('굿');
   });
 
-  it('join-ack 수신 시 connectedClients가 갱신된다', () => {
+  it('join-ack 수신 시 connectedClients와 localClientId가 갱신된다', () => {
     const fake = createFakeTransport();
     const { result } = renderHook(() =>
       useCrdtDocument(PAGE, { transportFactory: () => fake }),
     );
-    act(() => fake.emitMessage(JSON.stringify({ type: 'join-ack', pageId: PAGE, connectedClients: 2 })));
+    act(() =>
+      fake.emitMessage(JSON.stringify({ type: 'join-ack', pageId: PAGE, connectedClients: 2, clientId: 'c1' })),
+    );
     expect(result.current.connectedClients).toBe(2);
+    expect(result.current.localClientId).toBe('c1'); // P6 커서: 자기 식별
   });
 
   it('P6: presence-update/leave 수신 시 presences가 갱신된다', () => {
@@ -65,5 +68,30 @@ describe('useCrdtDocument', () => {
     expect(result.current.presences.map((p) => p.clientId)).toContain('c2');
     act(() => fake.emitMessage(JSON.stringify({ type: 'presence-leave', clientId: 'c2' })));
     expect(result.current.presences.map((p) => p.clientId)).not.toContain('c2');
+  });
+
+  it('P6 커서: cursor-update 수신 시 cursors 갱신, presence-leave 시 커서 제거(BR-7)', () => {
+    const fake = createFakeTransport();
+    const { result } = renderHook(() => useCrdtDocument(PAGE, { transportFactory: () => fake }));
+    const blockId = result.current.blocks[0]!.id;
+    act(() =>
+      fake.emitMessage(JSON.stringify({ type: 'cursor-update', clientId: 'c2', blockId, anchorId: null })),
+    );
+    expect(result.current.cursors.map((c) => c.clientId)).toContain('c2');
+    // presence-leave가 커서도 제거한다(BR-7 연동).
+    act(() => fake.emitMessage(JSON.stringify({ type: 'presence-leave', clientId: 'c2' })));
+    expect(result.current.cursors.map((c) => c.clientId)).not.toContain('c2');
+  });
+
+  it('P6 커서: onCursorMove(blockId, offset)가 indexToAnchorId 변환 후 cursor를 전송한다', () => {
+    const fake = createFakeTransport();
+    const { result } = renderHook(() => useCrdtDocument(PAGE, { transportFactory: () => fake }));
+    const blockId = result.current.blocks[0]!.id;
+    act(() => result.current.onBlockInput(blockId, '안녕')); // 텍스트 입력
+    act(() => result.current.onCursorMove(blockId, 1)); // caret index 1(첫 글자 뒤)
+    const cursorMsg = fake.sent.map((s) => JSON.parse(s)).find((m) => m.type === 'cursor');
+    expect(cursorMsg).toBeDefined();
+    expect(cursorMsg.blockId).toEqual(blockId);
+    expect(cursorMsg.anchorId).not.toBeNull(); // index 1 → 직전 문자 id
   });
 });

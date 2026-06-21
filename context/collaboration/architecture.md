@@ -61,7 +61,9 @@
 
 ### Presence 흐름
 
-> **P6 walking skeleton 구현 현황 (PR #11)**: 아래는 목표 흐름(라이브 커서 포함)이다. P6 walking skeleton은 **아바타 목록만** 구현했고 커서·debounce·anchorId는 미구현(후속)이다.
+> **P6 라이브 커서 구현 현황 (PR #12, feat/p6-cursor)**: 아래 흐름의 **커서 부분이 구현**되었다(아바타는 PR #11). 단 별도 `awareness` 메시지가 아니라 신규 `cursor`/`cursor-update` 메시지를 쓰고, 커서 위치는 `{blockId, anchorId}`(anchorId=caret 직전 문자 RGA id)로 표현한다. 송신은 Editor에서 50ms debounce, 변환은 `@ieum/crdt`의 `indexToAnchorId`(송신)·`resolveAnchorToIndex`(수신, tombstone fallback). relay `handleCursor`는 발신자 제외 broadcast만(비영속). 자기 커서는 join-ack의 서버 부여 clientId로 식별해 제외. 검증: anchor 순수 단위 + in-memory relay 2탭 수렴. **후속**: 선택영역 커서, 서버 rate-limit, presence 영속화, 실 인증.
+>
+> **(PR #11 시점 노트)**: 아래는 목표 흐름(라이브 커서 포함)이다. PR #11(P6 아바타)은 **아바타 목록만** 구현했고 커서·debounce·anchorId는 PR #12에서 구현되었다.
 > - presence는 별도 awareness 메시지가 아니라 **기존 `join` 메시지에 `presence:{displayName}`를 실어** 전송한다(1 round-trip 원자 처리). 서버(`RoomRegistry`)가 색상을 할당하고, 발신자에게 **self presence-update**(서버 color 회신)·기존 접속자 roster를, 기존 접속자에게는 발신자 presence-update를 보낸다(join-ack는 항상 Dispatch[0]).
 > - 이탈은 `leave()`가 남은 접속자에게 `presence-leave` Dispatch[]를 반환하고 ws 어댑터 `close` 핸들러가 전송한다. presence는 메모리만(DB 비영속).
 > - 클라는 `usePresence`(순수 reducer 훅)로 접속자 맵을 관리하고 `PresenceAvatars`(색 배지+이니셜)로 렌더한다. CRDT op 경로와 분리되어 수렴에 영향 없음.

@@ -26,7 +26,8 @@ const STATUS_LABEL: Record<SaveStatus, string> = {
 
 export default function EditorContainer({ pageId, initialTitle = '' }: EditorContainerProps) {
   const [title, setTitle] = useState(initialTitle);
-  const { blocks, presences, onBlockInput } = useCrdtDocument(pageId);
+  const { blocks, presences, cursors, localClientId, onBlockInput, onCursorMove, resolveCursorIndex } =
+    useCrdtDocument(pageId);
 
   // 제목 save-port 스텁: 영속화 슬라이스에서 실제 저장으로 교체.
   const save = useCallback(async (_title: string) => {
@@ -46,7 +47,15 @@ export default function EditorContainer({ pageId, initialTitle = '' }: EditorCon
         {STATUS_LABEL[status]}
       </div>
       <TitleEditor title={title} onChange={handleTitleChange} />
-      <Editor blocks={blocks} onBlockInput={onBlockInput} />
+      <Editor
+        blocks={blocks}
+        onBlockInput={onBlockInput}
+        cursors={cursors}
+        presences={presences}
+        localClientId={localClientId}
+        resolveCursorIndex={resolveCursorIndex}
+        onCursorMove={onCursorMove}
+      />
     </div>
   );
 }
