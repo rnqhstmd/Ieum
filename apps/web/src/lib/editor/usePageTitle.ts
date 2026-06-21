@@ -17,6 +17,16 @@ export function usePageTitle(pageId: string, initialTitle: string) {
   // GET 응답의 workspaceId 보관(상태 아님 — PATCH 경로 구성용, 재렌더 불필요).
   const wsRef = useRef<string | null>(null);
 
+  // pageId 변경 시 렌더 중 즉시 초기화(React "prop 변경 시 상태 조정" 패턴): 이전 제목 플래시와
+  // 이전 workspaceId로의 잘못된 PATCH를 막는다. EditorContainer는 key={pageId} remount로도 방어되나
+  // 훅 단독 견고성 확보(cross-review/gemini HIGH). 이후 effect가 새 page를 GET해 채운다.
+  const prevPageId = useRef(pageId);
+  if (prevPageId.current !== pageId) {
+    prevPageId.current = pageId;
+    wsRef.current = null;
+    setTitle(initialTitle);
+  }
+
   useEffect(() => {
     let active = true;
     apiGet<PageDetail>(`/api/pages/${pageId}`)

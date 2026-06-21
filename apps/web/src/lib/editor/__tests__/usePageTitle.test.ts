@@ -44,4 +44,22 @@ describe('usePageTitle', () => {
     });
     expect(apiPatch).not.toHaveBeenCalled();
   });
+
+  // cross-review(gemini HIGH): pageId 변경 시 title/wsRef를 즉시 초기화해 이전 제목 플래시·이전
+  // workspaceId로의 잘못된 PATCH를 막는다.
+  it('pageId 변경 시 title/wsRef를 초기화한다(이전 ws로 PATCH 안 함)', async () => {
+    vi.mocked(apiGet).mockResolvedValueOnce({ id: 'p-1', title: '제목1', icon: null, workspaceId: 'ws-1' });
+    const { result, rerender } = renderHook(({ pid }) => usePageTitle(pid, ''), {
+      initialProps: { pid: 'p-1' },
+    });
+    await waitFor(() => expect(result.current.title).toBe('제목1')); // p-1 로드(wsRef=ws-1)
+
+    vi.mocked(apiGet).mockReturnValueOnce(new Promise(() => {})); // p-2 GET pending
+    rerender({ pid: 'p-2' });
+    expect(result.current.title).toBe(''); // 즉시 초기화 — 이전 제목 미노출
+    await act(async () => {
+      await result.current.saveTitle('x');
+    });
+    expect(apiPatch).not.toHaveBeenCalled(); // wsRef null → 이전 ws-1로 PATCH 안 함
+  });
 });
