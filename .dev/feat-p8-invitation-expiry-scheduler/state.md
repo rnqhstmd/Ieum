@@ -1,5 +1,5 @@
-phase: implement
-status: in_progress
+phase: complete
+status: completed
 vcs-type: git
 branch: feat/p8-invitation-expiry-scheduler
 base: feat/p8-invitation-revoke
@@ -12,7 +12,8 @@ intent-source: user-selection
 started: 2026-06-22
 last-known-head: 396fdec
 config-setup-attempts: 0
-current-step: "review 완료(Spec✅/Quality✅/Security HIGH2 RGR수정·MED3 후속) → complete 진입"
+current-step: "완료 — PR #22"
+pr: https://github.com/rnqhstmd/Ieum/pull/22
 auto-stashed: false
 phases:
   setup: completed
@@ -20,6 +21,7 @@ phases:
   design: completed
   implement: completed
   review: completed
+  complete: completed
   design: pending
   implement: pending
   review: pending
@@ -85,3 +87,12 @@ execution-log:
   - phase: complete
     agent: product-owner
     result: "인수 ACCEPT — Must 6/6, AC-1~6 충족"
+  - phase: complete
+    step: commit
+    result: "feat: 초대 만료 스케줄러 구현 (cf6b4a7)"
+  - phase: complete
+    step: pr
+    result: "PR #22 생성 (rnqhstmd, base=feat/p8-invitation-revoke 스택) https://github.com/rnqhstmd/Ieum/pull/22"
+  - phase: complete
+    step: status-update
+    result: "auth/status.md INV-04 ✅ + PR #22 (lazy+스케줄러 완성)"
