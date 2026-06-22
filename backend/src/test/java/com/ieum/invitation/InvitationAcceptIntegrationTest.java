@@ -26,6 +26,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oauth2Login;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 // P8: POST /api/invitations/accept — 초대 수락 REST 통합 (testcontainers)
@@ -131,7 +132,8 @@ class InvitationAcceptIntegrationTest extends AbstractIntegrationTest {
 
         mockMvc.perform(post("/api/invitations/accept").with(asUser(INVITEE_GID))
                         .contentType(MediaType.APPLICATION_JSON).content(body(inv.getToken())))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN")); // ApiExceptionHandler JSON 403 경로 확정(cross-review HIGH)
 
         // Membership 미생성 + 초대 상태 변경 없음
         assertThat(membershipRepository.findByUserIdAndWorkspaceId(inviteeId, workspaceId)).isEmpty();
