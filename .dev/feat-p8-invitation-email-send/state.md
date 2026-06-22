@@ -1,5 +1,5 @@
-phase: implement
-status: in_progress
+phase: complete
+status: completed
 vcs-type: git
 branch: feat/p8-invitation-email-send
 base: feat/p8-invitation-expiry-scheduler
@@ -12,7 +12,8 @@ intent-source: user-selection
 started: 2026-06-22
 last-known-head: ebd4565
 config-setup-attempts: 0
-current-step: "review 완료(Spec✅/Quality✅/Security HIGH1·MED2 RGR수정·나머지 후속) → complete 진입"
+current-step: "완료 — PR #23"
+pr: https://github.com/rnqhstmd/Ieum/pull/23
 auto-stashed: false
 phases:
   setup: completed
@@ -20,6 +21,7 @@ phases:
   design: completed
   implement: completed
   review: completed
+  complete: completed
   design: pending
   implement: pending
   review: pending
@@ -73,3 +75,12 @@ execution-log:
   - phase: complete
     agent: product-owner
     result: "인수 ACCEPT — Must 7/7, AC-1~7 충족"
+  - phase: complete
+    step: commit
+    result: "feat: Resend 초대 이메일 실 HTTP 발송 구현 (4c35cec)"
+  - phase: complete
+    step: pr
+    result: "PR #23 생성 (rnqhstmd, base=feat/p8-invitation-expiry-scheduler 스택) https://github.com/rnqhstmd/Ieum/pull/23"
+  - phase: complete
+    step: status-update
+    result: "auth/status.md INV-07 실발송 정정. workspace/status.md US-INV-01(HTTP)·US-INV-02(수락,PR#20/#22)·US-INV-04(취소,PR#21) ✅"

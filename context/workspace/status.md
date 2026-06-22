@@ -35,15 +35,15 @@
 
 | 항목 | 사용자 스토리 | 핵심 수용 기준 | 상태 | Phase | 비고 |
 |------|--------------|---------------|------|-------|------|
-| US-INV-01 | OWNER가 이메일로 팀원 초대 | OWNER가 이메일 입력해 Invitation 생성; 초대 이메일 발송 (MVP: Resend) | ✅ | P7 | `createInvitation` PENDING 저장 + 메일 발송(fallback). 실제 Resend HTTP는 Phase4 TODO (PR #19) |
+| US-INV-01 | OWNER가 이메일로 팀원 초대 | OWNER가 이메일 입력해 Invitation 생성; 초대 이메일 발송 (MVP: Resend) | ✅ | P7 | `createInvitation` PENDING 저장 + 메일 발송 배선(PR #19). 실제 Resend HTTP POST 발송(messageId 로깅·실패 fallback) (PR #23) |
 | US-INV-01 | 〃 | 이미 멤버인 이메일 초대 시 에러 메시지 반환 | ✅ | P7 | INV-05 — 409 CONFLICT (PR #19) |
-| US-INV-02 | 초대 링크 클릭해 워크스페이스 합류 | 초대 링크는 고유 token 포함, 7일 후 만료 (expiresAt) | ⬜ | P8 | |
-| US-INV-02 | 〃 | 로그인 상태면 즉시 Membership 생성; 미로그인이면 로그인 후 처리 | ⬜ | P8 | |
-| US-INV-02 | 〃 | 초대 상태: `PENDING → ACCEPTED \| REVOKED \| EXPIRED` | ⬜ | P8 | |
+| US-INV-02 | 초대 링크 클릭해 워크스페이스 합류 | 초대 링크는 고유 token 포함, 7일 후 만료 (expiresAt) | ✅ | P8 | `acceptInvitation` 토큰 검증·만료 우선 410(EXPIRED 전이)·멱등. 만료 lazy+스케줄러(일1회) (PR #20, #22) |
+| US-INV-02 | 〃 | 로그인 상태면 즉시 Membership 생성; 미로그인이면 로그인 후 처리 | ✅ | P8 | 인증 사용자 본인 수락 시 Membership(role 승계) 생성, 이메일 불일치 403. 미인증 401 (PR #20) |
+| US-INV-02 | 〃 | 초대 상태: `PENDING → ACCEPTED \| REVOKED \| EXPIRED` | ✅ | P8 | 수락→ACCEPTED(PR #20)·철회→REVOKED(PR #21)·만료→EXPIRED(lazy+스케줄러 PR #20,#22) 전이 완비 |
 | US-INV-03 | OWNER가 MEMBER 역할 변경·내보내기 | OWNER가 MEMBER에게 OWNER 역할 부여 가능 | ⬜ | P9 | |
 | US-INV-03 | 〃 | OWNER가 MEMBER를 내보낼 수 있음 (Membership 삭제) | ⬜ | P9 | |
 | US-INV-03 | 〃 | 마지막 OWNER는 역할 변경·나가기 불가 | ⬜ | P9 | |
-| US-INV-04 | OWNER가 보류 중 초대 취소 | OWNER가 PENDING 초대를 REVOKED로 변경 가능 | ⬜ | P8 | |
+| US-INV-04 | OWNER가 보류 중 초대 취소 | OWNER가 PENDING 초대를 REVOKED로 변경 가능 | ✅ | P8 | `revokeInvitation` OWNER 검증→존재(404)→워크스페이스 일치(404 은닉)→PENDING 검증(비PENDING 409)→REVOKED 전이. 목록 조회 동반 (PR #21) |
 
 ### 권한 매트릭스 (08-auth-and-permissions.md §3)
 
