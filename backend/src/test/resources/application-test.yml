@@ -1,3 +1,10 @@
+app:
+  invitation:
+    expiry-cron: "-"
+  resend:
+    api-key: ""
+    from: "Ieum <noreply@test.local>"
+
 spring:
   flyway:
     enabled: true

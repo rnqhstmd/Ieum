@@ -42,6 +42,8 @@ app:
   resend:
     api-key: ${RESEND_API_KEY:}
     from: ${INVITE_FROM_EMAIL:Ieum <noreply@ieum.app>}
+  invitation:
+    expiry-cron: ${INVITATION_EXPIRY_CRON:0 0 2 * * *}
 
 management:
   endpoints:

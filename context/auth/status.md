@@ -57,11 +57,11 @@
 |---------|------|------|-------|------|
 | INV-01 | OWNER의 이메일 기반 초대 생성 (256-bit token, 7일 만료) | ✅ | P7 | `InvitationService.createInvitation` — OWNER 검증·SecureRandom 32B 토큰·+7일·PENDING 저장, 메일 fallback. `POST /api/workspaces/:id/invitations` 인증 배선 (PR #19) |
 | INV-02 | 초대 수락: 토큰 검증 → Membership 생성 (트랜잭션, 경쟁 조건 방지) | ✅ | P8 | `acceptInvitation` 단일 트랜잭션 — 토큰404·만료우선410(EXPIRED 전이, `noRollbackFor`)·비PENDING409·멱등(ACCEPTED 전이)·role 승계. `POST /api/invitations/accept` (PR #20) |
-| INV-03 | 초대 취소(REVOKE): OWNER만 가능 | ⬜ | P8 | `DELETE /api/workspaces/:id/invitations/:invId` |
-| INV-04 | 초대 만료 처리: lazy(수락 시 expiresAt 검사) + 스케줄러(일 1회) | ⬜ | P8 | lazy 만료 검사(수락 시 EXPIRED 전이+410)는 PR #20 구현. 일 1회 스케줄러는 후속 슬라이스 |
+| INV-03 | 초대 취소(REVOKE): OWNER만 가능 | ✅ | P8 | `revokeInvitation` — requireOwner→존재(404)→워크스페이스일치(404 은닉)→PENDING(409)→REVOKED 전이(@Transactional). `DELETE /api/workspaces/:id/invitations/:invId`. + 목록조회 `GET .../invitations`(OWNER, `findByWorkspaceIdOrderByCreatedAtDesc`). 단위+통합 (PR #21) |
+| INV-04 | 초대 만료 처리: lazy(수락 시 expiresAt 검사) + 스케줄러(일 1회) | ✅ | P8 | lazy 만료(수락 시 EXPIRED 전이+410) PR #20. 일 1회 스케줄러 — `InvitationExpiryScheduler` `@Scheduled`(cron 새벽2시, 외부화) → `expirePendingInvitations` bulk `@Modifying` EXPIRED 전이(strictly `<`, 멱등), `@EnableScheduling`. 단위+통합 (PR #22) |
 | INV-05 | 이미 멤버인 이메일로 초대 시 409 반환 | ✅ | P7 | `findByEmail`→멤버십 조회→`ConflictException`(신규)→`ApiExceptionHandler` 409 (PR #19) |
 | INV-06 | 초대 이메일과 다른 계정으로 수락 시도 시 403 반환 | ✅ | P8 | `findById(userId).email` vs `invitation.email`(trim+equalsIgnoreCase) → AccessDeniedException 403. 단위+통합 검증 (PR #20) |
-| INV-07 | 초대 이메일 발송 (초대 링크 포함) | ✅ | P7 | Resend 연동으로 MVP 발송 (확정). 발송 실패 시 초대는 PENDING 유지, OWNER가 링크 수동 전달 가능 (fallback) |
+| INV-07 | 초대 이메일 발송 (초대 링크 포함) | ✅ | P8 | Resend API 실 HTTP POST 발송(`RestClient`, Bearer 인증, 2xx messageId 로깅). 실패(4xx/5xx/네트워크) 예외 미전파 → 초대 PENDING 유지, OWNER 링크 수동 전달(fallback). RestClient.Builder 주입+타임아웃(5s/10s), workspaceName CRLF 정제. 단위(MockRestServiceServer) (PR #23). ※생성 메일 fallback 배선은 PR #19 |
 
 ### 세션 보안 (08-auth-and-permissions.md §6-5)
 

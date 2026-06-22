@@ -42,7 +42,7 @@ public class InvitationController {
      */
     @GetMapping("/api/workspaces/{wsId}/invitations")
     public ResponseEntity<List<InvitationDto>> listInvitations(@PathVariable UUID wsId) {
-        UUID currentUserId = null; // TODO(Phase 1): 인증 컨텍스트에서 추출
+        UUID currentUserId = currentUserService.requireCurrentUserId();
         return ResponseEntity.ok(invitationService.listInvitations(currentUserId, wsId));
     }
 
@@ -54,7 +54,7 @@ public class InvitationController {
     public ResponseEntity<Void> revokeInvitation(
             @PathVariable UUID wsId,
             @PathVariable UUID invitationId) {
-        UUID currentUserId = null; // TODO(Phase 1): 인증 컨텍스트에서 추출
+        UUID currentUserId = currentUserService.requireCurrentUserId();
         invitationService.revokeInvitation(currentUserId, wsId, invitationId);
         return ResponseEntity.noContent().build();
     }
