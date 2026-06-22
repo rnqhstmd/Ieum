@@ -133,11 +133,9 @@ public class InvitationService {
      * 워크스페이스 초대 목록 조회 — OWNER만
      */
     public List<InvitationDto> listInvitations(UUID currentUserId, UUID wsId) {
-        // TODO(Phase 1):
-        //   1. workspaceService.requireOwner(currentUserId, wsId)
-        //   2. invitationRepository.findByWorkspaceId(wsId) — 리포지토리 메서드 추가 필요 (BDATA에 전달)
-        //   3. List<InvitationDto> 변환 후 반환
-        throw new UnsupportedOperationException("TODO(Phase 1): listInvitations");
+        accessGuard.requireOwner(currentUserId, wsId);
+        return invitationRepository.findByWorkspaceIdOrderByCreatedAtDesc(wsId)
+                .stream().map(this::toDto).toList();
     }
 
     // ───────────────────────────────────────────────
@@ -149,13 +147,17 @@ public class InvitationService {
      */
     @Transactional
     public void revokeInvitation(UUID currentUserId, UUID wsId, UUID invitationId) {
-        // TODO(Phase 1):
-        //   1. workspaceService.requireOwner(currentUserId, wsId)
-        //   2. invitationRepository.findById(invitationId) → 없으면 EntityNotFoundException
-        //   3. invitation.getWorkspaceId().equals(wsId) 검증
-        //   4. invitation.getStatus() != PENDING이면 IllegalStateException("철회 불가 상태")
-        //   5. invitation.setStatus(InvitationStatus.REVOKED) 저장
-        throw new UnsupportedOperationException("TODO(Phase 1): revokeInvitation");
+        accessGuard.requireOwner(currentUserId, wsId);
+        Invitation inv = invitationRepository.findById(invitationId)
+                .orElseThrow(() -> new EntityNotFoundException("초대를 찾을 수 없습니다."));
+        if (!inv.getWorkspaceId().equals(wsId)) {
+            throw new EntityNotFoundException("초대를 찾을 수 없습니다.");
+        }
+        if (inv.getStatus() != InvitationStatus.PENDING) {
+            throw new ConflictException("철회할 수 없는 초대 상태입니다.");
+        }
+        inv.setStatus(InvitationStatus.REVOKED);
+        invitationRepository.save(inv);
     }
 
     // ───────────────────────────────────────────────
