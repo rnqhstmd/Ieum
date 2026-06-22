@@ -1,3 +1,7 @@
+app:
+  invitation:
+    expiry-cron: "-"
+
 spring:
   flyway:
     enabled: true

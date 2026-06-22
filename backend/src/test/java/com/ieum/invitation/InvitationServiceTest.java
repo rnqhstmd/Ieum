@@ -582,4 +582,38 @@ class InvitationServiceTest {
 
         verify(invitationRepository, never()).save(any());
     }
+
+    // ═══════════════════ expirePendingInvitations (EXP-U1~U2) ═══════════════════
+    //
+    // 단위 패스스루 테스트: repo가 mock이므로 실제 필터·경계 검증은 불가.
+    // 오직 service → repository 위임(패스스루) 동작만 검증한다.
+    // 경계/필터/영속성 검증은 InvitationExpiryIntegrationTest(통합)에서 수행한다.
+
+    // EXP-U1: repo가 2 반환 → service도 2 반환 + 동일 now로 repo 호출 검증
+    @Test
+    @DisplayName("EXP-U1: expirePendingInvitations — repo.expirePendingBefore(now) 위임 + 반환값 2 패스스루")
+    void expirePendingInvitations_delegatesToRepo_returns2() {
+        Instant now = Instant.parse("2026-06-22T00:00:00Z");
+        when(invitationRepository.expirePendingBefore(now)).thenReturn(2);
+
+        int result = invitationService.expirePendingInvitations(now);
+
+        assertThat(result).isEqualTo(2);
+        ArgumentCaptor<Instant> cap = ArgumentCaptor.forClass(Instant.class);
+        verify(invitationRepository).expirePendingBefore(cap.capture());
+        assertThat(cap.getValue()).isEqualTo(now);
+    }
+
+    // EXP-U2: repo가 0 반환(멱등/0건) → service도 0 반환
+    @Test
+    @DisplayName("EXP-U2: expirePendingInvitations — repo.expirePendingBefore 0건 반환 시 0 패스스루(멱등)")
+    void expirePendingInvitations_delegatesToRepo_returns0() {
+        Instant now = Instant.parse("2026-06-22T00:00:00Z");
+        when(invitationRepository.expirePendingBefore(now)).thenReturn(0);
+
+        int result = invitationService.expirePendingInvitations(now);
+
+        assertThat(result).isEqualTo(0);
+        verify(invitationRepository).expirePendingBefore(now);
+    }
 }
