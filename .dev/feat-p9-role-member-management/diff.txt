@@ -1,0 +1,20 @@
+ .gitignore                                         |   3 +
+ apps/ws-relay/src/adminServer.ts                   |  40 ++
+ apps/ws-relay/src/main.ts                          |   4 +-
+ apps/ws-relay/src/server.ts                        |  58 ++-
+ apps/ws-relay/tests/adminServer.test.ts            |  59 +++
+ apps/ws-relay/tests/adminWiring.test.ts            | 147 ++++++
+ apps/ws-relay/tests/disconnectUser.test.ts         |  83 +++
+ .../com/ieum/workspace/MembershipRepository.java   |   2 +
+ .../com/ieum/workspace/RestWsRelayAdminClient.java |  39 ++
+ .../com/ieum/workspace/WorkspaceController.java    |   6 +-
+ .../java/com/ieum/workspace/WorkspaceService.java  |  89 +++-
+ .../com/ieum/workspace/WsRelayAdminClient.java     |   7 +
+ backend/src/main/resources/application.yml         |   2 +
+ .../page/PageMemberRegressionIntegrationTest.java  | 151 ++++++
+ .../workspace/MemberManagementIntegrationTest.java | 288 ++++++++++
+ .../ieum/workspace/RestWsRelayAdminClientTest.java |  85 +++
+ .../ieum/workspace/WorkspaceServiceMemberTest.java | 580 +++++++++++++++++++++
+ 17 files changed, 1613 insertions(+), 30 deletions(-)
+---
+위는 요약입니다. 변경된 파일을 Read 도구로 직접 확인하라.

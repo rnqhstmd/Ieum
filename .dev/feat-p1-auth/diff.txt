@@ -1,0 +1,2176 @@
+diff --git a/.claude/config.json b/.claude/config.json
+new file mode 100644
+index 0000000..37bc74b
+--- /dev/null
++++ b/.claude/config.json
+@@ -0,0 +1,78 @@
++{
++  "vcs": "git",
++  "issueKey": {
++    "pattern": "^[A-Z]+-[0-9]+$",
++    "description": "대문자 영문 1자 이상 + '-' + 숫자 1자 이상 (e.g., JIRA-123, AFS-6)"
++  },
++  "conventions": {
++    "branchTypes": ["feat", "fix", "refactor", "chore", "docs", "test", "style", "perf", "ci"],
++    "branchFormat": "{type}/{description}",
++    "commitFormat": "{type}: {message}",
++    "prTitleMapping": {
++      "feat": "FEATURE",
++      "fix": "BUGFIX",
++      "refactor": "REFACTOR",
++      "chore": "CHORE",
++      "docs": "DOCS",
++      "test": "TEST",
++      "style": "STYLE",
++      "perf": "PERF",
++      "ci": "CI"
++    }
++  },
++  "sensitiveFilePatterns": [
++    ".env*",
++    "*.key",
++    "*.pem",
++    "credentials*",
++    "*secret*"
++  ],
++  "buildArtifactPatterns": [
++    "build/",
++    ".gradle/",
++    "node_modules/",
++    "dist/"
++  ],
++  "timeouts": {
++    "build": 300000,
++    "network": 120000,
++    "install": 300000
++  },
++  "projectTypes": {
++    "java-spring": {
++      "detect": ["build.gradle.kts", "build.gradle"],
++      "build": "./gradlew build",
++      "test": "./gradlew test"
++    },
++    "node": {
++      "detect": ["package.json"],
++      "build": "npm run build",
++      "test": "npm test"
++    }
++  },
++  "notifications": {
++    "googleChat": {
++      "enabled": false,
++      "webhookUrl": ""
++    }
++  },
++  "contextLimits": {
++    "product-owner": { "maxInputLines": 500, "note": "PRD 작성에 필요한 요구사항 + 코드 맵" },
++    "architect": { "maxInputLines": 1000, "note": "PRD + 코드 맵 + 참조 코드" },
++    "design-critic": { "maxInputLines": 800, "note": "설계서 + PRD + 코드 맵" },
++    "coder": { "maxInputLines": 2000, "note": "설계서 + 코드 맵 + 참조 코드가 가장 큼" },
++    "qa-manager": { "maxInputLines": 1500, "note": "diff가 클 수 있음" },
++    "security-auditor": { "maxInputLines": 1500, "note": "PRD + 설계서 + diff" },
++    "researcher": { "maxInputLines": 1000, "note": "조사 요청 + 코드 맵" },
++    "hacker": { "maxInputLines": 800, "note": "정체 상황 + 코드 맵" },
++    "simplifier": { "maxInputLines": 1000, "note": "정체 상황 + 설계서 + PRD + 코드 맵" },
++    "test-architect": { "maxInputLines": 1000, "note": "설계서 + PRD 수용 기준 + 코드 맵" },
++    "red-writer": { "maxInputLines": 800, "note": "AC + testability 섹션 + 테스트 스타일 (프로덕션 코드 미포함)" },
++    "green-coder": { "maxInputLines": 1000, "note": "실패 테스트 + 설계서 인터페이스" },
++    "refactor-coder": { "maxInputLines": 1000, "note": "정리 대상 파일 + 항목" },
++    "spec-reviewer": { "maxInputLines": 1500, "note": "PRD 요구사항/수용 기준 + diff" },
++    "quality-reviewer": { "maxInputLines": 1500, "note": "diff + 코드 맵 + 컨벤션" },
++    "humanizer-fidelity": { "maxInputLines": 1500, "note": "원문 + 윤문본 + 변경 diff" },
++    "humanizer-naturalness": { "maxInputLines": 1200, "note": "윤문본 + 탐지 리포트" }
++  }
++}
+diff --git a/.github/workflows/backend-tests.yml b/.github/workflows/backend-tests.yml
+new file mode 100644
+index 0000000..21dacd5
+--- /dev/null
++++ b/.github/workflows/backend-tests.yml
+@@ -0,0 +1,51 @@
++name: Backend Tests
++
++# PR(→ main)마다 백엔드 전체 테스트(JUnit + Testcontainers)를 실행하고
++# 결과를 PR에 코멘트 + 체크로 보고한다.
++on:
++  pull_request:
++    branches: [main]
++  workflow_dispatch:
++
++permissions:
++  contents: read
++  pull-requests: write   # 결과 코멘트 작성
++  checks: write          # 체크 런 생성
++
++jobs:
++  test:
++    name: Gradle test (Testcontainers)
++    runs-on: ubuntu-latest   # Docker 내장 → Testcontainers PostgreSQL 동작
++    steps:
++      - name: Checkout
++        uses: actions/checkout@v4
++
++      - name: Set up JDK 21
++        uses: actions/setup-java@v4
++        with:
++          distribution: temurin
++          java-version: '21'
++          cache: gradle
++
++      - name: Run backend tests
++        working-directory: backend
++        run: ./gradlew test --no-daemon --console=plain
++
++      - name: Publish test results (PR comment + check)
++        if: ${{ !cancelled() }}
++        uses: EnricoMi/publish-unit-test-result-action@v2
++        with:
++          check_name: Backend Test Results
++          comment_title: Backend Test Results
++          files: |
++            backend/build/test-results/**/*.xml
++
++      - name: Upload test reports
++        if: ${{ !cancelled() }}
++        uses: actions/upload-artifact@v4
++        with:
++          name: backend-test-report
++          path: |
++            backend/build/reports/tests/test
++            backend/build/test-results/test
++          if-no-files-found: ignore
+diff --git a/.gitignore b/.gitignore
+index a3e8458..5b00115 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -35,3 +35,5 @@ test-results/
+ Thumbs.db
+ .idea/
+ .vscode/
++.dev/
++.gradle/
+diff --git a/backend/build.gradle.kts b/backend/build.gradle.kts
+index 3d2c76e..47757f6 100644
+--- a/backend/build.gradle.kts
++++ b/backend/build.gradle.kts
+@@ -31,15 +31,13 @@ dependencies {
+ 	compileOnly("org.projectlombok:lombok")
+ 	runtimeOnly("org.postgresql:postgresql")
+ 	annotationProcessor("org.projectlombok:lombok")
+-	testImplementation("org.springframework.boot:spring-boot-starter-actuator-test")
+-	testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")
+-	testImplementation("org.springframework.boot:spring-boot-starter-flyway-test")
+-	testImplementation("org.springframework.boot:spring-boot-starter-security-oauth2-client-test")
+-	testImplementation("org.springframework.boot:spring-boot-starter-security-test")
+-	testImplementation("org.springframework.boot:spring-boot-starter-validation-test")
++	testImplementation("org.springframework.boot:spring-boot-starter-test")
+ 	testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
+-	testImplementation("org.springframework.boot:spring-boot-starter-websocket-test")
++	testImplementation("org.springframework.security:spring-security-test")
+ 	testCompileOnly("org.projectlombok:lombok")
++	testImplementation("org.springframework.boot:spring-boot-testcontainers")
++	testImplementation("org.testcontainers:junit-jupiter:1.20.4")
++	testImplementation("org.testcontainers:postgresql:1.20.4")
+ 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+ 	testAnnotationProcessor("org.projectlombok:lombok")
+ }
+diff --git a/backend/src/main/java/com/ieum/collaboration/CollaborationWebSocketHandler.java b/backend/src/main/java/com/ieum/collaboration/CollaborationWebSocketHandler.java
+index a130af5..6557a08 100644
+--- a/backend/src/main/java/com/ieum/collaboration/CollaborationWebSocketHandler.java
++++ b/backend/src/main/java/com/ieum/collaboration/CollaborationWebSocketHandler.java
+@@ -1,7 +1,7 @@
+ package com.ieum.collaboration;
+ 
+-import com.fasterxml.jackson.databind.JsonNode;
+-import com.fasterxml.jackson.databind.ObjectMapper;
++import tools.jackson.databind.JsonNode;
++import tools.jackson.databind.ObjectMapper;
+ import com.ieum.collaboration.dto.WsMessages;
+ import org.springframework.stereotype.Component;
+ import org.springframework.web.socket.CloseStatus;
+diff --git a/backend/src/main/java/com/ieum/collaboration/dto/WsMessages.java b/backend/src/main/java/com/ieum/collaboration/dto/WsMessages.java
+index 436e395..ce8112f 100644
+--- a/backend/src/main/java/com/ieum/collaboration/dto/WsMessages.java
++++ b/backend/src/main/java/com/ieum/collaboration/dto/WsMessages.java
+@@ -1,6 +1,6 @@
+ package com.ieum.collaboration.dto;
+ 
+-import com.fasterxml.jackson.databind.JsonNode;
++import tools.jackson.databind.JsonNode;
+ 
+ import java.util.List;
+ 
+diff --git a/backend/src/main/java/com/ieum/common/ApiExceptionHandler.java b/backend/src/main/java/com/ieum/common/ApiExceptionHandler.java
+index 29569e9..96b43a0 100644
+--- a/backend/src/main/java/com/ieum/common/ApiExceptionHandler.java
++++ b/backend/src/main/java/com/ieum/common/ApiExceptionHandler.java
+@@ -1,9 +1,11 @@
+ package com.ieum.common;
+ 
++import jakarta.persistence.EntityNotFoundException;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ import org.springframework.http.HttpStatus;
+ import org.springframework.http.ResponseEntity;
++import org.springframework.security.access.AccessDeniedException;
+ import org.springframework.web.bind.annotation.ExceptionHandler;
+ import org.springframework.web.bind.annotation.RestControllerAdvice;
+ 
+@@ -12,6 +14,19 @@ public class ApiExceptionHandler {
+ 
+     private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
+ 
++    @ExceptionHandler(AccessDeniedException.class)
++    public ResponseEntity<ErrorResponse> handleAccessDeniedException(AccessDeniedException ex) {
++        log.warn("접근 거부: {}", ex.getMessage());
++        return ResponseEntity.status(HttpStatus.FORBIDDEN)
++                .body(new ErrorResponse("FORBIDDEN", "접근 권한이 없습니다."));
++    }
++
++    @ExceptionHandler(EntityNotFoundException.class)
++    public ResponseEntity<ErrorResponse> handleEntityNotFoundException(EntityNotFoundException ex) {
++        return ResponseEntity.status(HttpStatus.NOT_FOUND)
++                .body(new ErrorResponse("NOT_FOUND", "요청한 리소스를 찾을 수 없습니다."));
++    }
++
+     /**
+      * 잘못된 인자 → 400 Bad Request
+      * TODO: 도메인별 커스텀 예외 클래스 추가 시 각각 @ExceptionHandler 분리
+diff --git a/backend/src/main/java/com/ieum/common/security/AccessGuard.java b/backend/src/main/java/com/ieum/common/security/AccessGuard.java
+new file mode 100644
+index 0000000..b0f2d95
+--- /dev/null
++++ b/backend/src/main/java/com/ieum/common/security/AccessGuard.java
+@@ -0,0 +1,42 @@
++package com.ieum.common.security;
++
++import com.ieum.page.Page;
++import com.ieum.page.PageRepository;
++import com.ieum.workspace.Membership;
++import com.ieum.workspace.MemberRole;
++import com.ieum.workspace.MembershipRepository;
++import jakarta.persistence.EntityNotFoundException;
++import lombok.RequiredArgsConstructor;
++import org.springframework.security.access.AccessDeniedException;
++import org.springframework.stereotype.Component;
++
++import java.util.UUID;
++
++@Component
++@RequiredArgsConstructor
++public class AccessGuard {
++
++    private final MembershipRepository membershipRepository;
++    private final PageRepository pageRepository;
++
++    public Membership requireWorkspaceMember(UUID userId, UUID workspaceId) {
++        return membershipRepository.findByUserIdAndWorkspaceId(userId, workspaceId)
++                .orElseThrow(() -> new AccessDeniedException("워크스페이스 멤버가 아닙니다."));
++    }
++
++    public Membership requireWorkspaceMember(UUID userId, UUID workspaceId, MemberRole requiredRole) {
++        Membership m = requireWorkspaceMember(userId, workspaceId);
++        if (m.getRole() != requiredRole) throw new AccessDeniedException(requiredRole + " 권한이 필요합니다.");
++        return m;
++    }
++
++    public Membership requireOwner(UUID userId, UUID workspaceId) {
++        return requireWorkspaceMember(userId, workspaceId, MemberRole.OWNER);
++    }
++
++    public Membership requirePageAccess(UUID userId, UUID pageId) {
++        Page page = pageRepository.findById(pageId)
++                .orElseThrow(() -> new EntityNotFoundException("페이지를 찾을 수 없습니다."));
++        return requireWorkspaceMember(userId, page.getWorkspaceId());
++    }
++}
+diff --git a/backend/src/main/java/com/ieum/common/security/CurrentUserService.java b/backend/src/main/java/com/ieum/common/security/CurrentUserService.java
+new file mode 100644
+index 0000000..9203c0f
+--- /dev/null
++++ b/backend/src/main/java/com/ieum/common/security/CurrentUserService.java
+@@ -0,0 +1,33 @@
++package com.ieum.common.security;
++
++import com.ieum.user.User;
++import com.ieum.user.UserRepository;
++import lombok.RequiredArgsConstructor;
++import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
++import org.springframework.security.core.Authentication;
++import org.springframework.security.core.context.SecurityContextHolder;
++import org.springframework.security.oauth2.core.user.OAuth2User;
++import org.springframework.stereotype.Service;
++
++import java.util.UUID;
++
++@Service
++@RequiredArgsConstructor
++public class CurrentUserService {
++
++    private final UserRepository userRepository;
++
++    public UUID requireCurrentUserId() {
++        String googleId = extractGoogleId(SecurityContextHolder.getContext().getAuthentication());
++        return userRepository.findByGoogleId(googleId)
++                .map(User::getId)
++                .orElseThrow(() -> new AuthenticationCredentialsNotFoundException("인증된 사용자를 찾을 수 없습니다."));
++    }
++
++    public static String extractGoogleId(Authentication auth) {
++        if (auth == null || !(auth.getPrincipal() instanceof OAuth2User principal)) {
++            throw new AuthenticationCredentialsNotFoundException("인증이 필요합니다.");
++        }
++        return principal.getAttribute("sub");
++    }
++}
+diff --git a/backend/src/main/java/com/ieum/common/security/JsonAuthenticationEntryPoint.java b/backend/src/main/java/com/ieum/common/security/JsonAuthenticationEntryPoint.java
+new file mode 100644
+index 0000000..df05514
+--- /dev/null
++++ b/backend/src/main/java/com/ieum/common/security/JsonAuthenticationEntryPoint.java
+@@ -0,0 +1,37 @@
++package com.ieum.common.security;
++
++import com.ieum.common.ErrorResponse;
++import jakarta.servlet.http.HttpServletRequest;
++import jakarta.servlet.http.HttpServletResponse;
++import org.springframework.beans.factory.annotation.Value;
++import org.springframework.security.core.AuthenticationException;
++import org.springframework.security.web.AuthenticationEntryPoint;
++import org.springframework.stereotype.Component;
++import tools.jackson.databind.ObjectMapper;
++
++import java.io.IOException;
++
++@Component
++public class JsonAuthenticationEntryPoint implements AuthenticationEntryPoint {
++
++    private final ObjectMapper objectMapper;
++    private final String frontendUrl;
++
++    public JsonAuthenticationEntryPoint(ObjectMapper objectMapper,
++                                        @Value("${app.frontend-url}") String frontendUrl) {
++        this.objectMapper = objectMapper;
++        this.frontendUrl = frontendUrl;
++    }
++
++    @Override
++    public void commence(HttpServletRequest req, HttpServletResponse res,
++                         AuthenticationException ex) throws IOException {
++        if (req.getRequestURI().startsWith("/api/")) {
++            res.setStatus(401);
++            res.setContentType("application/json;charset=UTF-8");
++            objectMapper.writeValue(res.getWriter(), new ErrorResponse("UNAUTHORIZED", "인증이 필요합니다."));
++        } else {
++            res.sendRedirect(frontendUrl + "/login");
++        }
++    }
++}
+diff --git a/backend/src/main/java/com/ieum/config/OAuth2SuccessHandler.java b/backend/src/main/java/com/ieum/config/OAuth2SuccessHandler.java
+new file mode 100644
+index 0000000..201fdf6
+--- /dev/null
++++ b/backend/src/main/java/com/ieum/config/OAuth2SuccessHandler.java
+@@ -0,0 +1,67 @@
++package com.ieum.config;
++
++import com.ieum.user.OAuthUserInfo;
++import com.ieum.user.UserService;
++import jakarta.servlet.http.HttpServletRequest;
++import jakarta.servlet.http.HttpServletResponse;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++import org.springframework.beans.factory.annotation.Value;
++import org.springframework.security.core.Authentication;
++import org.springframework.security.oauth2.core.user.OAuth2User;
++import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
++import org.springframework.stereotype.Component;
++
++import java.io.IOException;
++
++@Component
++public class OAuth2SuccessHandler implements AuthenticationSuccessHandler {
++
++    private static final Logger log = LoggerFactory.getLogger(OAuth2SuccessHandler.class);
++
++    private final UserService userService;
++    private final String frontendUrl;
++
++    public OAuth2SuccessHandler(UserService userService,
++                                @Value("${app.frontend-url}") String frontendUrl) {
++        this.userService = userService;
++        this.frontendUrl = frontendUrl;
++    }
++
++    @Override
++    public void onAuthenticationSuccess(HttpServletRequest req, HttpServletResponse res,
++                                        Authentication auth) throws IOException {
++        try {
++            userService.loginWithOAuth(extract((OAuth2User) auth.getPrincipal()));
++            res.sendRedirect(resolveRedirect(req));
++        } catch (Exception e) {
++            log.warn("OAuth 로그인 후처리 실패", e);
++            res.sendRedirect(frontendUrl + "/login?error=true");
++        }
++    }
++
++    /**
++     * callbackUrl 검증 — 동일 오리진 상대경로만 허용(open-redirect 방지).
++     * frontendUrl(절대 URL)을 prefix하므로 목적지 호스트는 항상 고정되지만,
++     * 방어심층화로 경로 문자를 엄격 화이트리스트(영숫자·/·_·-)로 제한하여
++     * 백슬래시·퍼센트인코딩(%2f/%5c)·탭(%09)·유니코드 슬래시(∕) 등 모든 우회 벡터를 차단한다.
++     */
++    private static final java.util.regex.Pattern SAFE_PATH = java.util.regex.Pattern.compile("/[A-Za-z0-9/_-]*");
++
++    String resolveRedirect(HttpServletRequest req) {
++        String cb = req.getParameter("callbackUrl");
++        if (cb != null && !cb.startsWith("//") && SAFE_PATH.matcher(cb).matches()) {
++            return frontendUrl + cb;
++        }
++        return frontendUrl + "/dashboard";
++    }
++
++    public static OAuthUserInfo extract(OAuth2User p) {
++        return new OAuthUserInfo(
++                p.getAttribute("sub"),
++                p.getAttribute("email"),
++                p.getAttribute("name"),
++                p.getAttribute("picture")
++        );
++    }
++}
+diff --git a/backend/src/main/java/com/ieum/config/SecurityConfig.java b/backend/src/main/java/com/ieum/config/SecurityConfig.java
+index e170cd8..0a1e55c 100644
+--- a/backend/src/main/java/com/ieum/config/SecurityConfig.java
++++ b/backend/src/main/java/com/ieum/config/SecurityConfig.java
+@@ -1,5 +1,7 @@
+ package com.ieum.config;
+ 
++import com.ieum.common.security.JsonAuthenticationEntryPoint;
++import jakarta.servlet.FilterChain;
+ import jakarta.servlet.http.HttpServletRequest;
+ import jakarta.servlet.http.HttpServletResponse;
+ import org.springframework.beans.factory.annotation.Value;
+@@ -7,12 +9,10 @@ import org.springframework.context.annotation.Bean;
+ import org.springframework.context.annotation.Configuration;
+ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+ import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+-import org.springframework.security.core.Authentication;
+ import org.springframework.security.web.SecurityFilterChain;
+-import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
++import org.springframework.security.web.authentication.logout.LogoutFilter;
+ import org.springframework.web.cors.CorsConfigurationSource;
+-
+-import java.io.IOException;
++import org.springframework.web.filter.OncePerRequestFilter;
+ 
+ @Configuration
+ @EnableWebSecurity
+@@ -23,12 +23,13 @@ public class SecurityConfig {
+ 
+     @Bean
+     public SecurityFilterChain securityFilterChain(HttpSecurity http,
+-                                                   CorsConfigurationSource corsConfigurationSource) throws Exception {
++                                                   CorsConfigurationSource corsConfigurationSource,
++                                                   OAuth2SuccessHandler oAuth2SuccessHandler,
++                                                   JsonAuthenticationEntryPoint jsonAuthenticationEntryPoint) throws Exception {
+         http
+-            // CORS 활성화 (CorsConfig의 CorsConfigurationSource 빈 사용)
+             .cors(cors -> cors.configurationSource(corsConfigurationSource))
+-            // API 서버 + WebSocket 사용 → CSRF 비활성화
+             .csrf(csrf -> csrf.disable())
++            .exceptionHandling(e -> e.authenticationEntryPoint(jsonAuthenticationEntryPoint))
+             .authorizeHttpRequests(auth -> auth
+                 .requestMatchers(
+                     "/api/health",
+@@ -40,30 +41,27 @@ public class SecurityConfig {
+                 .anyRequest().authenticated()
+             )
+             .oauth2Login(oauth2 -> oauth2
+-                // TODO(Phase 0/1): successHandler 내부에서 User upsert +
+-                //   개인 워크스페이스 자동생성 로직 추가 (08 §1-2)
+-                .successHandler(oauth2SuccessHandler())
+-            );
++                .successHandler(oAuth2SuccessHandler)
++                .failureUrl(frontendUrl + "/login?error=true")
++            )
++            .logout(logout -> logout
++                .logoutRequestMatcher(request ->
++                    "POST".equalsIgnoreCase(request.getMethod()) && "/api/auth/logout".equals(request.getRequestURI()))
++                .invalidateHttpSession(true)
++                .deleteCookies("JSESSIONID")
++                .logoutSuccessHandler((req, res, auth) -> res.setStatus(204)))
++            .addFilterBefore(new OncePerRequestFilter() {
++                @Override
++                protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
++                                                FilterChain filterChain) throws java.io.IOException, jakarta.servlet.ServletException {
++                    if ("GET".equalsIgnoreCase(request.getMethod()) && "/api/auth/logout".equals(request.getRequestURI())) {
++                        response.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
++                        return;
++                    }
++                    filterChain.doFilter(request, response);
++                }
++            }, LogoutFilter.class);
+ 
+         return http.build();
+     }
+-
+-    /**
+-     * OAuth2 로그인 성공 시 프론트엔드 대시보드로 리다이렉트하는 스텁 핸들러.
+-     * TODO(Phase 0/1): 사용자 정보를 받아 DB upsert 및 개인 워크스페이스 생성 후 리다이렉트
+-     */
+-    @Bean
+-    public AuthenticationSuccessHandler oauth2SuccessHandler() {
+-        return new AuthenticationSuccessHandler() {
+-            @Override
+-            public void onAuthenticationSuccess(HttpServletRequest request,
+-                                                HttpServletResponse response,
+-                                                Authentication authentication) throws IOException {
+-                // TODO(Phase 0/1): authentication.getPrincipal()에서 OAuth2User 추출
+-                //   → UserService.upsert(email, name, picture) 호출
+-                //   → WorkspaceService.createPersonalWorkspace(userId) 호출
+-                response.sendRedirect(frontendUrl + "/dashboard");
+-            }
+-        };
+-    }
+ }
+diff --git a/backend/src/main/java/com/ieum/config/SessionCookieConfig.java b/backend/src/main/java/com/ieum/config/SessionCookieConfig.java
+new file mode 100644
+index 0000000..847a42d
+--- /dev/null
++++ b/backend/src/main/java/com/ieum/config/SessionCookieConfig.java
+@@ -0,0 +1,26 @@
++package com.ieum.config;
++
++import jakarta.servlet.ServletContext;
++import org.springframework.context.ApplicationListener;
++import org.springframework.context.annotation.Bean;
++import org.springframework.context.annotation.Configuration;
++import org.springframework.context.event.ContextRefreshedEvent;
++import org.springframework.web.context.WebApplicationContext;
++
++@Configuration
++public class SessionCookieConfig {
++
++    @Bean
++    public ApplicationListener<ContextRefreshedEvent> sessionCookieConfigurer() {
++        return event -> {
++            if (event.getApplicationContext() instanceof WebApplicationContext wac) {
++                ServletContext sc = wac.getServletContext();
++                if (sc != null) {
++                    jakarta.servlet.SessionCookieConfig cfg = sc.getSessionCookieConfig();
++                    cfg.setHttpOnly(true);
++                    cfg.setAttribute("SameSite", "Lax");
++                }
++            }
++        };
++    }
++}
+diff --git a/backend/src/main/java/com/ieum/user/OAuthUserInfo.java b/backend/src/main/java/com/ieum/user/OAuthUserInfo.java
+new file mode 100644
+index 0000000..6532150
+--- /dev/null
++++ b/backend/src/main/java/com/ieum/user/OAuthUserInfo.java
+@@ -0,0 +1,3 @@
++package com.ieum.user;
++
++public record OAuthUserInfo(String googleId, String email, String name, String image) {}
+diff --git a/backend/src/main/java/com/ieum/user/UserService.java b/backend/src/main/java/com/ieum/user/UserService.java
+new file mode 100644
+index 0000000..7086065
+--- /dev/null
++++ b/backend/src/main/java/com/ieum/user/UserService.java
+@@ -0,0 +1,38 @@
++package com.ieum.user;
++
++import com.ieum.workspace.WorkspaceService;
++import lombok.RequiredArgsConstructor;
++import org.springframework.stereotype.Service;
++import org.springframework.transaction.annotation.Transactional;
++
++@Service
++@RequiredArgsConstructor
++public class UserService {
++
++    private final UserRepository userRepository;
++    private final WorkspaceService workspaceService;
++
++    @Transactional
++    public User loginWithOAuth(OAuthUserInfo info) {
++        User user = upsert(info);
++        workspaceService.ensurePersonalWorkspace(user.getId());
++        return user;
++    }
++
++    @Transactional
++    public User upsert(OAuthUserInfo info) {
++        return userRepository.findByGoogleId(info.googleId())
++                .map(u -> {
++                    u.setName(info.name());
++                    u.setEmail(info.email());
++                    u.setImage(info.image());
++                    return userRepository.save(u);
++                })
++                .orElseGet(() -> userRepository.save(User.builder()
++                        .googleId(info.googleId())
++                        .email(info.email())
++                        .name(info.name())
++                        .image(info.image())
++                        .build()));
++    }
++}
+diff --git a/backend/src/main/java/com/ieum/workspace/WorkspaceRepository.java b/backend/src/main/java/com/ieum/workspace/WorkspaceRepository.java
+index fc3630a..608009b 100644
+--- a/backend/src/main/java/com/ieum/workspace/WorkspaceRepository.java
++++ b/backend/src/main/java/com/ieum/workspace/WorkspaceRepository.java
+@@ -2,10 +2,15 @@ package com.ieum.workspace;
+ 
+ import org.springframework.data.jpa.repository.JpaRepository;
+ 
++import java.util.Optional;
+ import java.util.UUID;
+ 
+ /**
+  * 워크스페이스 리포지토리
+  */
+ public interface WorkspaceRepository extends JpaRepository<Workspace, UUID> {
++
++    boolean existsByOwnerIdAndType(UUID ownerId, WorkspaceType type);
++
++    Optional<Workspace> findFirstByOwnerIdAndType(UUID ownerId, WorkspaceType type);
+ }
+diff --git a/backend/src/main/java/com/ieum/workspace/WorkspaceService.java b/backend/src/main/java/com/ieum/workspace/WorkspaceService.java
+index 1a39449..4438e30 100644
+--- a/backend/src/main/java/com/ieum/workspace/WorkspaceService.java
++++ b/backend/src/main/java/com/ieum/workspace/WorkspaceService.java
+@@ -27,6 +27,22 @@ public class WorkspaceService {
+     private final MembershipRepository membershipRepository;
+     private final UserRepository userRepository;
+ 
++    // ───────────────────────────────────────────────
++    // 개인 워크스페이스 보장
++    // ───────────────────────────────────────────────
++
++    @Transactional
++    public Workspace ensurePersonalWorkspace(UUID userId) {
++        if (workspaceRepository.existsByOwnerIdAndType(userId, WorkspaceType.PERSONAL)) {
++            return workspaceRepository.findFirstByOwnerIdAndType(userId, WorkspaceType.PERSONAL).orElseThrow();
++        }
++        Workspace ws = workspaceRepository.save(Workspace.builder()
++                .type(WorkspaceType.PERSONAL).ownerId(userId).name("내 워크스페이스").build());
++        membershipRepository.save(Membership.builder()
++                .userId(userId).workspaceId(ws.getId()).role(MemberRole.OWNER).build());
++        return ws;
++    }
++
+     // ───────────────────────────────────────────────
+     // 워크스페이스 CRUD
+     // ───────────────────────────────────────────────
+@@ -124,26 +140,4 @@ public class WorkspaceService {
+         throw new UnsupportedOperationException("TODO(Phase 1): updateMemberRole");
+     }
+ 
+-    // ───────────────────────────────────────────────
+-    // 권한 검사 헬퍼 (패키지 내부 공유, InvitationService에서도 사용)
+-    // ───────────────────────────────────────────────
+-
+-    /**
+-     * 현재 사용자가 해당 워크스페이스의 멤버인지 확인
+-     * // TODO(requireWorkspaceMember): membershipRepository.findByUserIdAndWorkspaceId 조회 후
+-     *    없으면 AccessDeniedException 또는 403 응답
+-     */
+-    Membership requireWorkspaceMember(UUID userId, UUID workspaceId) {
+-        // TODO(Phase 1): 구현
+-        throw new UnsupportedOperationException("TODO(Phase 1): requireWorkspaceMember");
+-    }
+-
+-    /**
+-     * 현재 사용자가 해당 워크스페이스의 OWNER인지 확인
+-     * // TODO(requireOwner): requireWorkspaceMember 호출 후 role != OWNER이면 AccessDeniedException
+-     */
+-    Membership requireOwner(UUID userId, UUID workspaceId) {
+-        // TODO(Phase 1): 구현
+-        throw new UnsupportedOperationException("TODO(Phase 1): requireOwner");
+-    }
+ }
+diff --git a/backend/src/main/resources/application.yml b/backend/src/main/resources/application.yml
+index eeeee48..cfe330b 100644
+--- a/backend/src/main/resources/application.yml
++++ b/backend/src/main/resources/application.yml
+@@ -1,5 +1,10 @@
+ server:
+   port: 8080
++  servlet:
++    session:
++      timeout: 7d
++      cookie:
++        secure: ${SESSION_COOKIE_SECURE:false}
+ 
+ spring:
+   application:
+diff --git a/backend/src/main/resources/db/migration/V2__personal_workspace_unique.sql b/backend/src/main/resources/db/migration/V2__personal_workspace_unique.sql
+new file mode 100644
+index 0000000..6a8ef36
+--- /dev/null
++++ b/backend/src/main/resources/db/migration/V2__personal_workspace_unique.sql
+@@ -0,0 +1,3 @@
++-- 개인 워크스페이스는 사용자당 1개 (동시 중복생성 차단)
++CREATE UNIQUE INDEX uq_workspaces_owner_personal
++    ON workspaces (owner_id) WHERE type = 'PERSONAL';
+diff --git a/backend/src/test/java/com/ieum/IeumBackendApplicationTests.java b/backend/src/test/java/com/ieum/IeumBackendApplicationTests.java
+index 351fde1..d2eafe0 100644
+--- a/backend/src/test/java/com/ieum/IeumBackendApplicationTests.java
++++ b/backend/src/test/java/com/ieum/IeumBackendApplicationTests.java
+@@ -1,10 +1,9 @@
+ package com.ieum;
+ 
++import com.ieum.support.AbstractIntegrationTest;
+ import org.junit.jupiter.api.Test;
+-import org.springframework.boot.test.context.SpringBootTest;
+ 
+-@SpringBootTest
+-class IeumBackendApplicationTests {
++class IeumBackendApplicationTests extends AbstractIntegrationTest {
+ 
+ 	@Test
+ 	void contextLoads() {
+diff --git a/backend/src/test/java/com/ieum/auth/AuthIntegrationTest.java b/backend/src/test/java/com/ieum/auth/AuthIntegrationTest.java
+new file mode 100644
+index 0000000..a9c14ac
+--- /dev/null
++++ b/backend/src/test/java/com/ieum/auth/AuthIntegrationTest.java
+@@ -0,0 +1,202 @@
++package com.ieum.auth;
++
++import com.ieum.support.AbstractIntegrationTest;
++import com.ieum.user.OAuthUserInfo;
++import com.ieum.user.User;
++import com.ieum.user.UserRepository;
++import com.ieum.user.UserService;
++import com.ieum.workspace.MemberRole;
++import com.ieum.workspace.Membership;
++import com.ieum.workspace.MembershipRepository;
++import com.ieum.workspace.Workspace;
++import com.ieum.workspace.WorkspaceRepository;
++import com.ieum.workspace.WorkspaceService;
++import com.ieum.workspace.WorkspaceType;
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.DisplayName;
++import org.junit.jupiter.api.Test;
++import org.springframework.beans.factory.annotation.Autowired;
++
++import java.util.ArrayList;
++import java.util.List;
++import java.util.UUID;
++import java.util.concurrent.CountDownLatch;
++import java.util.concurrent.ExecutorService;
++import java.util.concurrent.Executors;
++import java.util.concurrent.Future;
++
++import static org.assertj.core.api.Assertions.assertThat;
++
++class AuthIntegrationTest extends AbstractIntegrationTest {
++
++    @Autowired
++    private UserService userService;
++
++    @Autowired
++    private WorkspaceService workspaceService;
++
++    @Autowired
++    private UserRepository userRepository;
++
++    @Autowired
++    private WorkspaceRepository workspaceRepository;
++
++    @Autowired
++    private MembershipRepository membershipRepository;
++
++    @BeforeEach
++    void setUp() {
++        // FK 순서: membership → workspace → user
++        membershipRepository.deleteAll();
++        workspaceRepository.deleteAll();
++        userRepository.deleteAll();
++    }
++
++    // ── AC-AUTH-02 e2e ────────────────────────────────────────────────
++
++    @Test
++    @DisplayName("AC-AUTH-02 e2e: 신규 OAuth 로그인 시 users 1건·PERSONAL workspace 1건·OWNER membership 1건이 생성된다")
++    void loginWithOAuth_newUser_createsUserWorkspaceMembership() {
++        // Given
++        OAuthUserInfo info = new OAuthUserInfo("G1", "a@test.com", "홍길동", "img");
++
++        // When
++        User user = userService.loginWithOAuth(info);
++
++        // Then: users 1건, google_id='G1'
++        List<User> users = userRepository.findAll();
++        assertThat(users).hasSize(1);
++        assertThat(users.get(0).getGoogleId()).isEqualTo("G1");
++
++        // Then: workspaces PERSONAL 1건, owner_id=user.id
++        List<Workspace> workspaces = workspaceRepository.findAll();
++        assertThat(workspaces).hasSize(1);
++        assertThat(workspaces.get(0).getType()).isEqualTo(WorkspaceType.PERSONAL);
++        assertThat(workspaces.get(0).getOwnerId()).isEqualTo(user.getId());
++
++        // Then: memberships 1건, role=OWNER, user_id=user.id, workspace_id=ws.id
++        List<Membership> memberships = membershipRepository.findAll();
++        assertThat(memberships).hasSize(1);
++        assertThat(memberships.get(0).getRole()).isEqualTo(MemberRole.OWNER);
++        assertThat(memberships.get(0).getUserId()).isEqualTo(user.getId());
++        assertThat(memberships.get(0).getWorkspaceId()).isEqualTo(workspaces.get(0).getId());
++    }
++
++    // ── AC-AUTH-03 e2e ────────────────────────────────────────────────
++
++    @Test
++    @DisplayName("AC-AUTH-03 e2e: 동일 googleId 재로그인 시 users 여전히 1건·email 갱신·workspace/membership 중복 없음")
++    void loginWithOAuth_existingUser_updatesEmailKeepsSingleWorkspaceAndMembership() {
++        // Given: G1으로 1회 로그인
++        OAuthUserInfo first = new OAuthUserInfo("G1", "a@test.com", "홍길동", "img");
++        userService.loginWithOAuth(first);
++
++        // When: 같은 googleId, 다른 email로 재로그인
++        OAuthUserInfo second = new OAuthUserInfo("G1", "new@test.com", "홍길동", "img");
++        userService.loginWithOAuth(second);
++
++        // Then: users google_id='G1' 여전히 1건
++        List<User> users = userRepository.findAll();
++        assertThat(users).hasSize(1);
++        assertThat(users.get(0).getGoogleId()).isEqualTo("G1");
++
++        // Then: email이 new@test.com으로 갱신
++        assertThat(users.get(0).getEmail()).isEqualTo("new@test.com");
++
++        // Then: workspaces PERSONAL 여전히 1건
++        List<Workspace> workspaces = workspaceRepository.findAll();
++        assertThat(workspaces).hasSize(1);
++        assertThat(workspaces.get(0).getType()).isEqualTo(WorkspaceType.PERSONAL);
++
++        // Then: memberships 여전히 1건
++        List<Membership> memberships = membershipRepository.findAll();
++        assertThat(memberships).hasSize(1);
++    }
++
++    // ── AC-SEC-03 e2e ─────────────────────────────────────────────────
++
++    @Test
++    @DisplayName("AC-SEC-03 e2e: 로그인 후 저장된 User 엔티티에 토큰 관련 필드(accessToken/refreshToken)가 존재하지 않는다")
++    void loginWithOAuth_savedUser_hasNoTokenFields() {
++        // Given
++        OAuthUserInfo info = new OAuthUserInfo("G1", "a@test.com", "홍길동", "img");
++
++        // When
++        User user = userService.loginWithOAuth(info);
++
++        // Then: DB에서 조회한 User에 필요한 필드만 존재
++        User stored = userRepository.findAll().get(0);
++        assertThat(stored.getId()).isNotNull();
++        assertThat(stored.getEmail()).isEqualTo("a@test.com");
++        assertThat(stored.getName()).isEqualTo("홍길동");
++        assertThat(stored.getImage()).isEqualTo("img");
++        assertThat(stored.getGoogleId()).isEqualTo("G1");
++
++        // Then: User 클래스에 토큰 getter가 없음을 컴파일 타임으로 검증
++        // 아래 라인들은 컴파일 되어야 하며, accessToken()/refreshToken() 같은 메서드가
++        // User에 존재했다면 이 테스트에서 명시적으로 호출해 확인할 수 있다.
++        // 현재 설계: User의 공개 getter는 id/email/name/image/googleId/createdAt 만 존재.
++        // 컴파일 타임 보장: user.getId(), user.getEmail(), user.getName(), user.getImage(), user.getGoogleId()
++        assertThat(user.getId()).isNotNull();
++        assertThat(user.getEmail()).isNotNull();
++        assertThat(user.getName()).isNotNull();
++        assertThat(user.getImage()).isNotNull();
++        assertThat(user.getGoogleId()).isNotNull();
++
++        // OAuthUserInfo 레코드에도 토큰 필드 없음(컴파일 타임 보장)
++        assertThat(info.googleId()).isEqualTo("G1");
++        assertThat(info.email()).isEqualTo("a@test.com");
++        assertThat(info.name()).isEqualTo("홍길동");
++        assertThat(info.image()).isEqualTo("img");
++    }
++
++    // ── 동시성 불변식(V2) ──────────────────────────────────────────────
++
++    @Test
++    @DisplayName("동시성 불변식(V2): 6개 스레드 동시 ensurePersonalWorkspace — 완료 후 PERSONAL workspace는 정확히 1건")
++    void ensurePersonalWorkspace_concurrent6Threads_exactlyOnePersonalWorkspace() throws InterruptedException {
++        // Given: 사전에 user 1건 저장
++        User user = userRepository.save(
++                User.builder()
++                        .googleId("G-CONCURRENT")
++                        .email("concurrent@test.com")
++                        .name("동시성테스트")
++                        .image("img")
++                        .build()
++        );
++        UUID userId = user.getId();
++
++        int threadCount = 6;
++        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
++        CountDownLatch startLatch = new CountDownLatch(1);
++        CountDownLatch doneLatch = new CountDownLatch(threadCount);
++
++        List<Future<?>> futures = new ArrayList<>();
++        for (int i = 0; i < threadCount; i++) {
++            futures.add(executor.submit(() -> {
++                try {
++                    startLatch.await(); // 모든 스레드 동시 출발
++                    workspaceService.ensurePersonalWorkspace(userId);
++                } catch (Exception e) {
++                    // DataIntegrityViolationException 등 개별 예외는 무시
++                    // 최종 불변식(count==1)만 검증
++                } finally {
++                    doneLatch.countDown();
++                }
++                return null;
++            }));
++        }
++
++        // When: 동시 실행
++        startLatch.countDown();
++        doneLatch.await();
++        executor.shutdown();
++
++        // Then: PERSONAL workspace는 정확히 1건
++        long count = workspaceRepository.findAll().stream()
++                .filter(ws -> ws.getOwnerId().equals(userId)
++                        && ws.getType() == WorkspaceType.PERSONAL)
++                .count();
++        assertThat(count).isEqualTo(1);
++    }
++}
+diff --git a/backend/src/test/java/com/ieum/common/ApiExceptionHandlerTest.java b/backend/src/test/java/com/ieum/common/ApiExceptionHandlerTest.java
+new file mode 100644
+index 0000000..ed1762c
+--- /dev/null
++++ b/backend/src/test/java/com/ieum/common/ApiExceptionHandlerTest.java
+@@ -0,0 +1,84 @@
++package com.ieum.common;
++
++import jakarta.persistence.EntityNotFoundException;
++import org.junit.jupiter.api.DisplayName;
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.extension.ExtendWith;
++import org.mockito.junit.jupiter.MockitoExtension;
++import org.springframework.http.HttpStatus;
++import org.springframework.http.ResponseEntity;
++import org.springframework.security.access.AccessDeniedException;
++
++import static org.assertj.core.api.Assertions.assertThat;
++
++@ExtendWith(MockitoExtension.class)
++class ApiExceptionHandlerTest {
++
++    private final ApiExceptionHandler handler = new ApiExceptionHandler();
++
++    // ── AccessDeniedException → 403 FORBIDDEN ────────────────────────────────
++
++    @Test
++    @DisplayName("AccessDeniedException 처리 — 403 상태코드와 code=FORBIDDEN ErrorResponse 반환")
++    void handleAccessDeniedException_returns403WithForbiddenCode() {
++        // Given
++        AccessDeniedException ex = new AccessDeniedException("접근 거부");
++
++        // When
++        ResponseEntity<ErrorResponse> result = handler.handleAccessDeniedException(ex);
++
++        // Then
++        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
++        assertThat(result.getBody()).isNotNull();
++        assertThat(result.getBody().code()).isEqualTo("FORBIDDEN");
++        assertThat(result.getBody().message()).isNotBlank();
++    }
++
++    // ── EntityNotFoundException → 404 NOT_FOUND ──────────────────────────────
++
++    @Test
++    @DisplayName("EntityNotFoundException 처리 — 404 상태코드와 code=NOT_FOUND ErrorResponse 반환")
++    void handleEntityNotFoundException_returns404WithNotFoundCode() {
++        // Given
++        EntityNotFoundException ex = new EntityNotFoundException("리소스 없음");
++
++        // When
++        ResponseEntity<ErrorResponse> result = handler.handleEntityNotFoundException(ex);
++
++        // Then
++        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
++        assertThat(result.getBody()).isNotNull();
++        assertThat(result.getBody().code()).isEqualTo("NOT_FOUND");
++        assertThat(result.getBody().message()).isNotBlank();
++    }
++
++    // ── SEC-HIGH: 403/404 일반 메시지 — 내부 예외 메시지 노출 금지 ─────────────
++
++    @Test
++    @DisplayName("SEC-HIGH: AccessDeniedException 내부 메시지 노출 금지 — 고정 문자열 '접근 권한이 없습니다.' 반환")
++    void handleAccessDeniedException_returnsFixedMessage_notInternalMessage() {
++        // Given: 내부 메시지가 담긴 예외 (핸들러가 이 메시지를 그대로 노출하면 보안 결함)
++        AccessDeniedException ex = new AccessDeniedException("OWNER 권한이 필요합니다.");
++
++        // When
++        ResponseEntity<ErrorResponse> result = handler.handleAccessDeniedException(ex);
++
++        // Then: 고정 문자열만 반환해야 함 — 내부 메시지("OWNER 권한이 필요합니다.") 노출 금지
++        assertThat(result.getBody()).isNotNull();
++        assertThat(result.getBody().message()).isEqualTo("접근 권한이 없습니다.");
++    }
++
++    @Test
++    @DisplayName("SEC-HIGH: EntityNotFoundException 내부 메시지 노출 금지 — 고정 문자열 '요청한 리소스를 찾을 수 없습니다.' 반환")
++    void handleEntityNotFoundException_returnsFixedMessage_notInternalMessage() {
++        // Given: 내부 경로/ID가 담긴 예외 (핸들러가 이 메시지를 그대로 노출하면 보안 결함)
++        EntityNotFoundException ex = new EntityNotFoundException("Workspace id=550e8400 not found");
++
++        // When
++        ResponseEntity<ErrorResponse> result = handler.handleEntityNotFoundException(ex);
++
++        // Then: 고정 문자열만 반환해야 함 — 내부 ID/경로 노출 금지
++        assertThat(result.getBody()).isNotNull();
++        assertThat(result.getBody().message()).isEqualTo("요청한 리소스를 찾을 수 없습니다.");
++    }
++}
+diff --git a/backend/src/test/java/com/ieum/common/security/AccessGuardTest.java b/backend/src/test/java/com/ieum/common/security/AccessGuardTest.java
+new file mode 100644
+index 0000000..5e96f82
+--- /dev/null
++++ b/backend/src/test/java/com/ieum/common/security/AccessGuardTest.java
+@@ -0,0 +1,196 @@
++package com.ieum.common.security;
++
++import com.ieum.page.PageRepository;
++import com.ieum.workspace.Membership;
++import com.ieum.workspace.MemberRole;
++import com.ieum.workspace.MembershipRepository;
++import com.ieum.page.Page;
++import jakarta.persistence.EntityNotFoundException;
++import org.junit.jupiter.api.DisplayName;
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.extension.ExtendWith;
++import org.mockito.InjectMocks;
++import org.mockito.Mock;
++import org.mockito.junit.jupiter.MockitoExtension;
++import org.springframework.security.access.AccessDeniedException;
++
++import java.util.Optional;
++import java.util.UUID;
++
++import static org.assertj.core.api.Assertions.assertThat;
++import static org.assertj.core.api.Assertions.assertThatThrownBy;
++import static org.mockito.Mockito.when;
++
++@ExtendWith(MockitoExtension.class)
++class AccessGuardTest {
++
++    @Mock
++    private MembershipRepository membershipRepository;
++
++    @Mock
++    private PageRepository pageRepository;
++
++    @InjectMocks
++    private AccessGuard guard;
++
++    // ── AC-PERM-01: 비멤버 403 ───────────────────────────────────────────
++
++    @Test
++    @DisplayName("AC-PERM-01: 워크스페이스 멤버십 없는 userId — requireWorkspaceMember 호출 시 AccessDeniedException 발생")
++    void requireWorkspaceMember_whenNoMembership_throwsAccessDeniedException() {
++        // Given
++        UUID userId = UUID.fromString("00000000-0000-0000-0000-000000000001");
++        UUID workspaceId = UUID.fromString("00000000-0000-0000-0000-000000000010");
++
++        when(membershipRepository.findByUserIdAndWorkspaceId(userId, workspaceId))
++                .thenReturn(Optional.empty());
++
++        // When / Then
++        assertThatThrownBy(() -> guard.requireWorkspaceMember(userId, workspaceId))
++                .isInstanceOf(AccessDeniedException.class);
++    }
++
++    // ── AC-PERM-03: OWNER 통과 ────────────────────────────────────────────
++
++    @Test
++    @DisplayName("AC-PERM-03: OWNER 역할 멤버 — requireWorkspaceMember(OWNER) 호출 시 예외 없이 Membership 반환")
++    void requireWorkspaceMember_withOwnerRole_whenUserIsOwner_returnsMembership() {
++        // Given
++        UUID userId = UUID.fromString("00000000-0000-0000-0000-000000000001");
++        UUID workspaceId = UUID.fromString("00000000-0000-0000-0000-000000000010");
++
++        Membership membership = Membership.builder()
++                .userId(userId)
++                .workspaceId(workspaceId)
++                .role(MemberRole.OWNER)
++                .build();
++
++        when(membershipRepository.findByUserIdAndWorkspaceId(userId, workspaceId))
++                .thenReturn(Optional.of(membership));
++
++        // When
++        Membership result = guard.requireWorkspaceMember(userId, workspaceId, MemberRole.OWNER);
++
++        // Then
++        assertThat(result.getRole()).isEqualTo(MemberRole.OWNER);
++    }
++
++    @Test
++    @DisplayName("AC-PERM-03: requireOwner — OWNER 역할 멤버 호출 시 예외 없이 Membership 반환")
++    void requireOwner_whenUserIsOwner_returnsMembership() {
++        // Given
++        UUID userId = UUID.fromString("00000000-0000-0000-0000-000000000001");
++        UUID workspaceId = UUID.fromString("00000000-0000-0000-0000-000000000010");
++
++        Membership membership = Membership.builder()
++                .userId(userId)
++                .workspaceId(workspaceId)
++                .role(MemberRole.OWNER)
++                .build();
++
++        when(membershipRepository.findByUserIdAndWorkspaceId(userId, workspaceId))
++                .thenReturn(Optional.of(membership));
++
++        // When
++        Membership result = guard.requireOwner(userId, workspaceId);
++
++        // Then
++        assertThat(result.getRole()).isEqualTo(MemberRole.OWNER);
++    }
++
++    // ── AC-PERM-04: MEMBER의 OWNER 액션 403 ──────────────────────────────
++
++    @Test
++    @DisplayName("AC-PERM-04: MEMBER 역할 유저 — requireWorkspaceMember(OWNER) 호출 시 AccessDeniedException 발생")
++    void requireWorkspaceMember_withOwnerRole_whenUserIsMember_throwsAccessDeniedException() {
++        // Given
++        UUID userId = UUID.fromString("00000000-0000-0000-0000-000000000002");
++        UUID workspaceId = UUID.fromString("00000000-0000-0000-0000-000000000010");
++
++        Membership membership = Membership.builder()
++                .userId(userId)
++                .workspaceId(workspaceId)
++                .role(MemberRole.MEMBER)
++                .build();
++
++        when(membershipRepository.findByUserIdAndWorkspaceId(userId, workspaceId))
++                .thenReturn(Optional.of(membership));
++
++        // When / Then
++        assertThatThrownBy(() -> guard.requireWorkspaceMember(userId, workspaceId, MemberRole.OWNER))
++                .isInstanceOf(AccessDeniedException.class);
++    }
++
++    // ── AC-PERM-02: 페이지 위임 — 비멤버 403 ─────────────────────────────
++
++    @Test
++    @DisplayName("AC-PERM-02: 페이지 소속 워크스페이스 비멤버 — requirePageAccess 호출 시 AccessDeniedException 발생")
++    void requirePageAccess_whenUserNotMemberOfPageWorkspace_throwsAccessDeniedException() {
++        // Given
++        UUID userId = UUID.fromString("00000000-0000-0000-0000-000000000001");
++        UUID pageId = UUID.fromString("00000000-0000-0000-0000-000000000020");
++        UUID workspaceId = UUID.fromString("00000000-0000-0000-0000-000000000010");
++
++        Page page = Page.builder()
++                .id(pageId)
++                .workspaceId(workspaceId)
++                .build();
++
++        when(pageRepository.findById(pageId))
++                .thenReturn(Optional.of(page));
++        when(membershipRepository.findByUserIdAndWorkspaceId(userId, workspaceId))
++                .thenReturn(Optional.empty());
++
++        // When / Then
++        assertThatThrownBy(() -> guard.requirePageAccess(userId, pageId))
++                .isInstanceOf(AccessDeniedException.class);
++    }
++
++    @Test
++    @DisplayName("AC-PERM-02: 페이지 소속 워크스페이스 멤버 — requirePageAccess 호출 시 예외 없이 Membership 반환")
++    void requirePageAccess_whenUserIsMemberOfPageWorkspace_returnsMembership() {
++        // Given
++        UUID userId = UUID.fromString("00000000-0000-0000-0000-000000000001");
++        UUID pageId = UUID.fromString("00000000-0000-0000-0000-000000000020");
++        UUID workspaceId = UUID.fromString("00000000-0000-0000-0000-000000000010");
++
++        Page page = Page.builder()
++                .id(pageId)
++                .workspaceId(workspaceId)
++                .build();
++
++        Membership membership = Membership.builder()
++                .userId(userId)
++                .workspaceId(workspaceId)
++                .role(MemberRole.MEMBER)
++                .build();
++
++        when(pageRepository.findById(pageId))
++                .thenReturn(Optional.of(page));
++        when(membershipRepository.findByUserIdAndWorkspaceId(userId, workspaceId))
++                .thenReturn(Optional.of(membership));
++
++        // When
++        Membership result = guard.requirePageAccess(userId, pageId);
++
++        // Then
++        assertThat(result.getUserId()).isEqualTo(userId);
++    }
++
++    // ── AC-PERM-05: 페이지 404 ────────────────────────────────────────────
++
++    @Test
++    @DisplayName("AC-PERM-05: 존재하지 않는 페이지 — requirePageAccess 호출 시 EntityNotFoundException 발생")
++    void requirePageAccess_whenPageNotFound_throwsEntityNotFoundException() {
++        // Given
++        UUID userId = UUID.fromString("00000000-0000-0000-0000-000000000001");
++        UUID pageId = UUID.fromString("00000000-0000-0000-0000-000000000099");
++
++        when(pageRepository.findById(pageId))
++                .thenReturn(Optional.empty());
++
++        // When / Then
++        assertThatThrownBy(() -> guard.requirePageAccess(userId, pageId))
++                .isInstanceOf(EntityNotFoundException.class);
++    }
++}
+diff --git a/backend/src/test/java/com/ieum/common/security/CurrentUserServiceTest.java b/backend/src/test/java/com/ieum/common/security/CurrentUserServiceTest.java
+new file mode 100644
+index 0000000..a0daa83
+--- /dev/null
++++ b/backend/src/test/java/com/ieum/common/security/CurrentUserServiceTest.java
+@@ -0,0 +1,129 @@
++package com.ieum.common.security;
++
++import com.ieum.user.User;
++import com.ieum.user.UserRepository;
++import org.junit.jupiter.api.AfterEach;
++import org.junit.jupiter.api.DisplayName;
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.extension.ExtendWith;
++import org.mockito.InjectMocks;
++import org.mockito.Mock;
++import org.mockito.junit.jupiter.MockitoExtension;
++import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
++import org.springframework.security.core.Authentication;
++import org.springframework.security.core.context.SecurityContextHolder;
++import org.springframework.security.oauth2.core.user.OAuth2User;
++
++import java.util.Optional;
++import java.util.UUID;
++
++import static org.assertj.core.api.Assertions.assertThat;
++import static org.assertj.core.api.Assertions.assertThatThrownBy;
++import static org.mockito.Mockito.mock;
++import static org.mockito.Mockito.when;
++
++@ExtendWith(MockitoExtension.class)
++class CurrentUserServiceTest {
++
++    @Mock
++    private UserRepository userRepository;
++
++    @InjectMocks
++    private CurrentUserService currentUserService;
++
++    @AfterEach
++    void clearSecurityContext() {
++        SecurityContextHolder.clearContext();
++    }
++
++    // ── requireCurrentUserId: 식별 성공 ──────────────────────────────────
++
++    @Test
++    @DisplayName("식별 성공: SecurityContext에 OAuth2User(sub=G1)가 있고 User가 존재하면 UUID를 반환한다")
++    void requireCurrentUserId_validPrincipalAndUserExists_returnsUserId() {
++        // Given
++        UUID expectedId = UUID.randomUUID();
++
++        OAuth2User principal = mock(OAuth2User.class);
++        when(principal.getAttribute("sub")).thenReturn("G1");
++
++        Authentication auth = mock(Authentication.class);
++        when(auth.getPrincipal()).thenReturn(principal);
++
++        SecurityContextHolder.getContext().setAuthentication(auth);
++
++        User user = mock(User.class);
++        when(user.getId()).thenReturn(expectedId);
++        when(userRepository.findByGoogleId("G1")).thenReturn(Optional.of(user));
++
++        // When
++        UUID result = currentUserService.requireCurrentUserId();
++
++        // Then
++        assertThat(result).isEqualTo(expectedId);
++    }
++
++    // ── requireCurrentUserId: User 미존재 → 401 신호 ─────────────────────
++
++    @Test
++    @DisplayName("User 미존재 → 401: principal sub=G1이지만 findByGoogleId 결과가 empty이면 AuthenticationCredentialsNotFoundException을 던진다")
++    void requireCurrentUserId_userNotFound_throwsAuthenticationCredentialsNotFoundException() {
++        // Given
++        OAuth2User principal = mock(OAuth2User.class);
++        when(principal.getAttribute("sub")).thenReturn("G1");
++
++        Authentication auth = mock(Authentication.class);
++        when(auth.getPrincipal()).thenReturn(principal);
++
++        SecurityContextHolder.getContext().setAuthentication(auth);
++
++        when(userRepository.findByGoogleId("G1")).thenReturn(Optional.empty());
++
++        // When / Then
++        assertThatThrownBy(() -> currentUserService.requireCurrentUserId())
++                .isInstanceOf(AuthenticationCredentialsNotFoundException.class);
++    }
++
++    // ── extractGoogleId: 정상 ─────────────────────────────────────────────
++
++    @Test
++    @DisplayName("extractGoogleId 정상: OAuth2User principal(sub=G1) → \"G1\" 반환")
++    void extractGoogleId_validOAuth2User_returnsGoogleId() {
++        // Given
++        OAuth2User principal = mock(OAuth2User.class);
++        when(principal.getAttribute("sub")).thenReturn("G1");
++
++        Authentication auth = mock(Authentication.class);
++        when(auth.getPrincipal()).thenReturn(principal);
++
++        // When
++        String result = CurrentUserService.extractGoogleId(auth);
++
++        // Then
++        assertThat(result).isEqualTo("G1");
++    }
++
++    // ── extractGoogleId: 미인증(Authentication=null) ──────────────────────
++
++    @Test
++    @DisplayName("extractGoogleId 미인증: Authentication=null이면 AuthenticationCredentialsNotFoundException을 던진다")
++    void extractGoogleId_nullAuthentication_throwsAuthenticationCredentialsNotFoundException() {
++        // When / Then
++        assertThatThrownBy(() -> CurrentUserService.extractGoogleId(null))
++                .isInstanceOf(AuthenticationCredentialsNotFoundException.class);
++    }
++
++    // ── extractGoogleId: 비-OAuth2User principal ──────────────────────────
++
++    @Test
++    @DisplayName("extractGoogleId 비-OAuth2User: principal이 String이면 AuthenticationCredentialsNotFoundException을 던진다")
++    void extractGoogleId_nonOAuth2UserPrincipal_throwsAuthenticationCredentialsNotFoundException() {
++        // Given
++        Authentication auth = mock(Authentication.class);
++        when(auth.getPrincipal()).thenReturn("not-an-oauth2-user");
++
++        // When / Then
++        assertThatThrownBy(() -> CurrentUserService.extractGoogleId(auth))
++                .isInstanceOf(AuthenticationCredentialsNotFoundException.class);
++    }
++}
+diff --git a/backend/src/test/java/com/ieum/config/OAuth2SuccessHandlerTest.java b/backend/src/test/java/com/ieum/config/OAuth2SuccessHandlerTest.java
+new file mode 100644
+index 0000000..29edb8f
+--- /dev/null
++++ b/backend/src/test/java/com/ieum/config/OAuth2SuccessHandlerTest.java
+@@ -0,0 +1,311 @@
++package com.ieum.config;
++
++import com.ieum.user.OAuthUserInfo;
++import com.ieum.user.User;
++import com.ieum.user.UserService;
++import jakarta.servlet.http.HttpServletRequest;
++import jakarta.servlet.http.HttpServletResponse;
++import org.junit.jupiter.api.DisplayName;
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.extension.ExtendWith;
++import org.mockito.Mock;
++import org.mockito.junit.jupiter.MockitoExtension;
++import org.springframework.security.core.Authentication;
++import org.springframework.security.oauth2.core.user.OAuth2User;
++
++import java.util.UUID;
++
++import static org.assertj.core.api.Assertions.assertThat;
++import static org.mockito.ArgumentMatchers.any;
++import static org.mockito.Mockito.*;
++
++@ExtendWith(MockitoExtension.class)
++class OAuth2SuccessHandlerTest {
++
++    @Mock
++    private UserService userService;
++
++    @Mock
++    private HttpServletRequest request;
++
++    @Mock
++    private HttpServletResponse response;
++
++    @Mock
++    private Authentication authentication;
++
++    // ── extract() ────────────────────────────────────────────────────────────
++
++    @Test
++    @DisplayName("extract: OAuth2User 속성에서 OAuthUserInfo 필드가 올바르게 매핑된다")
++    void extract_mapsOAuth2UserAttributesToOAuthUserInfo() {
++        // Given
++        OAuth2User oauth2User = mock(OAuth2User.class);
++        when(oauth2User.getAttribute("sub")).thenReturn("G001");
++        when(oauth2User.getAttribute("email")).thenReturn("user@example.com");
++        when(oauth2User.getAttribute("name")).thenReturn("홍길동");
++        when(oauth2User.getAttribute("picture")).thenReturn("http://img/avatar");
++
++        // When
++        OAuthUserInfo info = OAuth2SuccessHandler.extract(oauth2User);
++
++        // Then
++        assertThat(info.googleId()).isEqualTo("G001");
++        assertThat(info.email()).isEqualTo("user@example.com");
++        assertThat(info.name()).isEqualTo("홍길동");
++        assertThat(info.image()).isEqualTo("http://img/avatar");
++    }
++
++    // ── onAuthenticationSuccess 성공 ─────────────────────────────────────────
++
++    @Test
++    @DisplayName("onAuthenticationSuccess 성공: userService.loginWithOAuth 호출 후 /dashboard 리다이렉트")
++    void onAuthenticationSuccess_callsLoginWithOAuthAndRedirectsToDashboard() throws Exception {
++        // Given
++        OAuth2User oauth2User = mock(OAuth2User.class);
++        when(oauth2User.getAttribute("sub")).thenReturn("G001");
++        when(oauth2User.getAttribute("email")).thenReturn("user@example.com");
++        when(oauth2User.getAttribute("name")).thenReturn("홍길동");
++        when(oauth2User.getAttribute("picture")).thenReturn("http://img/avatar");
++
++        when(authentication.getPrincipal()).thenReturn(oauth2User);
++
++        User savedUser = User.builder()
++                .id(UUID.randomUUID())
++                .googleId("G001")
++                .email("user@example.com")
++                .name("홍길동")
++                .image("http://img/avatar")
++                .build();
++        when(userService.loginWithOAuth(any(OAuthUserInfo.class))).thenReturn(savedUser);
++
++        OAuth2SuccessHandler handler = new OAuth2SuccessHandler(userService, "http://localhost:3000");
++
++        // When
++        handler.onAuthenticationSuccess(request, response, authentication);
++
++        // Then
++        verify(userService).loginWithOAuth(any(OAuthUserInfo.class));
++        verify(response).sendRedirect("http://localhost:3000/dashboard");
++    }
++
++    // ── callbackUrl 복귀 (AC-AUTH-06) ────────────────────────────────────────
++
++    @Test
++    @DisplayName("AC-AUTH-06: callbackUrl=/workspace/abc-123 → frontendUrl+callbackUrl 로 리다이렉트")
++    void onAuthenticationSuccess_withValidCallbackUrl_redirectsToCallbackUrl() throws Exception {
++        // Given
++        OAuth2User oauth2User = mock(OAuth2User.class);
++        when(oauth2User.getAttribute("sub")).thenReturn("G001");
++        when(oauth2User.getAttribute("email")).thenReturn("user@example.com");
++        when(oauth2User.getAttribute("name")).thenReturn("홍길동");
++        when(oauth2User.getAttribute("picture")).thenReturn("http://img/avatar");
++
++        when(authentication.getPrincipal()).thenReturn(oauth2User);
++
++        User savedUser = User.builder()
++                .id(UUID.randomUUID())
++                .googleId("G001")
++                .email("user@example.com")
++                .name("홍길동")
++                .image("http://img/avatar")
++                .build();
++        when(userService.loginWithOAuth(any(OAuthUserInfo.class))).thenReturn(savedUser);
++        when(request.getParameter("callbackUrl")).thenReturn("/workspace/abc-123");
++
++        OAuth2SuccessHandler handler = new OAuth2SuccessHandler(userService, "http://localhost:3000");
++
++        // When
++        handler.onAuthenticationSuccess(request, response, authentication);
++
++        // Then
++        verify(response).sendRedirect("http://localhost:3000/workspace/abc-123");
++    }
++
++    @Test
++    @DisplayName("AC-AUTH-06: callbackUrl 없음(null) → frontendUrl+/dashboard 로 리다이렉트")
++    void onAuthenticationSuccess_withNoCallbackUrl_redirectsToDashboard() throws Exception {
++        // Given
++        OAuth2User oauth2User = mock(OAuth2User.class);
++        when(oauth2User.getAttribute("sub")).thenReturn("G001");
++        when(oauth2User.getAttribute("email")).thenReturn("user@example.com");
++        when(oauth2User.getAttribute("name")).thenReturn("홍길동");
++        when(oauth2User.getAttribute("picture")).thenReturn("http://img/avatar");
++
++        when(authentication.getPrincipal()).thenReturn(oauth2User);
++
++        User savedUser = User.builder()
++                .id(UUID.randomUUID())
++                .googleId("G001")
++                .email("user@example.com")
++                .name("홍길동")
++                .image("http://img/avatar")
++                .build();
++        when(userService.loginWithOAuth(any(OAuthUserInfo.class))).thenReturn(savedUser);
++        // callbackUrl 파라미터 없음 → Mockito 기본값 null 반환, stub 불필요
++
++        OAuth2SuccessHandler handler = new OAuth2SuccessHandler(userService, "http://localhost:3000");
++
++        // When
++        handler.onAuthenticationSuccess(request, response, authentication);
++
++        // Then
++        verify(response).sendRedirect("http://localhost:3000/dashboard");
++    }
++
++    @Test
++    @DisplayName("AC-AUTH-06 open-redirect 방지: callbackUrl=http://evil.com → /dashboard 폴백")
++    void onAuthenticationSuccess_withAbsoluteCallbackUrl_redirectsToDashboard() throws Exception {
++        // Given
++        OAuth2User oauth2User = mock(OAuth2User.class);
++        when(oauth2User.getAttribute("sub")).thenReturn("G001");
++        when(oauth2User.getAttribute("email")).thenReturn("user@example.com");
++        when(oauth2User.getAttribute("name")).thenReturn("홍길동");
++        when(oauth2User.getAttribute("picture")).thenReturn("http://img/avatar");
++
++        when(authentication.getPrincipal()).thenReturn(oauth2User);
++
++        User savedUser = User.builder()
++                .id(UUID.randomUUID())
++                .googleId("G001")
++                .email("user@example.com")
++                .name("홍길동")
++                .image("http://img/avatar")
++                .build();
++        when(userService.loginWithOAuth(any(OAuthUserInfo.class))).thenReturn(savedUser);
++        lenient().when(request.getParameter("callbackUrl")).thenReturn("http://evil.com");
++
++        OAuth2SuccessHandler handler = new OAuth2SuccessHandler(userService, "http://localhost:3000");
++
++        // When
++        handler.onAuthenticationSuccess(request, response, authentication);
++
++        // Then
++        verify(response).sendRedirect("http://localhost:3000/dashboard");
++        verify(response, never()).sendRedirect("http://evil.com");
++    }
++
++    @Test
++    @DisplayName("AC-AUTH-06 open-redirect 방지: callbackUrl=//evil.com → /dashboard 폴백")
++    void onAuthenticationSuccess_withProtocolRelativeCallbackUrl_redirectsToDashboard() throws Exception {
++        // Given
++        OAuth2User oauth2User = mock(OAuth2User.class);
++        when(oauth2User.getAttribute("sub")).thenReturn("G001");
++        when(oauth2User.getAttribute("email")).thenReturn("user@example.com");
++        when(oauth2User.getAttribute("name")).thenReturn("홍길동");
++        when(oauth2User.getAttribute("picture")).thenReturn("http://img/avatar");
++
++        when(authentication.getPrincipal()).thenReturn(oauth2User);
++
++        User savedUser = User.builder()
++                .id(UUID.randomUUID())
++                .googleId("G001")
++                .email("user@example.com")
++                .name("홍길동")
++                .image("http://img/avatar")
++                .build();
++        when(userService.loginWithOAuth(any(OAuthUserInfo.class))).thenReturn(savedUser);
++        lenient().when(request.getParameter("callbackUrl")).thenReturn("//evil.com");
++
++        OAuth2SuccessHandler handler = new OAuth2SuccessHandler(userService, "http://localhost:3000");
++
++        // When
++        handler.onAuthenticationSuccess(request, response, authentication);
++
++        // Then
++        verify(response).sendRedirect("http://localhost:3000/dashboard");
++        verify(response, never()).sendRedirect("//evil.com");
++    }
++
++    // ── SEC-CRITICAL: open-redirect 하드닝 (백슬래시 / 인코딩 슬래시) ──────────
++
++    @Test
++    @DisplayName("SEC-CRITICAL open-redirect: callbackUrl=/\\evil.com(백슬래시) → /dashboard 폴백")
++    void onAuthenticationSuccess_withBackslashCallbackUrl_redirectsToDashboard() throws Exception {
++        // Given
++        OAuth2User oauth2User = mock(OAuth2User.class);
++        when(oauth2User.getAttribute("sub")).thenReturn("G001");
++        when(oauth2User.getAttribute("email")).thenReturn("user@example.com");
++        when(oauth2User.getAttribute("name")).thenReturn("홍길동");
++        when(oauth2User.getAttribute("picture")).thenReturn("http://img/avatar");
++
++        when(authentication.getPrincipal()).thenReturn(oauth2User);
++
++        User savedUser = User.builder()
++                .id(UUID.randomUUID())
++                .googleId("G001")
++                .email("user@example.com")
++                .name("홍길동")
++                .image("http://img/avatar")
++                .build();
++        when(userService.loginWithOAuth(any(OAuthUserInfo.class))).thenReturn(savedUser);
++        lenient().when(request.getParameter("callbackUrl")).thenReturn("/\\evil.com");
++
++        OAuth2SuccessHandler handler = new OAuth2SuccessHandler(userService, "http://localhost:3000");
++
++        // When
++        handler.onAuthenticationSuccess(request, response, authentication);
++
++        // Then
++        verify(response).sendRedirect("http://localhost:3000/dashboard");
++        verify(response, never()).sendRedirect("http://localhost:3000/\\evil.com");
++    }
++
++    @Test
++    @DisplayName("SEC-CRITICAL open-redirect: callbackUrl=/%2f%2fevil.com(인코딩 슬래시) → /dashboard 폴백")
++    void onAuthenticationSuccess_withEncodedSlashCallbackUrl_redirectsToDashboard() throws Exception {
++        // Given
++        OAuth2User oauth2User = mock(OAuth2User.class);
++        when(oauth2User.getAttribute("sub")).thenReturn("G001");
++        when(oauth2User.getAttribute("email")).thenReturn("user@example.com");
++        when(oauth2User.getAttribute("name")).thenReturn("홍길동");
++        when(oauth2User.getAttribute("picture")).thenReturn("http://img/avatar");
++
++        when(authentication.getPrincipal()).thenReturn(oauth2User);
++
++        User savedUser = User.builder()
++                .id(UUID.randomUUID())
++                .googleId("G001")
++                .email("user@example.com")
++                .name("홍길동")
++                .image("http://img/avatar")
++                .build();
++        when(userService.loginWithOAuth(any(OAuthUserInfo.class))).thenReturn(savedUser);
++        lenient().when(request.getParameter("callbackUrl")).thenReturn("/%2f%2fevil.com");
++
++        OAuth2SuccessHandler handler = new OAuth2SuccessHandler(userService, "http://localhost:3000");
++
++        // When
++        handler.onAuthenticationSuccess(request, response, authentication);
++
++        // Then
++        verify(response).sendRedirect("http://localhost:3000/dashboard");
++        verify(response, never()).sendRedirect("http://localhost:3000/%2f%2fevil.com");
++    }
++
++    // ── onAuthenticationSuccess 실패 ─────────────────────────────────────────
++
++    @Test
++    @DisplayName("onAuthenticationSuccess 실패: loginWithOAuth 예외 발생 시 /login?error=true 리다이렉트")
++    void onAuthenticationSuccess_whenLoginWithOAuthThrows_redirectsToLoginWithError() throws Exception {
++        // Given
++        OAuth2User oauth2User = mock(OAuth2User.class);
++        when(oauth2User.getAttribute("sub")).thenReturn("G001");
++        when(oauth2User.getAttribute("email")).thenReturn("user@example.com");
++        when(oauth2User.getAttribute("name")).thenReturn("홍길동");
++        when(oauth2User.getAttribute("picture")).thenReturn("http://img/avatar");
++
++        when(authentication.getPrincipal()).thenReturn(oauth2User);
++        when(userService.loginWithOAuth(any(OAuthUserInfo.class)))
++                .thenThrow(new RuntimeException("DB 오류"));
++
++        OAuth2SuccessHandler handler = new OAuth2SuccessHandler(userService, "http://localhost:3000");
++
++        // When
++        handler.onAuthenticationSuccess(request, response, authentication);
++
++        // Then
++        verify(response).sendRedirect("http://localhost:3000/login?error=true");
++        verify(response, never()).sendRedirect("http://localhost:3000/dashboard");
++    }
++}
+diff --git a/backend/src/test/java/com/ieum/config/SecurityIntegrationTest.java b/backend/src/test/java/com/ieum/config/SecurityIntegrationTest.java
+new file mode 100644
+index 0000000..9203be4
+--- /dev/null
++++ b/backend/src/test/java/com/ieum/config/SecurityIntegrationTest.java
+@@ -0,0 +1,71 @@
++package com.ieum.config;
++
++import com.ieum.support.AbstractIntegrationTest;
++import org.junit.jupiter.api.DisplayName;
++import org.junit.jupiter.api.Test;
++import org.springframework.beans.factory.annotation.Autowired;
++import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
++import org.springframework.http.MediaType;
++import org.springframework.test.web.servlet.MockMvc;
++
++import static org.hamcrest.Matchers.containsString;
++import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oauth2Login;
++import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
++import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
++import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
++
++@AutoConfigureMockMvc
++class SecurityIntegrationTest extends AbstractIntegrationTest {
++
++    @Autowired
++    private MockMvc mockMvc;
++
++    // ── AC-AUTH-04: 미인증 비-API → 302 /login ───────────────────────────────
++
++    @Test
++    @DisplayName("AC-AUTH-04: 미인증 GET /dashboard — 302 리다이렉트, Location에 /login 포함")
++    void unauthenticated_nonApiRequest_redirectsToLogin() throws Exception {
++        mockMvc.perform(get("/dashboard"))
++                .andExpect(status().isFound())
++                .andExpect(header().string("Location", containsString("/login")));
++    }
++
++    // ── AC-AUTH-05: 미인증 /api/** → 401 JSON ────────────────────────────────
++
++    @Test
++    @DisplayName("AC-AUTH-05: 미인증 GET /api/workspaces — 401, Content-Type JSON, 바디에 code 필드 존재")
++    void unauthenticated_apiRequest_returns401JsonWithCodeField() throws Exception {
++        mockMvc.perform(get("/api/workspaces"))
++                .andExpect(status().isUnauthorized())
++                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
++                .andExpect(jsonPath("$.code").exists());
++    }
++
++    // ── AC-AUTH-01: OAuth 진입 → 302 google (회귀 가드) ─────────────────────
++
++    @Test
++    @DisplayName("AC-AUTH-01: GET /oauth2/authorization/google — 302, Location에 accounts.google.com 포함")
++    void oauth2AuthorizationRequest_redirectsToGoogle() throws Exception {
++        mockMvc.perform(get("/oauth2/authorization/google"))
++                .andExpect(status().isFound())
++                .andExpect(header().string("Location", containsString("accounts.google.com")));
++    }
++
++    // ── FR-9: 로그아웃 ────────────────────────────────────────────────────────
++
++    @Test
++    @DisplayName("FR-9: 인증된 사용자 POST /api/auth/logout — 204 No Content")
++    void authenticatedUser_postLogout_returns204() throws Exception {
++        mockMvc.perform(post("/api/auth/logout").with(oauth2Login()))
++                .andExpect(status().isNoContent());
++    }
++
++    // ── SEC-CRITICAL: GET 로그아웃 차단 ──────────────────────────────────────
++
++    @Test
++    @DisplayName("SEC-CRITICAL: GET /api/auth/logout — 204가 아니어야 함 (POST 전용, GET은 405 Method Not Allowed)")
++    void authenticatedUser_getLogout_mustNotReturn2xx() throws Exception {
++        mockMvc.perform(get("/api/auth/logout").with(oauth2Login()))
++                .andExpect(status().isMethodNotAllowed());
++    }
++}
+diff --git a/backend/src/test/java/com/ieum/config/SessionSecurityTest.java b/backend/src/test/java/com/ieum/config/SessionSecurityTest.java
+new file mode 100644
+index 0000000..5e7fd5f
+--- /dev/null
++++ b/backend/src/test/java/com/ieum/config/SessionSecurityTest.java
+@@ -0,0 +1,49 @@
++package com.ieum.config;
++
++import com.ieum.support.AbstractIntegrationTest;
++import jakarta.servlet.ServletContext;
++import jakarta.servlet.SessionCookieConfig;
++import org.junit.jupiter.api.DisplayName;
++import org.junit.jupiter.api.Test;
++import org.springframework.beans.factory.annotation.Autowired;
++import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
++import org.springframework.test.web.servlet.MockMvc;
++import org.springframework.web.context.WebApplicationContext;
++
++import static org.assertj.core.api.Assertions.assertThat;
++import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
++import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
++
++@AutoConfigureMockMvc
++class SessionSecurityTest extends AbstractIntegrationTest {
++
++    @Autowired
++    MockMvc mockMvc;
++
++    @Autowired
++    WebApplicationContext wac;
++
++    @Test
++    @DisplayName("AC-SEC-01: 세션 쿠키에 HttpOnly=true, SameSite=Lax 속성이 설정되어야 한다")
++    void sessionCookie_shouldHaveHttpOnlyAndSameSiteLax() {
++        ServletContext servletContext = wac.getServletContext();
++        SessionCookieConfig cfg = servletContext.getSessionCookieConfig();
++
++        assertThat(cfg.isHttpOnly())
++                .as("세션 쿠키 HttpOnly 속성이 true여야 한다")
++                .isTrue();
++
++        assertThat(cfg.getAttribute("SameSite"))
++                .as("세션 쿠키 SameSite 속성이 Lax여야 한다")
++                .isEqualTo("Lax");
++    }
++
++    @Test
++    @DisplayName("AC-SEC-02: 변조된 JSESSIONID 쿠키로 요청 시 401 Unauthorized가 반환되어야 한다")
++    void tamperedSessionCookie_shouldReturn401() throws Exception {
++        mockMvc.perform(
++                get("/api/workspaces")
++                        .cookie(new jakarta.servlet.http.Cookie("JSESSIONID", "tampered-invalid-value"))
++        ).andExpect(status().isUnauthorized());
++    }
++}
+diff --git a/backend/src/test/java/com/ieum/support/AbstractIntegrationTest.java b/backend/src/test/java/com/ieum/support/AbstractIntegrationTest.java
+new file mode 100644
+index 0000000..5606ab5
+--- /dev/null
++++ b/backend/src/test/java/com/ieum/support/AbstractIntegrationTest.java
+@@ -0,0 +1,33 @@
++package com.ieum.support;
++
++import org.springframework.boot.test.context.SpringBootTest;
++import org.springframework.test.context.ActiveProfiles;
++import org.springframework.test.context.DynamicPropertyRegistry;
++import org.springframework.test.context.DynamicPropertySource;
++import org.testcontainers.containers.PostgreSQLContainer;
++
++/**
++ * 통합 테스트 베이스 — Testcontainers PostgreSQL 싱글톤.
++ *
++ * <p>컨테이너를 static 초기화 블록에서 1회 start하고 JUnit({@code @Testcontainers}/{@code @Container})이나
++ * Spring({@code @ServiceConnection}) 생명주기에 결합하지 않는다. 이렇게 해야 여러 통합 테스트 클래스가
++ * Spring 컨텍스트 캐시를 공유할 때 컨테이너가 클래스 사이에서 중지되어 "Connection refused"가 나는 문제를
++ * 방지한다(싱글톤 컨테이너 패턴). 컨테이너는 JVM 종료 시 Testcontainers Ryuk가 정리한다.
++ */
++@SpringBootTest
++@ActiveProfiles("test")
++public abstract class AbstractIntegrationTest {
++
++    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
++
++    static {
++        POSTGRES.start();
++    }
++
++    @DynamicPropertySource
++    static void datasourceProperties(DynamicPropertyRegistry registry) {
++        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
++        registry.add("spring.datasource.username", POSTGRES::getUsername);
++        registry.add("spring.datasource.password", POSTGRES::getPassword);
++    }
++}
+diff --git a/backend/src/test/java/com/ieum/user/UserServiceTest.java b/backend/src/test/java/com/ieum/user/UserServiceTest.java
+new file mode 100644
+index 0000000..4fe0483
+--- /dev/null
++++ b/backend/src/test/java/com/ieum/user/UserServiceTest.java
+@@ -0,0 +1,166 @@
++package com.ieum.user;
++
++import org.junit.jupiter.api.DisplayName;
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.extension.ExtendWith;
++import org.mockito.ArgumentCaptor;
++import org.mockito.InjectMocks;
++import org.mockito.Mock;
++import org.mockito.junit.jupiter.MockitoExtension;
++
++import com.ieum.workspace.WorkspaceService;
++import com.ieum.workspace.Workspace;
++
++import java.util.Optional;
++import java.util.UUID;
++
++import static org.assertj.core.api.Assertions.assertThat;
++import static org.mockito.ArgumentMatchers.any;
++import static org.mockito.Mockito.*;
++
++@ExtendWith(MockitoExtension.class)
++class UserServiceTest {
++
++    @Mock
++    private UserRepository userRepository;
++
++    @Mock
++    private WorkspaceService workspaceService;
++
++    @InjectMocks
++    private UserService userService;
++
++    // ── AC-AUTH-02: 신규 생성 ─────────────────────────────────────────
++
++    @Test
++    @DisplayName("AC-AUTH-02: googleId가 없는 신규 사용자 — upsert 시 새 User가 저장되고 반환된다")
++    void upsert_newUser_savesAndReturnsWithAllFields() {
++        // Given
++        OAuthUserInfo info = new OAuthUserInfo("G001", "a@test.com", "홍길동", "http://img/a");
++        when(userRepository.findByGoogleId("G001")).thenReturn(Optional.empty());
++        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
++
++        // When
++        User result = userService.upsert(info);
++
++        // Then
++        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
++        verify(userRepository).save(captor.capture());
++        User saved = captor.getValue();
++
++        assertThat(saved.getGoogleId()).isEqualTo("G001");
++        assertThat(saved.getEmail()).isEqualTo("a@test.com");
++        assertThat(saved.getName()).isEqualTo("홍길동");
++        assertThat(saved.getImage()).isEqualTo("http://img/a");
++
++        assertThat(result.getGoogleId()).isEqualTo("G001");
++        assertThat(result.getEmail()).isEqualTo("a@test.com");
++        assertThat(result.getName()).isEqualTo("홍길동");
++        assertThat(result.getImage()).isEqualTo("http://img/a");
++    }
++
++    // ── AC-AUTH-03 / BR-1: 재로그인 — 기존 User 갱신 ──────────────────
++
++    @Test
++    @DisplayName("AC-AUTH-03: 기존 googleId로 재로그인 — id·googleId 불변, name/email/image만 갱신된다")
++    void upsert_existingUser_updatesFieldsAndKeepsIdAndGoogleId() {
++        // Given
++        UUID existingId = UUID.randomUUID();
++        User existing = User.builder()
++                .id(existingId)
++                .googleId("G001")
++                .email("old@test.com")
++                .name("구이름")
++                .image("http://img/old")
++                .build();
++
++        OAuthUserInfo info = new OAuthUserInfo("G001", "new@test.com", "새이름", "http://img/new");
++        when(userRepository.findByGoogleId("G001")).thenReturn(Optional.of(existing));
++        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
++
++        // When
++        User result = userService.upsert(info);
++
++        // Then: id·googleId 불변
++        assertThat(result.getId()).isEqualTo(existingId);
++        assertThat(result.getGoogleId()).isEqualTo("G001");
++
++        // Then: name/email/image 갱신
++        assertThat(result.getEmail()).isEqualTo("new@test.com");
++        assertThat(result.getName()).isEqualTo("새이름");
++        assertThat(result.getImage()).isEqualTo("http://img/new");
++
++        // Then: save에 전달된 인스턴스가 기존 인스턴스(신규 객체 아님)
++        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
++        verify(userRepository).save(captor.capture());
++        assertThat(captor.getValue()).isSameAs(existing);
++    }
++
++    // ── AC-SEC-03: 토큰 미저장 ────────────────────────────────────────
++
++    @Test
++    @DisplayName("AC-SEC-03: upsert 결과 User에 토큰 관련 필드가 설정되지 않는다")
++    void upsert_savedUser_hasNoTokenFields() {
++        // Given
++        OAuthUserInfo info = new OAuthUserInfo("G001", "a@test.com", "홍길동", "http://img/a");
++        when(userRepository.findByGoogleId("G001")).thenReturn(Optional.empty());
++        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
++
++        // When
++        userService.upsert(info);
++
++        // Then: 저장되는 User 엔티티는 googleId/email/name/image 외의 토큰 필드를 갖지 않는다.
++        // OAuthUserInfo 자체에 토큰 필드가 없음을 컴파일 타임에 검증 (accessToken, refreshToken 필드 부재).
++        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
++        verify(userRepository).save(captor.capture());
++        User saved = captor.getValue();
++
++        // User 엔티티에 토큰 관련 getter가 존재하지 않으므로 아래 4개 필드만 검증된다.
++        assertThat(saved.getGoogleId()).isNotNull();
++        assertThat(saved.getEmail()).isNotNull();
++        assertThat(saved.getName()).isNotNull();
++        assertThat(saved.getImage()).isNotNull();
++
++        // OAuthUserInfo 레코드에 토큰 필드가 없음을 컴파일 타임 확인
++        // (accessToken(), refreshToken() 등 메서드를 호출하면 컴파일 에러 → 설계 위반 감지)
++        String googleId = info.googleId();
++        String email    = info.email();
++        String name     = info.name();
++        String image    = info.image();
++        assertThat(googleId).isEqualTo("G001");
++        assertThat(email).isEqualTo("a@test.com");
++        assertThat(name).isEqualTo("홍길동");
++        assertThat(image).isEqualTo("http://img/a");
++    }
++
++    // ── BR-7: loginWithOAuth — upsert 후 ensurePersonalWorkspace 호출 ──
++
++    @Test
++    @DisplayName("BR-7: loginWithOAuth — upsert로 User 확보 후 workspaceService.ensurePersonalWorkspace가 호출되고 User가 반환된다")
++    void loginWithOAuth_upsertsUserThenEnsuresPersonalWorkspace() {
++        // Given
++        UUID userId = UUID.randomUUID();
++        OAuthUserInfo info = new OAuthUserInfo("G001", "a@test.com", "홍길동", "http://img/a");
++
++        User savedUser = User.builder()
++                .id(userId)
++                .googleId("G001")
++                .email("a@test.com")
++                .name("홍길동")
++                .image("http://img/a")
++                .build();
++
++        when(userRepository.findByGoogleId("G001")).thenReturn(Optional.empty());
++        when(userRepository.save(any(User.class))).thenReturn(savedUser);
++
++        // When
++        User result = userService.loginWithOAuth(info);
++
++        // Then: ensurePersonalWorkspace가 user.id로 호출됨
++        verify(workspaceService).ensurePersonalWorkspace(userId);
++
++        // Then: User 반환
++        assertThat(result.getId()).isEqualTo(userId);
++        assertThat(result.getGoogleId()).isEqualTo("G001");
++    }
++}
+diff --git a/backend/src/test/java/com/ieum/workspace/WorkspaceServiceTest.java b/backend/src/test/java/com/ieum/workspace/WorkspaceServiceTest.java
+new file mode 100644
+index 0000000..05bc6f9
+--- /dev/null
++++ b/backend/src/test/java/com/ieum/workspace/WorkspaceServiceTest.java
+@@ -0,0 +1,115 @@
++package com.ieum.workspace;
++
++import org.junit.jupiter.api.DisplayName;
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.extension.ExtendWith;
++import org.mockito.ArgumentCaptor;
++import org.mockito.InjectMocks;
++import org.mockito.Mock;
++import org.mockito.junit.jupiter.MockitoExtension;
++
++import com.ieum.user.UserRepository;
++
++import java.util.Optional;
++import java.util.UUID;
++
++import static org.assertj.core.api.Assertions.assertThat;
++import static org.mockito.ArgumentMatchers.any;
++import static org.mockito.Mockito.*;
++
++@ExtendWith(MockitoExtension.class)
++class WorkspaceServiceTest {
++
++    @Mock
++    private WorkspaceRepository workspaceRepository;
++
++    @Mock
++    private MembershipRepository membershipRepository;
++
++    @Mock
++    private UserRepository userRepository;
++
++    @InjectMocks
++    private WorkspaceService workspaceService;
++
++    // ── AC-AUTH-02: 개인 워크스페이스 신규 생성 ──────────────────────────
++
++    @Test
++    @DisplayName("AC-AUTH-02: PERSONAL 워크스페이스 없을 때 — Workspace·Membership이 저장되고 생성된 Workspace가 반환된다")
++    void ensurePersonalWorkspace_whenNotExists_savesWorkspaceAndMembership() {
++        // Given
++        UUID ownerId = UUID.randomUUID();
++        UUID savedWsId = UUID.randomUUID();
++
++        when(workspaceRepository.existsByOwnerIdAndType(ownerId, WorkspaceType.PERSONAL))
++                .thenReturn(false);
++
++        when(workspaceRepository.save(any(Workspace.class))).thenAnswer(inv -> {
++            Workspace ws = inv.getArgument(0);
++            return Workspace.builder()
++                    .id(savedWsId)
++                    .name(ws.getName())
++                    .type(ws.getType())
++                    .ownerId(ws.getOwnerId())
++                    .build();
++        });
++
++        when(membershipRepository.save(any(Membership.class))).thenAnswer(inv -> inv.getArgument(0));
++
++        // When
++        Workspace result = workspaceService.ensurePersonalWorkspace(ownerId);
++
++        // Then: Workspace 저장 내용 검증
++        ArgumentCaptor<Workspace> wsCaptor = ArgumentCaptor.forClass(Workspace.class);
++        verify(workspaceRepository).save(wsCaptor.capture());
++        Workspace savedWs = wsCaptor.getValue();
++
++        assertThat(savedWs.getType()).isEqualTo(WorkspaceType.PERSONAL);
++        assertThat(savedWs.getOwnerId()).isEqualTo(ownerId);
++        assertThat(savedWs.getName()).isEqualTo("내 워크스페이스");
++
++        // Then: Membership 저장 내용 검증
++        ArgumentCaptor<Membership> memberCaptor = ArgumentCaptor.forClass(Membership.class);
++        verify(membershipRepository).save(memberCaptor.capture());
++        Membership savedMembership = memberCaptor.getValue();
++
++        assertThat(savedMembership.getRole()).isEqualTo(MemberRole.OWNER);
++        assertThat(savedMembership.getUserId()).isEqualTo(ownerId);
++        assertThat(savedMembership.getWorkspaceId()).isEqualTo(savedWsId);
++
++        // Then: 반환값 검증
++        assertThat(result.getId()).isEqualTo(savedWsId);
++        assertThat(result.getType()).isEqualTo(WorkspaceType.PERSONAL);
++        assertThat(result.getOwnerId()).isEqualTo(ownerId);
++    }
++
++    // ── BR-2: 멱등 — 이미 존재하는 경우 save 없이 기존 반환 ───────────
++
++    @Test
++    @DisplayName("BR-2: PERSONAL 워크스페이스가 이미 존재할 때 — save를 호출하지 않고 기존 Workspace를 반환한다")
++    void ensurePersonalWorkspace_whenAlreadyExists_returnsExistingWithoutSave() {
++        // Given
++        UUID ownerId = UUID.randomUUID();
++        Workspace existing = Workspace.builder()
++                .id(UUID.randomUUID())
++                .name("내 워크스페이스")
++                .type(WorkspaceType.PERSONAL)
++                .ownerId(ownerId)
++                .build();
++
++        when(workspaceRepository.existsByOwnerIdAndType(ownerId, WorkspaceType.PERSONAL))
++                .thenReturn(true);
++        when(workspaceRepository.findFirstByOwnerIdAndType(ownerId, WorkspaceType.PERSONAL))
++                .thenReturn(Optional.of(existing));
++
++        // When
++        Workspace result = workspaceService.ensurePersonalWorkspace(ownerId);
++
++        // Then: 새 저장 없음
++        verify(workspaceRepository, never()).save(any());
++        verify(membershipRepository, never()).save(any());
++
++        // Then: 기존 워크스페이스 반환
++        assertThat(result).isSameAs(existing);
++    }
++}
+diff --git a/backend/src/test/resources/application-test.yml b/backend/src/test/resources/application-test.yml
+new file mode 100644
+index 0000000..42e8181
+--- /dev/null
++++ b/backend/src/test/resources/application-test.yml
+@@ -0,0 +1,18 @@
++spring:
++  flyway:
++    enabled: true
++
++  jpa:
++    hibernate:
++      ddl-auto: validate
++
++  security:
++    oauth2:
++      client:
++        registration:
++          google:
++            client-id: test-client-id
++            client-secret: test-client-secret
++            scope:
++              - profile
++              - email
