@@ -66,7 +66,7 @@ public class InvitationController {
      */
     @PostMapping("/api/invitations/accept")
     public ResponseEntity<Void> acceptInvitation(@RequestBody AcceptInvitationRequest request) {
-        UUID currentUserId = null; // TODO(Phase 1): 인증 컨텍스트에서 추출 (비로그인 접근 시 인증 유도)
+        UUID currentUserId = currentUserService.requireCurrentUserId();
         invitationService.acceptInvitation(currentUserId, request);
         return ResponseEntity.noContent().build();
     }

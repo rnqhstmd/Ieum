@@ -1,8 +1,10 @@
 package com.ieum.invitation;
 
 import com.ieum.common.ConflictException;
+import com.ieum.common.GoneException;
 import com.ieum.common.email.ResendEmailClient;
 import com.ieum.common.security.AccessGuard;
+import com.ieum.invitation.dto.AcceptInvitationRequest;
 import com.ieum.invitation.dto.CreateInvitationRequest;
 import com.ieum.invitation.dto.InvitationDto;
 import com.ieum.user.User;
@@ -21,6 +23,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
 
+import jakarta.persistence.EntityNotFoundException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -196,5 +199,179 @@ class InvitationServiceTest {
                 .isInstanceOf(IllegalArgumentException.class);
 
         verify(invitationRepository, never()).save(any());
+    }
+
+    // ═══════════════════ acceptInvitation (P8 AC-1~10) ═══════════════════
+
+    private static final String TOKEN = "valid-token-abcdef0123456789";
+
+    private Invitation pendingInvitation(String email, MemberRole role, UUID wsId, Instant expiresAt) {
+        return Invitation.builder()
+                .id(UUID.randomUUID()).workspaceId(wsId).email(email)
+                .invitedById(UUID.randomUUID()).role(role).token(TOKEN)
+                .status(InvitationStatus.PENDING).expiresAt(expiresAt).build();
+    }
+
+    // AC-1: 유효 수락 → Membership(role 승계) 생성 + status ACCEPTED
+    @Test
+    @DisplayName("AC-1: acceptInvitation — 유효 PENDING+미만료+이메일일치 → Membership 생성 + status ACCEPTED")
+    void acceptInvitation_valid_createsMembershipAndAccepts() {
+        UUID userId = UUID.randomUUID();
+        UUID wsId = UUID.randomUUID();
+        Invitation inv = pendingInvitation("user@x.com", MemberRole.MEMBER, wsId,
+                Instant.now().plus(1, ChronoUnit.DAYS));
+        when(invitationRepository.findByToken(TOKEN)).thenReturn(Optional.of(inv));
+        when(userRepository.findById(userId))
+                .thenReturn(Optional.of(User.builder().id(userId).email("user@x.com").build()));
+        when(membershipRepository.findByUserIdAndWorkspaceId(userId, wsId)).thenReturn(Optional.empty());
+
+        invitationService.acceptInvitation(userId, new AcceptInvitationRequest(TOKEN));
+
+        ArgumentCaptor<Membership> cap = ArgumentCaptor.forClass(Membership.class);
+        verify(membershipRepository).save(cap.capture());
+        assertThat(cap.getValue().getUserId()).isEqualTo(userId);
+        assertThat(cap.getValue().getWorkspaceId()).isEqualTo(wsId);
+        assertThat(cap.getValue().getRole()).isEqualTo(MemberRole.MEMBER);
+        assertThat(inv.getStatus()).isEqualTo(InvitationStatus.ACCEPTED);
+        verify(invitationRepository).save(inv);
+    }
+
+    // AC-2: 존재하지 않는 토큰 → 404
+    @Test
+    @DisplayName("AC-2: acceptInvitation — 존재하지 않는 토큰 → EntityNotFoundException, Membership 미생성")
+    void acceptInvitation_unknownToken_throwsNotFound() {
+        UUID userId = UUID.randomUUID();
+        when(invitationRepository.findByToken("nope")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> invitationService.acceptInvitation(userId, new AcceptInvitationRequest("nope")))
+                .isInstanceOf(EntityNotFoundException.class);
+
+        verify(membershipRepository, never()).save(any());
+    }
+
+    // AC-3: ACCEPTED 상태 → 409
+    @Test
+    @DisplayName("AC-3: acceptInvitation — ACCEPTED 상태 토큰 → ConflictException, Membership 미생성. 메시지에 내부 상태값(enum) 미노출")
+    void acceptInvitation_accepted_throwsConflict() {
+        UUID userId = UUID.randomUUID();
+        Invitation inv = pendingInvitation("user@x.com", MemberRole.MEMBER, UUID.randomUUID(),
+                Instant.now().plus(1, ChronoUnit.DAYS));
+        inv.setStatus(InvitationStatus.ACCEPTED);
+        when(invitationRepository.findByToken(TOKEN)).thenReturn(Optional.of(inv));
+
+        assertThatThrownBy(() -> invitationService.acceptInvitation(userId, new AcceptInvitationRequest(TOKEN)))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("이미 처리된 초대입니다."); // SEC: 내부 상태값(ACCEPTED 등) 미노출
+
+        verify(membershipRepository, never()).save(any());
+    }
+
+    // AC-4: REVOKED 상태 → 409
+    @Test
+    @DisplayName("AC-4: acceptInvitation — REVOKED 상태 토큰 → ConflictException")
+    void acceptInvitation_revoked_throwsConflict() {
+        UUID userId = UUID.randomUUID();
+        Invitation inv = pendingInvitation("user@x.com", MemberRole.MEMBER, UUID.randomUUID(),
+                Instant.now().plus(1, ChronoUnit.DAYS));
+        inv.setStatus(InvitationStatus.REVOKED);
+        when(invitationRepository.findByToken(TOKEN)).thenReturn(Optional.of(inv));
+
+        assertThatThrownBy(() -> invitationService.acceptInvitation(userId, new AcceptInvitationRequest(TOKEN)))
+                .isInstanceOf(ConflictException.class);
+
+        verify(membershipRepository, never()).save(any());
+    }
+
+    // AC-5: PENDING+만료 → status EXPIRED 전이 + GoneException(410)
+    @Test
+    @DisplayName("AC-5: acceptInvitation — PENDING+만료 → status EXPIRED 전이 + GoneException, Membership 미생성")
+    void acceptInvitation_expired_transitionsExpiredAndThrowsGone() {
+        UUID userId = UUID.randomUUID();
+        Invitation inv = pendingInvitation("user@x.com", MemberRole.MEMBER, UUID.randomUUID(),
+                Instant.now().minus(1, ChronoUnit.SECONDS));
+        when(invitationRepository.findByToken(TOKEN)).thenReturn(Optional.of(inv));
+
+        assertThatThrownBy(() -> invitationService.acceptInvitation(userId, new AcceptInvitationRequest(TOKEN)))
+                .isInstanceOf(GoneException.class);
+
+        assertThat(inv.getStatus()).isEqualTo(InvitationStatus.EXPIRED);
+        verify(invitationRepository).save(inv);
+        verify(membershipRepository, never()).save(any());
+    }
+
+    // AC-6: 이미 EXPIRED 상태 → 409 (비PENDING)
+    @Test
+    @DisplayName("AC-6: acceptInvitation — 이미 EXPIRED 상태 토큰 → ConflictException")
+    void acceptInvitation_alreadyExpired_throwsConflict() {
+        UUID userId = UUID.randomUUID();
+        Invitation inv = pendingInvitation("user@x.com", MemberRole.MEMBER, UUID.randomUUID(),
+                Instant.now().minus(10, ChronoUnit.DAYS));
+        inv.setStatus(InvitationStatus.EXPIRED);
+        when(invitationRepository.findByToken(TOKEN)).thenReturn(Optional.of(inv));
+
+        assertThatThrownBy(() -> invitationService.acceptInvitation(userId, new AcceptInvitationRequest(TOKEN)))
+                .isInstanceOf(ConflictException.class);
+
+        verify(membershipRepository, never()).save(any());
+    }
+
+    // AC-7: 초대 이메일 ≠ 로그인 사용자 이메일 → 403
+    @Test
+    @DisplayName("AC-7: acceptInvitation — 초대 이메일 ≠ 로그인 사용자 이메일 → AccessDeniedException, Membership 미생성")
+    void acceptInvitation_emailMismatch_throwsForbidden() {
+        UUID userId = UUID.randomUUID();
+        UUID wsId = UUID.randomUUID();
+        Invitation inv = pendingInvitation("invited@x.com", MemberRole.MEMBER, wsId,
+                Instant.now().plus(1, ChronoUnit.DAYS));
+        when(invitationRepository.findByToken(TOKEN)).thenReturn(Optional.of(inv));
+        when(userRepository.findById(userId))
+                .thenReturn(Optional.of(User.builder().id(userId).email("other@x.com").build()));
+
+        assertThatThrownBy(() -> invitationService.acceptInvitation(userId, new AcceptInvitationRequest(TOKEN)))
+                .isInstanceOf(AccessDeniedException.class);
+
+        verify(membershipRepository, never()).save(any());
+    }
+
+    // AC-8: 이미 멤버(멱등) → Membership 미생성 + status ACCEPTED 전이
+    @Test
+    @DisplayName("AC-8: acceptInvitation — 이미 멤버(멱등) → Membership 미생성 + status ACCEPTED 전이")
+    void acceptInvitation_alreadyMember_idempotentAccept() {
+        UUID userId = UUID.randomUUID();
+        UUID wsId = UUID.randomUUID();
+        Invitation inv = pendingInvitation("user@x.com", MemberRole.MEMBER, wsId,
+                Instant.now().plus(1, ChronoUnit.DAYS));
+        when(invitationRepository.findByToken(TOKEN)).thenReturn(Optional.of(inv));
+        when(userRepository.findById(userId))
+                .thenReturn(Optional.of(User.builder().id(userId).email("user@x.com").build()));
+        when(membershipRepository.findByUserIdAndWorkspaceId(userId, wsId))
+                .thenReturn(Optional.of(Membership.builder()
+                        .userId(userId).workspaceId(wsId).role(MemberRole.MEMBER).build()));
+
+        invitationService.acceptInvitation(userId, new AcceptInvitationRequest(TOKEN));
+
+        verify(membershipRepository, never()).save(any());
+        assertThat(inv.getStatus()).isEqualTo(InvitationStatus.ACCEPTED);
+        verify(invitationRepository).save(inv);
+    }
+
+    // AC-10: role=OWNER 초대 → Membership.role=OWNER 승계
+    @Test
+    @DisplayName("AC-10: acceptInvitation — role=OWNER 초대 → Membership.role=OWNER 승계")
+    void acceptInvitation_ownerRole_inheritedToMembership() {
+        UUID userId = UUID.randomUUID();
+        UUID wsId = UUID.randomUUID();
+        Invitation inv = pendingInvitation("user@x.com", MemberRole.OWNER, wsId,
+                Instant.now().plus(1, ChronoUnit.DAYS));
+        when(invitationRepository.findByToken(TOKEN)).thenReturn(Optional.of(inv));
+        when(userRepository.findById(userId))
+                .thenReturn(Optional.of(User.builder().id(userId).email("user@x.com").build()));
+        when(membershipRepository.findByUserIdAndWorkspaceId(userId, wsId)).thenReturn(Optional.empty());
+
+        invitationService.acceptInvitation(userId, new AcceptInvitationRequest(TOKEN));
+
+        ArgumentCaptor<Membership> cap = ArgumentCaptor.forClass(Membership.class);
+        verify(membershipRepository).save(cap.capture());
+        assertThat(cap.getValue().getRole()).isEqualTo(MemberRole.OWNER);
     }
 }

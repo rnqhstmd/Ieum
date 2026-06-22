@@ -1,9 +1,11 @@
 package com.ieum.invitation;
 
 import com.ieum.common.ConflictException;
+import com.ieum.common.GoneException;
 import com.ieum.common.email.ResendEmailClient;
 import com.ieum.common.security.AccessGuard;
 import com.ieum.invitation.dto.*;
+import com.ieum.user.User;
 import com.ieum.user.UserRepository;
 import com.ieum.workspace.MemberRole;
 import com.ieum.workspace.Membership;
@@ -13,8 +15,11 @@ import com.ieum.workspace.WorkspaceRepository;
 import com.ieum.workspace.WorkspaceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import jakarta.persistence.EntityNotFoundException;
 
 import java.security.SecureRandom;
 import java.time.Instant;
@@ -169,42 +174,53 @@ public class InvitationService {
      *  6. invitation.setStatus(ACCEPTED) 저장
      *  7. MembershipDto 반환
      */
-    @Transactional
+    /**
+     * 초대 수락 — token 기반, 단일 트랜잭션.
+     * noRollbackFor=GoneException: 만료(EXPIRED) 전이를 커밋한 뒤 410을 전파하기 위함.
+     */
+    @Transactional(noRollbackFor = GoneException.class)
     public void acceptInvitation(UUID currentUserId, AcceptInvitationRequest request) {
-        // TODO(Phase 1):
-        //   String token = request.token();
-        //
-        //   Invitation inv = invitationRepository.findByToken(token)
-        //       .orElseThrow(() -> new EntityNotFoundException("유효하지 않은 초대 토큰"));
-        //
-        //   // 상태 검증
-        //   if (inv.getStatus() != InvitationStatus.PENDING) {
-        //       throw new IllegalStateException("이미 처리된 초대입니다: " + inv.getStatus());
-        //   }
-        //
-        //   // 만료 검증 — 만료 시 EXPIRED로 전환 후 예외
-        //   if (Instant.now().isAfter(inv.getExpiresAt())) {
-        //       inv.setStatus(InvitationStatus.EXPIRED);
-        //       invitationRepository.save(inv);
-        //       throw new IllegalStateException("만료된 초대입니다");
-        //   }
-        //
-        //   // 멱등성: 이미 멤버인 경우 수락 처리 없이 반환
-        //   membershipRepository.findByUserIdAndWorkspaceId(currentUserId, inv.getWorkspaceId())
-        //       .ifPresent(m -> { return; }); // TODO: 정확한 early-return 처리 (Phase 1)
-        //
-        //   // Membership 생성
-        //   Membership membership = Membership.builder()
-        //       .userId(currentUserId)
-        //       .workspaceId(inv.getWorkspaceId())
-        //       .role(inv.getRole())
-        //       .build();
-        //   membershipRepository.save(membership);
-        //
-        //   // 상태 ACCEPTED로 변경
-        //   inv.setStatus(InvitationStatus.ACCEPTED);
-        //   invitationRepository.save(inv);
-        throw new UnsupportedOperationException("TODO(Phase 1): acceptInvitation");
+        if (request == null || request.token() == null || request.token().isBlank()) {
+            throw new IllegalArgumentException("초대 토큰이 누락되었습니다.");
+        }
+
+        Invitation inv = invitationRepository.findByToken(request.token())
+                .orElseThrow(() -> new EntityNotFoundException("유효하지 않은 초대 토큰"));
+
+        // 만료 우선(PENDING + 만료) → EXPIRED 전이 후 410. (이미 EXPIRED 상태는 아래 상태 검증에서 409)
+        if (inv.getStatus() == InvitationStatus.PENDING && inv.getExpiresAt().isBefore(Instant.now())) {
+            inv.setStatus(InvitationStatus.EXPIRED);
+            invitationRepository.save(inv);
+            throw new GoneException("만료된 초대입니다.");
+        }
+
+        // 상태 검증: PENDING만 수락 가능. 그 외(ACCEPTED/REVOKED/EXPIRED) → 409.
+        // SEC(HIGH): 내부 상태값(enum)을 응답 메시지에 노출하지 않는다(고정 문자열).
+        if (inv.getStatus() != InvitationStatus.PENDING) {
+            throw new ConflictException("이미 처리된 초대입니다.");
+        }
+
+        // 이메일 대조: 초대 대상과 현재 사용자가 일치해야 함(trim + 대소문자 무시). 불일치 → 403.
+        User user = userRepository.findById(currentUserId)
+                .orElseThrow(() -> new EntityNotFoundException("사용자를 찾을 수 없습니다"));
+        if (!user.getEmail().trim().equalsIgnoreCase(inv.getEmail().trim())) {
+            throw new AccessDeniedException("초대 대상이 아닙니다.");
+        }
+
+        // 멱등: 이미 멤버면 Membership 생성만 건너뛴다. 상태 전이(ACCEPTED)는 항상 수행한다.
+        boolean alreadyMember = membershipRepository
+                .findByUserIdAndWorkspaceId(currentUserId, inv.getWorkspaceId())
+                .isPresent();
+        if (!alreadyMember) {
+            membershipRepository.save(Membership.builder()
+                    .userId(currentUserId)
+                    .workspaceId(inv.getWorkspaceId())
+                    .role(inv.getRole())   // 초대 역할 승계
+                    .build());
+        }
+
+        inv.setStatus(InvitationStatus.ACCEPTED);
+        invitationRepository.save(inv);
     }
 
     // ───────────────────────────────────────────────

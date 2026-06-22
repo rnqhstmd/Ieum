@@ -81,4 +81,22 @@ class ApiExceptionHandlerTest {
         assertThat(result.getBody()).isNotNull();
         assertThat(result.getBody().message()).isEqualTo("요청한 리소스를 찾을 수 없습니다.");
     }
+
+    // ── GoneException → 410 GONE (AC-5 만료 초대) ────────────────────────────
+
+    @Test
+    @DisplayName("GoneException 처리 — 410 상태코드와 code=GONE ErrorResponse 반환")
+    void handleGone_returns410WithGoneCode() {
+        // Given
+        GoneException ex = new GoneException("만료된 초대입니다");
+
+        // When
+        ResponseEntity<ErrorResponse> result = handler.handleGone(ex);
+
+        // Then
+        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.GONE);
+        assertThat(result.getBody()).isNotNull();
+        assertThat(result.getBody().code()).isEqualTo("GONE");
+        assertThat(result.getBody().message()).isNotBlank();
+    }
 }
