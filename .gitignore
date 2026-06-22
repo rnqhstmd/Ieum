@@ -1,6 +1,9 @@
 # OMC / tooling state
 .omc/
 
+# gx-tdd dev artifacts
+.dev/
+
 # Dependencies
 node_modules/
 .pnp

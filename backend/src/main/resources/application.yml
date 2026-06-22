@@ -44,6 +44,8 @@ app:
     from: ${INVITE_FROM_EMAIL:Ieum <noreply@ieum.app>}
   invitation:
     expiry-cron: ${INVITATION_EXPIRY_CRON:0 0 2 * * *}
+  ws-relay:
+    admin-url: ${WS_RELAY_ADMIN_URL:}
 
 management:
   endpoints:
