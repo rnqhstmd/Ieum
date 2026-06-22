@@ -374,4 +374,212 @@ class InvitationServiceTest {
         verify(membershipRepository).save(cap.capture());
         assertThat(cap.getValue().getRole()).isEqualTo(MemberRole.OWNER);
     }
+
+    // ═══════════════════ listInvitations (LIST-U1~U3) ═══════════════════
+
+    // LIST-U1: OWNER, repo 2건 반환 → 2건 dto, 필드 일치, requireOwner 1회
+    @Test
+    @DisplayName("LIST-U1: listInvitations — OWNER + repo 2건 → InvitationDto 2건 반환, 필드 일치, requireOwner 1회")
+    void listInvitations_owner_returnsDtoList() {
+        UUID owner = UUID.randomUUID();
+        UUID wsId  = UUID.randomUUID();
+
+        Instant now = Instant.now();
+        Invitation inv1 = Invitation.builder()
+                .id(UUID.randomUUID()).workspaceId(wsId).email("a@x.com")
+                .invitedById(owner).role(MemberRole.MEMBER).token("tok1")
+                .status(InvitationStatus.PENDING).expiresAt(now.plus(7, ChronoUnit.DAYS))
+                .createdAt(now).build();
+        Invitation inv2 = Invitation.builder()
+                .id(UUID.randomUUID()).workspaceId(wsId).email("b@x.com")
+                .invitedById(owner).role(MemberRole.MEMBER).token("tok2")
+                .status(InvitationStatus.PENDING).expiresAt(now.plus(7, ChronoUnit.DAYS))
+                .createdAt(now.minusSeconds(60)).build();
+
+        when(invitationRepository.findByWorkspaceIdOrderByCreatedAtDesc(wsId))
+                .thenReturn(List.of(inv1, inv2));
+
+        List<InvitationDto> result = invitationService.listInvitations(owner, wsId);
+
+        assertThat(result).hasSize(2);
+
+        InvitationDto dto1 = result.get(0);
+        assertThat(dto1.id()).isEqualTo(inv1.getId());
+        assertThat(dto1.email()).isEqualTo(inv1.getEmail());
+        assertThat(dto1.status()).isEqualTo(inv1.getStatus());
+        assertThat(dto1.createdAt()).isEqualTo(inv1.getCreatedAt());
+
+        InvitationDto dto2 = result.get(1);
+        assertThat(dto2.id()).isEqualTo(inv2.getId());
+        assertThat(dto2.email()).isEqualTo(inv2.getEmail());
+
+        verify(accessGuard, times(1)).requireOwner(owner, wsId);
+    }
+
+    // LIST-U2: 비OWNER → AccessDeniedException 전파, repo 미호출
+    @Test
+    @DisplayName("LIST-U2: listInvitations — 비OWNER → AccessDeniedException 전파, findByWorkspaceId 호출 안 됨")
+    void listInvitations_nonOwner_throwsAccessDenied() {
+        UUID member = UUID.randomUUID();
+        UUID wsId   = UUID.randomUUID();
+        doThrow(new AccessDeniedException("OWNER 권한이 필요합니다."))
+                .when(accessGuard).requireOwner(member, wsId);
+
+        assertThatThrownBy(() -> invitationService.listInvitations(member, wsId))
+                .isInstanceOf(AccessDeniedException.class);
+
+        verify(invitationRepository, never()).findByWorkspaceIdOrderByCreatedAtDesc(any());
+    }
+
+    // LIST-U3: OWNER, repo 빈 리스트 → 빈 리스트 반환
+    @Test
+    @DisplayName("LIST-U3: listInvitations — OWNER + repo 빈 리스트 → 빈 리스트 반환")
+    void listInvitations_owner_emptyList() {
+        UUID owner = UUID.randomUUID();
+        UUID wsId  = UUID.randomUUID();
+        when(invitationRepository.findByWorkspaceIdOrderByCreatedAtDesc(wsId))
+                .thenReturn(List.of());
+
+        List<InvitationDto> result = invitationService.listInvitations(owner, wsId);
+
+        assertThat(result).isEmpty();
+    }
+
+    // ═══════════════════ revokeInvitation (REV-U1~U7) ═══════════════════
+
+    // REV-U1 (AC-6): PENDING 초대, OWNER → status REVOKED + save 호출
+    @Test
+    @DisplayName("REV-U1: revokeInvitation — OWNER + PENDING 초대 → status REVOKED 전이 + invitationRepository.save 호출")
+    void revokeInvitation_owner_pending_revokesAndSaves() {
+        UUID owner = UUID.randomUUID();
+        UUID wsId  = UUID.randomUUID();
+        UUID invId = UUID.randomUUID();
+        Invitation inv = Invitation.builder()
+                .id(invId).workspaceId(wsId).email("a@x.com")
+                .invitedById(UUID.randomUUID()).role(MemberRole.MEMBER).token("tok-rev-1")
+                .status(InvitationStatus.PENDING).expiresAt(Instant.now().plus(7, ChronoUnit.DAYS))
+                .build();
+        when(invitationRepository.findById(invId)).thenReturn(Optional.of(inv));
+
+        invitationService.revokeInvitation(owner, wsId, invId);
+
+        assertThat(inv.getStatus()).isEqualTo(InvitationStatus.REVOKED);
+        verify(invitationRepository).save(inv);
+    }
+
+    // REV-U2 (AC-13): 비OWNER → AccessDeniedException 전파, findById/save 미호출
+    @Test
+    @DisplayName("REV-U2: revokeInvitation — 비OWNER → AccessDeniedException 전파, findById·save 호출 안 됨")
+    void revokeInvitation_nonOwner_throwsAccessDenied() {
+        UUID member = UUID.randomUUID();
+        UUID wsId   = UUID.randomUUID();
+        UUID invId  = UUID.randomUUID();
+        doThrow(new AccessDeniedException("OWNER 권한이 필요합니다."))
+                .when(accessGuard).requireOwner(member, wsId);
+
+        assertThatThrownBy(() -> invitationService.revokeInvitation(member, wsId, invId))
+                .isInstanceOf(AccessDeniedException.class);
+
+        verify(invitationRepository, never()).findById(any());
+        verify(invitationRepository, never()).save(any());
+    }
+
+    // REV-U3 (AC-10): findById 빈 Optional → EntityNotFoundException, save 미호출
+    @Test
+    @DisplayName("REV-U3: revokeInvitation — 존재하지 않는 invitationId → EntityNotFoundException, save 호출 안 됨")
+    void revokeInvitation_notFound_throwsEntityNotFound() {
+        UUID owner = UUID.randomUUID();
+        UUID wsId  = UUID.randomUUID();
+        UUID invId = UUID.randomUUID();
+        when(invitationRepository.findById(invId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> invitationService.revokeInvitation(owner, wsId, invId))
+                .isInstanceOf(EntityNotFoundException.class);
+
+        verify(invitationRepository, never()).save(any());
+    }
+
+    // REV-U4 (AC-11): workspaceId 불일치 → EntityNotFoundException(404, 자원 은닉), save 미호출
+    @Test
+    @DisplayName("REV-U4: revokeInvitation — workspaceId 불일치 초대 → EntityNotFoundException(404, 자원 은닉), save 호출 안 됨")
+    void revokeInvitation_workspaceMismatch_throwsEntityNotFound() {
+        UUID owner   = UUID.randomUUID();
+        UUID wsId    = UUID.randomUUID();
+        UUID wsOther = UUID.randomUUID();
+        UUID invId   = UUID.randomUUID();
+        Invitation inv = Invitation.builder()
+                .id(invId).workspaceId(wsOther).email("a@x.com")
+                .invitedById(UUID.randomUUID()).role(MemberRole.MEMBER).token("tok-rev-4")
+                .status(InvitationStatus.PENDING).expiresAt(Instant.now().plus(7, ChronoUnit.DAYS))
+                .build();
+        when(invitationRepository.findById(invId)).thenReturn(Optional.of(inv));
+
+        assertThatThrownBy(() -> invitationService.revokeInvitation(owner, wsId, invId))
+                .isInstanceOf(EntityNotFoundException.class);
+
+        verify(invitationRepository, never()).save(any());
+    }
+
+    // REV-U5 (AC-7): status=ACCEPTED → ConflictException("철회할 수 없는 초대 상태입니다."), save 미호출, status 그대로
+    @Test
+    @DisplayName("REV-U5: revokeInvitation — status=ACCEPTED → ConflictException(409) + 메시지 일치, save 호출 안 됨, status 그대로 ACCEPTED")
+    void revokeInvitation_accepted_throwsConflict() {
+        UUID owner = UUID.randomUUID();
+        UUID wsId  = UUID.randomUUID();
+        UUID invId = UUID.randomUUID();
+        Invitation inv = Invitation.builder()
+                .id(invId).workspaceId(wsId).email("a@x.com")
+                .invitedById(UUID.randomUUID()).role(MemberRole.MEMBER).token("tok-rev-5")
+                .status(InvitationStatus.ACCEPTED).expiresAt(Instant.now().plus(7, ChronoUnit.DAYS))
+                .build();
+        when(invitationRepository.findById(invId)).thenReturn(Optional.of(inv));
+
+        assertThatThrownBy(() -> invitationService.revokeInvitation(owner, wsId, invId))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("철회할 수 없는 초대 상태입니다.");
+
+        verify(invitationRepository, never()).save(any());
+        assertThat(inv.getStatus()).isEqualTo(InvitationStatus.ACCEPTED);
+    }
+
+    // REV-U6 (AC-8): status=REVOKED → ConflictException, save 미호출, status 그대로 REVOKED
+    @Test
+    @DisplayName("REV-U6: revokeInvitation — status=REVOKED → ConflictException, save 호출 안 됨, status 그대로 REVOKED")
+    void revokeInvitation_alreadyRevoked_throwsConflict() {
+        UUID owner = UUID.randomUUID();
+        UUID wsId  = UUID.randomUUID();
+        UUID invId = UUID.randomUUID();
+        Invitation inv = Invitation.builder()
+                .id(invId).workspaceId(wsId).email("a@x.com")
+                .invitedById(UUID.randomUUID()).role(MemberRole.MEMBER).token("tok-rev-6")
+                .status(InvitationStatus.REVOKED).expiresAt(Instant.now().plus(7, ChronoUnit.DAYS))
+                .build();
+        when(invitationRepository.findById(invId)).thenReturn(Optional.of(inv));
+
+        assertThatThrownBy(() -> invitationService.revokeInvitation(owner, wsId, invId))
+                .isInstanceOf(ConflictException.class);
+
+        verify(invitationRepository, never()).save(any());
+        assertThat(inv.getStatus()).isEqualTo(InvitationStatus.REVOKED);
+    }
+
+    // REV-U7 (AC-9): status=EXPIRED → ConflictException, save 미호출
+    @Test
+    @DisplayName("REV-U7: revokeInvitation — status=EXPIRED → ConflictException, save 호출 안 됨")
+    void revokeInvitation_expired_throwsConflict() {
+        UUID owner = UUID.randomUUID();
+        UUID wsId  = UUID.randomUUID();
+        UUID invId = UUID.randomUUID();
+        Invitation inv = Invitation.builder()
+                .id(invId).workspaceId(wsId).email("a@x.com")
+                .invitedById(UUID.randomUUID()).role(MemberRole.MEMBER).token("tok-rev-7")
+                .status(InvitationStatus.EXPIRED).expiresAt(Instant.now().minus(1, ChronoUnit.DAYS))
+                .build();
+        when(invitationRepository.findById(invId)).thenReturn(Optional.of(inv));
+
+        assertThatThrownBy(() -> invitationService.revokeInvitation(owner, wsId, invId))
+                .isInstanceOf(ConflictException.class);
+
+        verify(invitationRepository, never()).save(any());
+    }
 }
