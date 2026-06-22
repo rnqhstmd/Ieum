@@ -51,6 +51,17 @@ public class ApiExceptionHandler {
     }
 
     /**
+     * 리소스 만료 → 410 Gone (예: 만료된 초대 토큰 수락). 409와 구분.
+     */
+    @ExceptionHandler(GoneException.class)
+    public ResponseEntity<ErrorResponse> handleGone(GoneException ex) {
+        log.warn("만료: {}", ex.getMessage());
+        return ResponseEntity
+            .status(HttpStatus.GONE)
+            .body(new ErrorResponse("GONE", ex.getMessage()));
+    }
+
+    /**
      * 그 외 모든 예외 → 500 Internal Server Error
      * TODO: 운영 환경에서는 내부 메시지 노출 방지 처리 필요
      */
