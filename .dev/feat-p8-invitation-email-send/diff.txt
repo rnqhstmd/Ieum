@@ -1,0 +1,340 @@
+diff --git a/backend/src/main/java/com/ieum/common/email/ResendEmailClient.java b/backend/src/main/java/com/ieum/common/email/ResendEmailClient.java
+index fb68029..edcb499 100644
+--- a/backend/src/main/java/com/ieum/common/email/ResendEmailClient.java
++++ b/backend/src/main/java/com/ieum/common/email/ResendEmailClient.java
+@@ -3,6 +3,8 @@ package com.ieum.common.email;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ import org.springframework.beans.factory.annotation.Value;
++import org.springframework.http.MediaType;
++import org.springframework.http.ResponseEntity;
+ import org.springframework.stereotype.Component;
+ import org.springframework.web.client.RestClient;
+ 
+@@ -14,16 +16,16 @@ public class ResendEmailClient {
+     private static final Logger log = LoggerFactory.getLogger(ResendEmailClient.class);
+     private static final String RESEND_EMAILS_URL = "https://api.resend.com/emails";
+ 
+-    @Value("${app.resend.api-key}")
+-    private String apiKey;
+-
+-    @Value("${app.resend.from}")
+-    private String from;
+-
+     private final RestClient restClient;
++    private final String apiKey;
++    private final String from;
+ 
+-    public ResendEmailClient() {
+-        this.restClient = RestClient.create();
++    public ResendEmailClient(RestClient.Builder builder,
++                             @Value("${app.resend.api-key}") String apiKey,
++                             @Value("${app.resend.from}") String from) {
++        this.restClient = builder.build();
++        this.apiKey = apiKey;
++        this.from = from;
+     }
+ 
+     /**
+@@ -34,33 +36,36 @@ public class ResendEmailClient {
+      * @param workspaceName 초대 대상 워크스페이스 이름
+      */
+     public void sendInvitationEmail(String to, String inviteUrl, String workspaceName) {
+-        // API 키가 없으면 로그만 남기고 반환 (로컬 개발 환경 대응)
+         if (apiKey == null || apiKey.isBlank()) {
+-            log.info("[ResendEmailClient] API 키 미설정 — 이메일 발송 건너뜀. to={}, workspaceName={}, inviteUrl={}",
+-                to, workspaceName, inviteUrl);
++            log.info("[ResendEmailClient] API 키 미설정 — 이메일 발송 건너뜀. to={}, workspaceName={}", to, workspaceName);
+             return;
+         }
+ 
+-        // TODO(Phase 4): 아래 본문을 실제 Resend API 호출로 교체
+-        //   - HTML 템플릿 적용 (Thymeleaf 또는 정적 템플릿)
+-        //   - 발송 결과(messageId) 로깅
+-        //   - 실패 시 재시도 전략(Retry) 또는 DLQ 연동 검토
++        String safeWorkspaceName = (workspaceName == null) ? "" : workspaceName.replaceAll("\\r\\n|[\\r\\n]", " ");
++
+         Map<String, Object> payload = Map.of(
+             "from", from,
+             "to", to,
+-            "subject", "[Ieum] " + workspaceName + " 워크스페이스에 초대되었습니다.",
++            "subject", "[Ieum] " + safeWorkspaceName + " 워크스페이스에 초대되었습니다.",
+             "html", "<p><a href=\"" + inviteUrl + "\">초대 수락하기</a></p>"
+         );
+ 
+-        log.debug("[ResendEmailClient] 이메일 발송 준비 완료 — payload: {}", payload);
+-
+-        // TODO(Phase 4): 실제 HTTP 호출
+-        // restClient.post()
+-        //     .uri(RESEND_EMAILS_URL)
+-        //     .header("Authorization", "Bearer " + apiKey)
+-        //     .contentType(MediaType.APPLICATION_JSON)
+-        //     .body(payload)
+-        //     .retrieve()
+-        //     .toBodilessEntity();
++        try {
++            ResponseEntity<ResendResponse> resp = restClient.post()
++                .uri(RESEND_EMAILS_URL)
++                .header("Authorization", "Bearer " + apiKey)
++                .contentType(MediaType.APPLICATION_JSON)
++                .body(payload)
++                .retrieve()
++                .toEntity(ResendResponse.class);
++            ResendResponse body = resp.getBody();
++            if (body != null && body.id() != null && !body.id().isBlank()) {
++                log.info("[ResendEmailClient] 초대 이메일 발송 성공 — to={}, messageId={}", to, body.id());
++            } else {
++                log.warn("[ResendEmailClient] 발송 응답에 messageId 없음 — to={}", to);
++            }
++        } catch (Exception e) {
++            log.warn("[ResendEmailClient] 초대 이메일 발송 실패 — to={}", to, e);
++        }
+     }
+ }
+diff --git a/backend/src/main/java/com/ieum/common/email/ResendResponse.java b/backend/src/main/java/com/ieum/common/email/ResendResponse.java
+new file mode 100644
+index 0000000..4593854
+--- /dev/null
++++ b/backend/src/main/java/com/ieum/common/email/ResendResponse.java
+@@ -0,0 +1,3 @@
++package com.ieum.common.email;
++
++public record ResendResponse(String id) {}
+diff --git a/backend/src/main/java/com/ieum/config/RestClientConfig.java b/backend/src/main/java/com/ieum/config/RestClientConfig.java
+new file mode 100644
+index 0000000..6942e94
+--- /dev/null
++++ b/backend/src/main/java/com/ieum/config/RestClientConfig.java
+@@ -0,0 +1,19 @@
++package com.ieum.config;
++
++import org.springframework.context.annotation.Bean;
++import org.springframework.context.annotation.Configuration;
++import org.springframework.http.client.SimpleClientHttpRequestFactory;
++import org.springframework.web.client.RestClient;
++
++@Configuration
++public class RestClientConfig {
++
++    @Bean
++    public RestClient.Builder restClientBuilder() {
++        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
++        factory.setConnectTimeout(5_000);
++        factory.setReadTimeout(10_000);
++        return RestClient.builder()
++                .requestFactory(factory);
++    }
++}
+diff --git a/backend/src/test/java/com/ieum/common/email/ResendEmailClientTest.java b/backend/src/test/java/com/ieum/common/email/ResendEmailClientTest.java
+new file mode 100644
+index 0000000..2c07a93
+--- /dev/null
++++ b/backend/src/test/java/com/ieum/common/email/ResendEmailClientTest.java
+@@ -0,0 +1,193 @@
++package com.ieum.common.email;
++
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.DisplayName;
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.extension.ExtendWith;
++import org.springframework.boot.test.system.CapturedOutput;
++import org.springframework.boot.test.system.OutputCaptureExtension;
++import org.springframework.http.HttpMethod;
++import org.springframework.http.HttpStatus;
++import org.springframework.http.MediaType;
++import org.springframework.test.web.client.MockRestServiceServer;
++import org.springframework.web.client.RestClient;
++
++import static org.assertj.core.api.Assertions.assertThat;
++import static org.assertj.core.api.Assertions.assertThatCode;
++import static org.springframework.test.web.client.match.MockRestRequestMatchers.*;
++import static org.springframework.test.web.client.response.MockRestResponseCreators.*;
++
++@ExtendWith(OutputCaptureExtension.class)
++class ResendEmailClientTest {
++
++    private static final String RESEND_URL = "https://api.resend.com/emails";
++
++    private RestClient.Builder builder;
++    private MockRestServiceServer server;
++    private ResendEmailClient client;
++
++    @BeforeEach
++    void setUp() {
++        builder = RestClient.builder();
++        server  = MockRestServiceServer.bindTo(builder).bufferContent().build();
++        client  = new ResendEmailClient(builder, "test-key", "no-reply@test.local");
++    }
++
++    // ── AC-1: 요청 구조 검증 ────────────────────────────────────────────────
++
++    @Test
++    @DisplayName("AC-1: POST 요청에 올바른 URL·메서드·Authorization 헤더·JSON 바디가 포함된다")
++    void sendInvitationEmail_requestStructure_isCorrect() {
++        server.expect(requestTo(RESEND_URL))
++              .andExpect(method(HttpMethod.POST))
++              .andExpect(header("Authorization", "Bearer test-key"))
++              .andExpect(content().contentType(MediaType.APPLICATION_JSON))
++              .andExpect(jsonPath("$.to").value("user@example.com"))
++              .andExpect(jsonPath("$.subject").value("[Ieum] 테스트워크스페이스 워크스페이스에 초대되었습니다."))
++              .andExpect(jsonPath("$.html").exists())
++              .andRespond(withSuccess("{\"id\":\"msg_abc123\"}", MediaType.APPLICATION_JSON));
++
++        assertThatCode(() -> client.sendInvitationEmail(
++                "user@example.com",
++                "https://ieum.app/invite?token=TOKEN",
++                "테스트워크스페이스"
++        )).doesNotThrowAnyException();
++
++        server.verify();
++    }
++
++    // ── AC-2: 성공 로그 ─────────────────────────────────────────────────────
++
++    @Test
++    @DisplayName("AC-2: 2xx + id 존재 응답 시 messageId 포함 INFO 로그를 남긴다")
++    void sendInvitationEmail_successResponse_logsMessageId(CapturedOutput output) {
++        server.expect(requestTo(RESEND_URL))
++              .andExpect(method(HttpMethod.POST))
++              .andExpect(header("Authorization", "Bearer test-key"))
++              .andExpect(content().contentType(MediaType.APPLICATION_JSON))
++              .andExpect(jsonPath("$.to").value("user@example.com"))
++              .andExpect(jsonPath("$.subject").value("[Ieum] 테스트워크스페이스 워크스페이스에 초대되었습니다."))
++              .andExpect(jsonPath("$.html").exists())
++              .andRespond(withSuccess("{\"id\":\"msg_abc123\"}", MediaType.APPLICATION_JSON));
++
++        client.sendInvitationEmail(
++                "user@example.com",
++                "https://ieum.app/invite?token=TOKEN",
++                "테스트워크스페이스"
++        );
++
++        assertThat(output.getOut()).contains("messageId=msg_abc123");
++        server.verify();
++    }
++
++    // ── AC-3: 5xx 응답 — 예외 미전파 + warn 로그 ────────────────────────────
++
++    @Test
++    @DisplayName("AC-3: 5xx 응답 시 예외를 전파하지 않고 '초대 이메일 발송 실패' warn 로그를 남긴다")
++    void sendInvitationEmail_serverError_doesNotThrow_logsWarn(CapturedOutput output) {
++        server.expect(requestTo(RESEND_URL))
++              .andRespond(withServerError());
++
++        assertThatCode(() -> client.sendInvitationEmail(
++                "user@example.com",
++                "https://ieum.app/invite?token=TOKEN",
++                "테스트워크스페이스"
++        )).doesNotThrowAnyException();
++
++        assertThat(output.getAll()).contains("초대 이메일 발송 실패");
++        server.verify();
++    }
++
++    // ── AC-4: 4xx 응답 — 예외 미전파 ───────────────────────────────────────
++
++    @Test
++    @DisplayName("AC-4: 4xx 응답 시 예외를 전파하지 않는다")
++    void sendInvitationEmail_clientError_doesNotThrow() {
++        server.expect(requestTo(RESEND_URL))
++              .andRespond(withStatus(HttpStatus.BAD_REQUEST));
++
++        assertThatCode(() -> client.sendInvitationEmail(
++                "user@example.com",
++                "https://ieum.app/invite?token=TOKEN",
++                "테스트워크스페이스"
++        )).doesNotThrowAnyException();
++
++        server.verify();
++    }
++
++    // ── AC-5: API 키 빈값 — HTTP 미호출 + 'API 키 미설정' 로그 ─────────────
++
++    @Test
++    @DisplayName("AC-5: apiKey가 빈 문자열이면 HTTP 호출 없이 'API 키 미설정' INFO 로그만 남긴다")
++    void sendInvitationEmail_emptyApiKey_noHttpCall_logsInfo(CapturedOutput output) {
++        // 별도 빌더/서버로 0-expect 시나리오 검증
++        RestClient.Builder noKeyBuilder = RestClient.builder();
++        MockRestServiceServer noKeyServer = MockRestServiceServer.bindTo(noKeyBuilder).bufferContent().build();
++        ResendEmailClient noKeyClient = new ResendEmailClient(noKeyBuilder, "", "no-reply@test.local");
++
++        assertThatCode(() -> noKeyClient.sendInvitationEmail(
++                "user@example.com",
++                "https://ieum.app/invite?token=TOKEN",
++                "테스트워크스페이스"
++        )).doesNotThrowAnyException();
++
++        assertThat(output.getOut()).contains("API 키 미설정");
++        noKeyServer.verify(); // 요청 0회 검증
++    }
++
++    // ── AC-6: MockRestServiceServer Builder 주입 캡처 검증 ─────────────────
++
++    @Test
++    @DisplayName("AC-6: MockRestServiceServer가 ResendEmailClient의 RestClient 요청을 캡처한다 (Builder 주입 증명)")
++    void sendInvitationEmail_builderInjection_serverCaptures() {
++        server.expect(requestTo(RESEND_URL))
++              .andExpect(method(HttpMethod.POST))
++              .andExpect(header("Authorization", "Bearer test-key"))
++              .andRespond(withSuccess("{\"id\":\"msg_builder_ok\"}", MediaType.APPLICATION_JSON));
++
++        assertThatCode(() -> client.sendInvitationEmail(
++                "user@example.com",
++                "https://ieum.app/invite?token=TOKEN",
++                "테스트워크스페이스"
++        )).doesNotThrowAnyException();
++
++        server.verify();
++    }
++
++    // ── AC-7: 2xx + body 없는(id 누락) 응답 — warn 로그 ────────────────────
++
++    @Test
++    @DisplayName("AC-7: 2xx이지만 응답 body에 id가 없으면 'messageId 없음' warn 로그를 남기고 예외를 전파하지 않는다")
++    void sendInvitationEmail_successWithoutId_logsWarnNoMessageId(CapturedOutput output) {
++        server.expect(requestTo(RESEND_URL))
++              .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
++
++        assertThatCode(() -> client.sendInvitationEmail(
++                "user@example.com",
++                "https://ieum.app/invite?token=TOKEN",
++                "테스트워크스페이스"
++        )).doesNotThrowAnyException();
++
++        assertThat(output.getAll()).contains("messageId 없음");
++        server.verify();
++    }
++
++    // ── SEC-1: workspaceName CRLF 정제 — 헤더 인젝션 방어 ───────────────────
++
++    @Test
++    @DisplayName("SEC-1: workspaceName의 CRLF가 공백으로 정제되어 subject 헤더 인젝션을 방어한다")
++    void sendInvitationEmail_crlfInWorkspaceName_sanitizedInSubject() {
++        server.expect(requestTo(RESEND_URL))
++              .andExpect(method(HttpMethod.POST))
++              .andExpect(jsonPath("$.subject").value("[Ieum] 팀 Bcc: evil@x.com 워크스페이스에 초대되었습니다."))
++              .andRespond(withSuccess("{\"id\":\"msg_x\"}", MediaType.APPLICATION_JSON));
++
++        client.sendInvitationEmail(
++                "user@example.com",
++                "https://ieum.app/invite?token=T",
++                "팀\r\nBcc: evil@x.com"
++        );
++
++        server.verify();
++    }
++}
+diff --git a/backend/src/test/resources/application-test.yml b/backend/src/test/resources/application-test.yml
+index b2ee4b6..ad5c289 100644
+--- a/backend/src/test/resources/application-test.yml
++++ b/backend/src/test/resources/application-test.yml
+@@ -1,6 +1,9 @@
+ app:
+   invitation:
+     expiry-cron: "-"
++  resend:
++    api-key: ""
++    from: "Ieum <noreply@test.local>"
+ 
+ spring:
+   flyway:
