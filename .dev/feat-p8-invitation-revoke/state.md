@@ -1,5 +1,5 @@
-phase: implement
-status: in_progress
+phase: complete
+status: completed
 vcs-type: git
 branch: feat/p8-invitation-revoke
 base: feat/p8-invitation-lifecycle
@@ -12,7 +12,8 @@ intent-source: user-selection
 started: 2026-06-22
 last-known-head: 9b53791
 config-setup-attempts: 0
-current-step: "complete: verify 게이트 통과(clean test build) → 인수 검증"
+current-step: "완료 — PR #21"
+pr: https://github.com/rnqhstmd/Ieum/pull/21
 auto-stashed: false
 phases:
   setup: completed
@@ -20,6 +21,7 @@ phases:
   design: completed
   implement: completed
   review: completed
+  complete: completed
   implement: pending
   review: pending
   complete: pending
@@ -84,3 +86,12 @@ execution-log:
   - phase: complete
     agent: product-owner
     result: "인수 ACCEPT — Must 13/13, AC-1~13 충족"
+  - phase: complete
+    step: commit
+    result: "feat: 초대 철회·목록 조회 구현 (be7a28a)"
+  - phase: complete
+    step: pr
+    result: "PR #21 생성 (rnqhstmd, base=feat/p8-invitation-lifecycle 스택) https://github.com/rnqhstmd/Ieum/pull/21"
+  - phase: complete
+    step: status-update
+    result: "auth/status.md INV-03 ✅ + PR #21 (철회+목록)"
