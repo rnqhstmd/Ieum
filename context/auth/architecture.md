@@ -120,6 +120,27 @@ removeMember (delete 후, @Transactional 내부 직접 호출, best-effort)
 
 ---
 
+### 워크스페이스 수명주기 — 삭제·나가기 (US-WS-04) — P10 (PR #26)
+
+P9의 멤버 제거 WS 강제종료를 워크스페이스 삭제(전체 멤버)·나가기(본인)로 확장한다.
+
+```
+deleteWorkspace:  requireOwner(403, 없는 WS도 403·존재 비누설) → PERSONAL 차단(400)
+                  → 멤버 목록 캡처(findByWorkspaceId) → 각 멤버 disconnectUser → deleteById
+                  → DB ON DELETE CASCADE(pages·memberships·invitations·crdt_ops·snapshots) 자동 정리
+leaveWorkspace:   멤버십(404) → PERSONAL 차단(400) → 마지막 OWNER 차단(400) → 본인 delete → 본인 disconnectUser
+                  엔드포인트 DELETE /api/workspaces/{id}/members/me
+                  (기존 /{id}/members/{userId} removeMember와 Spring MVC 리터럴 세그먼트 우선 매칭으로 분리)
+```
+- **cascade 전략**: 자식 엔티티(Membership/Page 등)에 JPA 연관관계 매핑이 없어 `workspaceRepository.deleteById()` 단일 호출 + DB FK `ON DELETE CASCADE`(V1)에 위임. 캡처한 멤버 목록을 deleteById 이후 수정하지 않는 불변식 유지(StaleStateException 방지). 통합테스트가 활성·아카이브 페이지의 crdt_op/snapshot까지 2단계 cascade(workspace→page→crdt_op/snapshot) 실증.
+- **검증 순서 비대칭**: 삭제=권한 우선(requireOwner — 없는 WS도 403·존재 비누설, P9 일관), 나가기=멤버십 우선(404). 타인 리소스 변경 vs 본인 멤버십 정리의 의미 차이를 반영.
+- **마지막 OWNER 보호**: 강등(P9 BR-1)·제거(P9 BR-3 자기제거 흡수)·나가기(P10 BR-5)로 OWNER 0명 워크스페이스를 방지. `countByWorkspaceIdAndRole`로 판정. 메시지 구분(나가기 "마지막 OWNER는 워크스페이스에서 나갈 수 없습니다").
+- **WS 강제종료 타이밍(한계)**: 삭제/나가기 모두 `@Transactional` 내부 best-effort 호출(P9 removeMember 일관). 커밋 전 호출이므로 삭제 롤백 시 "연결은 끊겼으나 WS 잔존" 불일치 가능(허용 손실). disconnect를 `@TransactionalEventListener(AFTER_COMMIT)`로 전환하는 것은 P11 하드닝 후보(P9 removeMember 포함 일괄).
+
+핵심 클래스: `workspace/WorkspaceService`(deleteWorkspace·leaveWorkspace·renameWorkspace)·`WorkspaceController`(PATCH/DELETE `/{id}`, DELETE `/{id}/members/me`).
+
+---
+
 ### callbackUrl 복귀
 
 `OAuth2SuccessHandler.resolveRedirect`가 요청의 `callbackUrl` 파라미터를 읽어 복귀한다. **open-redirect 방어**: 동일 오리진 상대경로 화이트리스트(`/[A-Za-z0-9/_-]*`, `//` 차단)만 허용하고, 그 외는 `/dashboard`로 폴백. 프론트가 OAuth 진입 시 `callbackUrl`을 state로 전달하는 연동은 P2 프론트.

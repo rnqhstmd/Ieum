@@ -116,11 +116,17 @@ public class WorkspaceService {
      */
     @Transactional
     public WorkspaceDto renameWorkspace(UUID currentUserId, UUID workspaceId, RenameWorkspaceRequest request) {
-        // TODO(Phase 1):
-        //   1. requireWorkspaceMember(currentUserId, workspaceId)
-        //   2. workspace.setName(request.name()) 저장
-        //   3. WorkspaceDto 반환
-        throw new UnsupportedOperationException("TODO(Phase 1): renameWorkspace");
+        accessGuard.requireWorkspaceMember(currentUserId, workspaceId);
+        // 서비스 경계 방어(createSharedWorkspace 패턴 일관): 직접 호출 시 NPE(500) 대신 400으로 거부.
+        if (request == null) {
+            throw new IllegalArgumentException("요청 본문은 null일 수 없습니다.");
+        }
+        String name = normalizeName(request.name());
+        Workspace ws = workspaceRepository.findById(workspaceId)
+                .orElseThrow(() -> new EntityNotFoundException("워크스페이스를 찾을 수 없습니다."));
+        ws.setName(name);
+        workspaceRepository.save(ws);
+        return toDto(ws);
     }
 
     /**
@@ -128,11 +134,17 @@ public class WorkspaceService {
      */
     @Transactional
     public void deleteWorkspace(UUID currentUserId, UUID workspaceId) {
-        // TODO(Phase 1):
-        //   1. requireOwner(currentUserId, workspaceId)
-        //   2. workspace 타입이 PERSONAL이면 IllegalStateException("개인 워크스페이스는 삭제할 수 없습니다")
-        //   3. workspaceRepository.deleteById(workspaceId) (cascade 처리 확인 필요)
-        throw new UnsupportedOperationException("TODO(Phase 1): deleteWorkspace");
+        accessGuard.requireOwner(currentUserId, workspaceId);
+        Workspace ws = workspaceRepository.findById(workspaceId)
+                .orElseThrow(() -> new EntityNotFoundException("워크스페이스를 찾을 수 없습니다."));
+        if (ws.getType() == WorkspaceType.PERSONAL) {
+            throw new IllegalArgumentException("개인 워크스페이스는 삭제할 수 없습니다");
+        }
+        List<Membership> members = membershipRepository.findByWorkspaceId(workspaceId);
+        for (Membership m : members) {
+            wsRelayAdminClient.disconnectUser(m.getUserId());
+        }
+        workspaceRepository.deleteById(workspaceId);
     }
 
     // ───────────────────────────────────────────────
@@ -186,6 +198,26 @@ public class WorkspaceService {
 
         membershipRepository.delete(membership);
         wsRelayAdminClient.disconnectUser(targetUserId);
+    }
+
+    /**
+     * 워크스페이스 나가기 — 본인이 직접 탈퇴 (BR-7)
+     */
+    @Transactional
+    public void leaveWorkspace(UUID currentUserId, UUID workspaceId) {
+        Membership m = membershipRepository.findByUserIdAndWorkspaceId(currentUserId, workspaceId)
+                .orElseThrow(() -> new EntityNotFoundException("워크스페이스 멤버가 아닙니다."));
+        Workspace ws = workspaceRepository.findById(workspaceId)
+                .orElseThrow(() -> new EntityNotFoundException("워크스페이스를 찾을 수 없습니다."));
+        if (ws.getType() == WorkspaceType.PERSONAL) {
+            throw new IllegalArgumentException("개인 워크스페이스에서는 나갈 수 없습니다");
+        }
+        if (m.getRole() == MemberRole.OWNER
+                && membershipRepository.countByWorkspaceIdAndRole(workspaceId, MemberRole.OWNER) <= 1) {
+            throw new IllegalArgumentException("마지막 OWNER는 워크스페이스에서 나갈 수 없습니다");
+        }
+        membershipRepository.delete(m);
+        wsRelayAdminClient.disconnectUser(currentUserId);
     }
 
     /**
