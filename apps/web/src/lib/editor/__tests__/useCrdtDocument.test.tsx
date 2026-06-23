@@ -94,4 +94,116 @@ describe('useCrdtDocument', () => {
     expect(cursorMsg.blockId).toEqual(blockId);
     expect(cursorMsg.anchorId).not.toBeNull(); // index 1 → 직전 문자 id
   });
+
+  // P9 / AC-A2: op-batch 수신 시 DocState가 "abc"로 수렴한다
+  it('AC-A2: op-batch(인라인 insert "abc") 수신 → blocks 텍스트가 "abc"로 수렴한다', () => {
+    const fake = createFakeTransport();
+    const { result } = renderHook(() =>
+      useCrdtDocument(PAGE, { transportFactory: () => fake }),
+    );
+    const genesisId = { counter: 0, siteId: 'genesis' };
+    // 'a', 'b', 'c'를 순서대로 삽입하는 인라인 op 3개
+    const opA = toWire(
+      makeInlineInsertOp({ counter: 1, siteId: 'site_s' }, null, 'a', genesisId),
+      1, 'site_s',
+    );
+    const opB = toWire(
+      makeInlineInsertOp({ counter: 2, siteId: 'site_s' }, { counter: 1, siteId: 'site_s' }, 'b', genesisId),
+      2, 'site_s',
+    );
+    const opC = toWire(
+      makeInlineInsertOp({ counter: 3, siteId: 'site_s' }, { counter: 2, siteId: 'site_s' }, 'c', genesisId),
+      3, 'site_s',
+    );
+    act(() =>
+      fake.emitMessage(JSON.stringify({ type: 'op-batch', pageId: PAGE, ops: [opA, opB, opC] })),
+    );
+    expect(result.current.blocks[0]!.text).toBe('abc');
+  });
+
+  // P9 / AC-A4: 빈 op-batch 수신 → genesis 블록 1개 초기 상태 유지
+  it('AC-A4: 빈 op-batch(ops:[]) 수신 → 블록 1개(genesis)이며 텍스트 빈 문자열 유지', () => {
+    const fake = createFakeTransport();
+    const { result } = renderHook(() =>
+      useCrdtDocument(PAGE, { transportFactory: () => fake }),
+    );
+    act(() =>
+      fake.emitMessage(JSON.stringify({ type: 'op-batch', pageId: PAGE, ops: [] })),
+    );
+    expect(result.current.blocks).toHaveLength(1);
+    expect(result.current.blocks[0]!.text).toBe('');
+  });
+
+  // P9 / AC-A5: 동일 op-batch 2회 수신 → 텍스트/블록 불변(멱등)
+  it('AC-A5: 동일 op-batch 2회 수신 → 텍스트가 변하지 않는다(멱등)', () => {
+    const fake = createFakeTransport();
+    const { result } = renderHook(() =>
+      useCrdtDocument(PAGE, { transportFactory: () => fake }),
+    );
+    const genesisId = { counter: 0, siteId: 'genesis' };
+    const opA = toWire(
+      makeInlineInsertOp({ counter: 1, siteId: 'site_s' }, null, 'x', genesisId),
+      1, 'site_s',
+    );
+    const batchMsg = JSON.stringify({ type: 'op-batch', pageId: PAGE, ops: [opA] });
+    act(() => fake.emitMessage(batchMsg));
+    const textAfterFirst = result.current.blocks[0]!.text;
+    const blocksAfterFirst = result.current.blocks.length;
+    act(() => fake.emitMessage(batchMsg)); // 동일 배치 재수신
+    expect(result.current.blocks[0]!.text).toBe(textAfterFirst);
+    expect(result.current.blocks).toHaveLength(blocksAfterFirst);
+  });
+
+  // P9 / C3 pageId 가드: 다른 pageId의 op-batch는 무시되어야 한다.
+  it('C3: 다른 pageId의 op-batch 수신 시 blocks가 변경되지 않는다', () => {
+    const fake = createFakeTransport();
+    const { result } = renderHook(() =>
+      useCrdtDocument(PAGE, { transportFactory: () => fake }),
+    );
+    const initialText = result.current.blocks[0]!.text;
+    const initialLength = result.current.blocks.length;
+
+    const genesisId = { counter: 0, siteId: 'genesis' };
+    const opA = toWire(
+      makeInlineInsertOp({ counter: 1, siteId: 'site_s' }, null, 'z', genesisId),
+      1, 'site_s',
+    );
+    // PAGE와 다른 pageId로 op-batch 수신 — 훅은 무시해야 한다.
+    act(() =>
+      fake.emitMessage(JSON.stringify({ type: 'op-batch', pageId: 'pg_other_999', ops: [opA] })),
+    );
+    expect(result.current.blocks[0]!.text).toBe(initialText);
+    expect(result.current.blocks).toHaveLength(initialLength);
+  });
+
+  // P9 / AC-A3: 실시간 op + op-batch 혼재 → 최종 텍스트 수렴(최종 상태만 단언)
+  it('AC-A3: 실시간 op 도착 중 op-batch 수신해도 최종 텍스트가 기대값으로 수렴한다', () => {
+    const fake = createFakeTransport();
+    const { result } = renderHook(() =>
+      useCrdtDocument(PAGE, { transportFactory: () => fake }),
+    );
+    const genesisId = { counter: 0, siteId: 'genesis' };
+    // op-batch로 올 op
+    const opBatch1 = toWire(
+      makeInlineInsertOp({ counter: 1, siteId: 'site_s' }, null, 'a', genesisId),
+      1, 'site_s',
+    );
+    const opBatch2 = toWire(
+      makeInlineInsertOp({ counter: 2, siteId: 'site_s' }, { counter: 1, siteId: 'site_s' }, 'b', genesisId),
+      2, 'site_s',
+    );
+    // 실시간 op (op-batch와 섞임)
+    const opRt = toWire(
+      makeInlineInsertOp({ counter: 3, siteId: 'site_s' }, { counter: 2, siteId: 'site_s' }, 'c', genesisId),
+      3, 'site_s',
+    );
+    act(() => {
+      // 실시간 op 먼저 도착
+      fake.emitMessage(JSON.stringify({ type: 'op', pageId: PAGE, op: opRt }));
+      // 이후 op-batch 도착 (앞선 op들 포함)
+      fake.emitMessage(JSON.stringify({ type: 'op-batch', pageId: PAGE, ops: [opBatch1, opBatch2, opRt] }));
+    });
+    // 최종 수렴: 중복 적용이 멱등이면 텍스트는 'abc'여야 함
+    expect(result.current.blocks[0]!.text).toBe('abc');
+  });
 });

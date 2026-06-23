@@ -10,7 +10,7 @@ import {
   applyDocOp,
   makeBlockInsertOp,
 } from '@ieum/crdt';
-import type { AnyOp, DocState, RgaId } from '@ieum/crdt';
+import type { AnyOp, BlockType, DocState, RgaId } from '@ieum/crdt';
 
 // 공유 genesis 블록 — 모든 탭이 동일한 결정적 id로 초기 블록을 만든다.
 // sync(서버 초기 상태 전달)가 범위 밖이므로, walking skeleton에서는 고정 id의
@@ -71,4 +71,18 @@ export function diffBlockText(
   }
 
   return ops;
+}
+
+/**
+ * 텍스트가 블록 타입 단축키 prefix로 시작하는지 감지한다.
+ * 일치 시 { type, consumed } 반환, 불일치 시 null.
+ */
+export function detectBlockTypeShortcut(
+  text: string,
+): { type: BlockType; consumed: number } | null {
+  if (text.startsWith('### ')) return { type: 'heading3', consumed: 4 };
+  if (text.startsWith('## ')) return { type: 'heading2', consumed: 3 };
+  if (text.startsWith('# ')) return { type: 'heading1', consumed: 2 };
+  if (text.startsWith('- ')) return { type: 'bullet', consumed: 2 };
+  return null;
 }

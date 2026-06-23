@@ -158,4 +158,47 @@ describe('relayClient', () => {
     t.emitOpen();
     expect(t.sent).toContain(JSON.stringify({ type: 'join', pageId: PAGE }));
   });
+
+  // P9 / AC-A2,A4,A5: op-batch 수신 시 onOpBatch 핸들러 라우팅
+  // pageId 검증(C3): onOpBatch는 (ops, pageId) 2개 인자로 호출되어야 한다.
+  it('P9: op-batch 메시지 수신 시 onOpBatch(ops, pageId)를 호출한다', () => {
+    const t = createFakeTransport();
+    const onOpBatch = vi.fn();
+    createRelayClient(t, PAGE, { onRemoteOp: () => {}, onOpBatch });
+    const e = env('site_b', 1);
+    t.emitMessage(JSON.stringify({ type: 'op-batch', pageId: PAGE, ops: [e] }));
+    expect(onOpBatch).toHaveBeenCalledTimes(1);
+    expect(onOpBatch).toHaveBeenCalledWith([e], PAGE);
+  });
+
+  it('P9: op-batch ops 배열을 onOpBatch에 그대로 전달한다 (인자 구조 검증)', () => {
+    const t = createFakeTransport();
+    const onOpBatch = vi.fn();
+    createRelayClient(t, PAGE, { onRemoteOp: () => {}, onOpBatch });
+    const e1 = env('site_b', 1);
+    const e2 = env('site_b', 2);
+    t.emitMessage(JSON.stringify({ type: 'op-batch', pageId: PAGE, ops: [e1, e2] }));
+    expect(onOpBatch).toHaveBeenCalledWith([e1, e2], PAGE);
+  });
+
+  it('P9: 빈 ops 배열 op-batch 수신 시 onOpBatch([], pageId)를 호출한다 (AC-A4)', () => {
+    const t = createFakeTransport();
+    const onOpBatch = vi.fn();
+    createRelayClient(t, PAGE, { onRemoteOp: () => {}, onOpBatch });
+    t.emitMessage(JSON.stringify({ type: 'op-batch', pageId: PAGE, ops: [] }));
+    expect(onOpBatch).toHaveBeenCalledTimes(1);
+    expect(onOpBatch).toHaveBeenCalledWith([], PAGE);
+  });
+
+  it('P9: onOpBatch 미제공 시 op-batch 수신해도 에러 없이 무시된다', () => {
+    const t = createFakeTransport();
+    const onRemoteOp = vi.fn();
+    createRelayClient(t, PAGE, { onRemoteOp }); // onOpBatch 없음
+    const e = env('site_b', 1);
+    // 에러 없이 처리되어야 하며 onRemoteOp는 호출되지 않는다
+    expect(() =>
+      t.emitMessage(JSON.stringify({ type: 'op-batch', pageId: PAGE, ops: [e] })),
+    ).not.toThrow();
+    expect(onRemoteOp).not.toHaveBeenCalled();
+  });
 });

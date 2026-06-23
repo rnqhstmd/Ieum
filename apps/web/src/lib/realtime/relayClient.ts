@@ -18,6 +18,8 @@ export interface RelayClientHandlers {
   onPresenceLeave?(clientId: string): void;
   /** P6 커서: 협업자 커서 위치 수신 → useCursor 맵 갱신. */
   onCursorUpdate?(info: CursorInfo): void;
+  /** P9: op-batch 수신 → 훅이 일괄 applyDocOp. */
+  onOpBatch?(ops: WireEnvelope[], pageId: string): void;
 }
 
 export interface RelayClient {
@@ -73,6 +75,9 @@ export function createRelayClient(
             blockId: msg.blockId,
             anchorId: msg.anchorId,
           });
+          break;
+        case 'op-batch':
+          handlers.onOpBatch?.(msg.ops, msg.pageId);
           break;
       }
     }),

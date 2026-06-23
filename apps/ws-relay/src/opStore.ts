@@ -14,6 +14,8 @@ export interface OpStore {
    * userId는 WS 연결의 인증 사용자(WS-AUTH-03 created_by_id 태깅) — 선택적(미인가 경로는 null).
    */
   append(pageId: string, op: WireEnvelope, userId?: string | null): Promise<AppendOutcome>;
+  /** pageId에 속한 op를 serverSeq ASC(append 순서)로 반환한다(재접속 복원). */
+  loadByPage(pageId: string): Promise<WireEnvelope[]>;
   /** 연결 풀 등 리소스 정리(선택적). */
   close?(): Promise<void>;
 }
@@ -32,12 +34,20 @@ export function isUuid(v: string): boolean {
  */
 export class InMemoryOpStore implements OpStore {
   private readonly seen = new Set<string>();
+  private readonly pages = new Map<string, WireEnvelope[]>();
 
   async append(pageId: string, op: WireEnvelope, _userId?: string | null): Promise<AppendOutcome> {
     if (!isUuid(pageId)) return 'rejected';
     const key = `${pageId}|${op.siteId}|${op.seq}`;
     if (this.seen.has(key)) return 'duplicate';
     this.seen.add(key);
+    const list = this.pages.get(pageId) ?? [];
+    list.push(op);
+    this.pages.set(pageId, list);
     return 'persisted';
+  }
+
+  async loadByPage(pageId: string): Promise<WireEnvelope[]> {
+    return [...(this.pages.get(pageId) ?? [])];
   }
 }

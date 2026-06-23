@@ -68,13 +68,20 @@ export interface CursorUpdateMsg {
 }
 
 export type ClientToServer = JoinMsg | OpMsg | CursorMsg;
+export interface OpBatchMsg {
+  type: 'op-batch';
+  pageId: string;
+  ops: WireEnvelope[];
+}
+
 export type ServerToClient =
   | JoinAckMsg
   | OpMsg
   | OpAckMsg
   | PresenceUpdateMsg
   | PresenceLeaveMsg
-  | CursorUpdateMsg;
+  | CursorUpdateMsg
+  | OpBatchMsg;
 
 // RgaId siteId 상한 — 커서 anchorId siteId로 대용량 문자열 broadcast 증폭 차단(C2).
 const MAX_SITE_ID = 64;
@@ -102,13 +109,15 @@ function isRgaId(v: unknown): v is RgaId {
 function isWireEnvelope(v: unknown): v is WireEnvelope {
   if (typeof v !== 'object' || v === null || hasDangerousKey(v)) return false;
   const o = v as Record<string, unknown>;
-  return (
-    typeof o.siteId === 'string' &&
-    typeof o.seq === 'number' &&
-    typeof o.opType === 'string' &&
-    typeof o.payload === 'object' &&
-    o.payload !== null
-  );
+  if (
+    typeof o.siteId !== 'string' ||
+    typeof o.seq !== 'number' ||
+    typeof o.opType !== 'string' ||
+    typeof o.payload !== 'object' ||
+    o.payload === null
+  ) return false;
+  if (hasDangerousKey(o.payload as object)) return false;
+  return true;
 }
 
 /** 서버→클라 메시지 파싱. 실패·미검증 입력 시 null. */
@@ -153,6 +162,12 @@ export function parseServerMessage(raw: string): ServerToClient | null {
         isRgaId(o.blockId) &&
         (o.anchorId === null || isRgaId(o.anchorId))
         ? (o as unknown as CursorUpdateMsg)
+        : null;
+    case 'op-batch':
+      return typeof o.pageId === 'string' &&
+        Array.isArray(o.ops) &&
+        (o.ops as unknown[]).every(isWireEnvelope)
+        ? (o as unknown as OpBatchMsg)
         : null;
     default:
       return null;

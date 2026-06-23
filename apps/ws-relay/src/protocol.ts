@@ -71,6 +71,13 @@ export interface CursorUpdateMsg {
   anchorId: RgaId | null;
 }
 
+/** S→C: 재접속 복원용 op 일괄 전송 (join 직후, loadByPage 결과). */
+export interface OpBatchMsg {
+  type: 'op-batch';
+  pageId: string;
+  ops: WireEnvelope[];
+}
+
 export type ClientToServer = JoinMsg | OpMsg | CursorMsg;
 export type ServerToClient =
   | JoinAckMsg
@@ -78,7 +85,8 @@ export type ServerToClient =
   | OpAckMsg
   | PresenceUpdateMsg
   | PresenceLeaveMsg
-  | CursorUpdateMsg;
+  | CursorUpdateMsg
+  | OpBatchMsg;
 
 // presence displayName 상한 — 64KiB payload를 displayName으로 채워 broadcast 증폭(DoS)하는 것을 차단(S2).
 const MAX_DISPLAY_NAME = 64;
@@ -105,15 +113,17 @@ function isRgaId(v: unknown): v is RgaId {
 }
 
 function isWireEnvelope(v: unknown): v is WireEnvelope {
-  if (typeof v !== 'object' || v === null) return false;
+  if (typeof v !== 'object' || v === null || hasDangerousKey(v)) return false;
   const o = v as Record<string, unknown>;
-  return (
-    typeof o.siteId === 'string' &&
-    typeof o.seq === 'number' &&
-    typeof o.opType === 'string' &&
-    typeof o.payload === 'object' &&
-    o.payload !== null
-  );
+  if (
+    typeof o.siteId !== 'string' ||
+    typeof o.seq !== 'number' ||
+    typeof o.opType !== 'string' ||
+    typeof o.payload !== 'object' ||
+    o.payload === null
+  ) return false;
+  if (hasDangerousKey(o.payload as object)) return false;
+  return true;
 }
 
 /**

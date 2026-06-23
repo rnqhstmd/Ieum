@@ -1,0 +1,39 @@
+ .../codemap.md                                     |  38 ++++
+ .../design-draft.md                                |  55 ++++++
+ .../feat-p11-crdt-restore-structural-e2e/design.md | 197 +++++++++++++++++++++
+ .dev/feat-p11-crdt-restore-structural-e2e/diff.txt |  38 ++++
+ .dev/feat-p11-crdt-restore-structural-e2e/prd.md   | 190 ++++++++++++++++++++
+ .dev/feat-p11-crdt-restore-structural-e2e/state.md |  37 ++++
+ .../trust-ledger.md                                |  36 ++++
+ apps/web/.gitignore                                |   2 +
+ apps/web/components/editor/Editor.tsx              |  26 ++-
+ apps/web/components/editor/EditorContainer.tsx     |   5 +-
+ .../components/editor/__tests__/Editor.test.tsx    |  81 +++++++++
+ apps/web/e2e/README.md                             |  99 +++++++++++
+ apps/web/e2e/convergence.e2e.ts                    |  53 ++++++
+ apps/web/e2e/restore.e2e.ts                        |  65 +++++++
+ apps/web/package.json                              |   9 +-
+ apps/web/playwright.config.ts                      |  16 ++
+ .../src/lib/editor/__tests__/crdtDocument.test.ts  |  37 +++-
+ .../__tests__/structuralEditConvergence.test.tsx   | 163 +++++++++++++++++
+ .../lib/editor/__tests__/useCrdtDocument.test.tsx  | 112 ++++++++++++
+ apps/web/src/lib/editor/crdtDocument.ts            |  16 +-
+ apps/web/src/lib/editor/useCrdtDocument.ts         |  64 ++++++-
+ .../src/lib/realtime/__tests__/protocol.test.ts    |  69 +++++++-
+ .../src/lib/realtime/__tests__/relayClient.test.ts |  43 +++++
+ apps/web/src/lib/realtime/protocol.ts              |  31 +++-
+ apps/web/src/lib/realtime/relayClient.ts           |   5 +
+ apps/web/tsconfig.json                             |   3 +-
+ apps/ws-relay/src/opStore.ts                       |  10 ++
+ apps/ws-relay/src/pgOpStore.ts                     |  14 ++
+ apps/ws-relay/src/protocol.ts                      |  28 ++-
+ apps/ws-relay/src/server.ts                        |  15 +-
+ apps/ws-relay/tests/opStore.test.ts                |  40 +++++
+ apps/ws-relay/tests/pgOpStore.int.test.ts          |  27 +++
+ apps/ws-relay/tests/protocol.test.ts               |  19 ++
+ apps/ws-relay/tests/room.test.ts                   |   1 +
+ apps/ws-relay/tests/server.test.ts                 | 150 ++++++++++++++++
+ pnpm-lock.yaml                                     |  43 ++++-
+ 36 files changed, 1798 insertions(+), 39 deletions(-)
+---
+위는 --stat 요약. 변경 파일을 Read로 확인. (phase-review 후속 6건 수정 반영본)

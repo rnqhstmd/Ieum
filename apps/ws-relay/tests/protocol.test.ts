@@ -57,6 +57,25 @@ describe('relay protocol — parseClientMessage', () => {
     expect(parseClientMessage(raw)).toBeNull();
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
+
+  // C3: op 봉투 payload 내부 위험 키 — isWireEnvelope가 payload 객체 내부까지 검사해야 한다.
+  // JSON.stringify는 __proto__를 자동 삭제하므로 raw 문자열을 직접 주입한다.
+  it('보안(C3): op 봉투의 payload에 __proto__ 키가 있으면 null을 반환한다', () => {
+    const raw = '{"type":"op","pageId":"pg_x","op":{"siteId":"site_a","seq":1,"opType":"insert","payload":{"data":"x","__proto__":{"polluted":99}}}}';
+    expect(parseClientMessage(raw)).toBeNull();
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
+  it('보안(C3): op 봉투의 payload에 constructor 키가 있으면 null을 반환한다', () => {
+    const envWithConstructorPayload = {
+      siteId: 'site_a',
+      seq: 1,
+      opType: 'insert',
+      payload: { constructor: { prototype: { polluted: 99 } } },
+    };
+    const raw = JSON.stringify({ type: 'op', pageId: 'pg_x', op: envWithConstructorPayload });
+    expect(parseClientMessage(raw)).toBeNull();
+  });
 });
 
 // P6 / FR-1, BR-4: join 메시지의 presence 확장 (아바타 displayName 운반).

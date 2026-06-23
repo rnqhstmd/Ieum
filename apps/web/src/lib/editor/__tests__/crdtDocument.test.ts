@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createDocument, docToBlocks } from '@ieum/crdt';
 import type { DocState, RgaId } from '@ieum/crdt';
-import { diffBlockText } from '../crdtDocument';
+import { diffBlockText, detectBlockTypeShortcut } from '../crdtDocument';
 
 // T4 / AC-5: 블록 텍스트 old→new diff로 인라인 INSERT/DELETE op를 생성하고 로컬 적용한다.
 function setup(): { doc: DocState; blockId: RgaId } {
@@ -89,5 +89,40 @@ describe('diffBlockText', () => {
     expect(ops).toHaveLength(2);
     expect(ops.every((o) => o.type === 'delete')).toBe(true);
     expect(text(doc, blockId)).toBe('');
+  });
+});
+
+// P9 / AC-B1~B4 단축키 파싱: detectBlockTypeShortcut
+describe('detectBlockTypeShortcut', () => {
+  it("'# ' → { type: 'heading1', consumed: 2 }", () => {
+    expect(detectBlockTypeShortcut('# ')).toEqual({ type: 'heading1', consumed: 2 });
+  });
+
+  it("'## ' → { type: 'heading2', consumed: 3 }", () => {
+    expect(detectBlockTypeShortcut('## ')).toEqual({ type: 'heading2', consumed: 3 });
+  });
+
+  it("'### ' → { type: 'heading3', consumed: 4 }", () => {
+    expect(detectBlockTypeShortcut('### ')).toEqual({ type: 'heading3', consumed: 4 });
+  });
+
+  it("'- ' → { type: 'bullet', consumed: 2 }", () => {
+    expect(detectBlockTypeShortcut('- ')).toEqual({ type: 'bullet', consumed: 2 });
+  });
+
+  it("'normal text' → null (미해당)", () => {
+    expect(detectBlockTypeShortcut('normal text')).toBeNull();
+  });
+
+  it("'#텍스트' (공백 없음) → null", () => {
+    expect(detectBlockTypeShortcut('#텍스트')).toBeNull();
+  });
+
+  it("빈 문자열 → null", () => {
+    expect(detectBlockTypeShortcut('')).toBeNull();
+  });
+
+  it("'# ' prefix 뒤에 텍스트 있어도 heading1 감지", () => {
+    expect(detectBlockTypeShortcut('# Hello')).toEqual({ type: 'heading1', consumed: 2 });
   });
 });
