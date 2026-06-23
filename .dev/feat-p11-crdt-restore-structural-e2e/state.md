@@ -1,5 +1,5 @@
-phase: implement
-status: in_progress
+phase: complete
+status: completed
 vcs-type: git
 branch: feat/p11-crdt-restore-structural-e2e
 base: main
@@ -13,7 +13,9 @@ started: 2026-06-23
 last-known-head: cd1661e1f5f92808860d6b0d54c7e4b7e08d0760
 config-setup-attempts: 0
 auto-stashed: false
-current-step: "phase-complete: 인수 검증"
+current-step: "완료 — PR #27 생성, status·architecture 동기화"
+acceptance: "ACCEPT — [Must] 11/11"
+pr: "https://github.com/rnqhstmd/Ieum/pull/27"
 verify-gate: "PASS(신선) — node test 5 tasks(crdt+ws-relay 85+web 179), node build 3 tasks(web next build 포함), backend test --rerun-tasks BUILD SUCCESSFUL(testcontainers, 0 fail). 2026-06-23."
 phases:
   setup: completed

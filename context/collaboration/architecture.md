@@ -92,6 +92,11 @@
 
 ### 재접속 흐름
 
+> **P11 구현 현황 (PR #27)**: 아래는 목표 흐름(Snapshot + delta)이다. P11은 **순수 op replay**로 먼저 구현했다 — `sync-request`/Snapshot 없이 **join 시 relay가 즉시 op-batch를 전송**한다.
+> - `OpStore.loadByPage(pageId)`(InMemory/Pg)가 `crdt_ops`를 `ORDER BY server_seq ASC`로 전량 조회 → `server.ts` join 체인이 `registry.join`(broadcast 선등록) 후 `loadByPage`를 await하여 신규 소켓에 `op-batch{pageId, ops:WireEnvelope[]}` 1회 송신(`protocol.ts` 신규 메시지, 서버→클라 전용). loadByPage 실패 시 빈 batch+`console.warn`.
+> - 클라(`relayClient.onOpBatch(ops,pageId)` → `useCrdtDocument`): pageId 일치 시 `applyDocOp` 순차 replay 후 bump 1회. **유실방지**는 선등록 + `@ieum/crdt` 4중 인과버퍼·멱등(`nodeMap.has`)이 보장(restoring 플래그는 replay 중 렌더 배칭 전용, try/finally로 복원 보장). 빈 문서는 로컬 genesis 유지(genesis block-insert는 비영속).
+> - **Snapshot 생성·delta·자동생성**은 후속 슬라이스로 연기(op-batch 크기 무제한은 그때 청크 분할). 검증: `pgOpStore.int` loadByPage round-trip + ws-relay/web op-batch 수렴(AC-A1~A5).
+
 ```
 클라이언트 재접속
   → sync-request { knownVersion: N } 전송
