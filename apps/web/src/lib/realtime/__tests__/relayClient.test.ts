@@ -41,9 +41,10 @@ describe('relayClient', () => {
   it('AC-8(레이스): ready가 있으면 join을 ready 완료 후로 미루고 그때 userId를 싣는다', async () => {
     const t = createFakeTransport();
     let resolveReady!: () => void;
-    const ready = new Promise<void>((r) => {
+    const readyPromise = new Promise<void>((r) => {
       resolveReady = r;
     });
+    const ready = () => readyPromise; // WS-AUTH-01: ready는 팩토리(매 open마다 호출)
     let userId: string | undefined;
     createRelayClient(t, PAGE, { onRemoteOp: () => {} }, { getUserId: () => userId, ready });
     t.emitOpen();

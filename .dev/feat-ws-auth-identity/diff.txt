@@ -1,0 +1,34 @@
+ .dev/feat-ws-auth-identity/codemap.md              |  34 ++++
+ .dev/feat-ws-auth-identity/design-draft.md         |  43 +++++
+ .dev/feat-ws-auth-identity/design.md               | 128 +++++++++++++
+ .dev/feat-ws-auth-identity/diff.txt                |  30 +++
+ .dev/feat-ws-auth-identity/prd.md                  | 128 +++++++++++++
+ .dev/feat-ws-auth-identity/state.md                |  36 ++++
+ .dev/feat-ws-auth-identity/trust-ledger.md         |  35 ++++
+ .env.example                                       |   4 +
+ apps/web/components/editor/EditorContainer.tsx     |   7 +-
+ .../editor/__tests__/EditorContainer.test.tsx      |  55 ++++++
+ .../web/src/lib/auth/__tests__/currentUser.test.ts |  42 ++++-
+ apps/web/src/lib/auth/currentUser.ts               |  21 ++-
+ .../lib/editor/__tests__/useCrdtDocument.test.tsx  |  83 ++++++++-
+ apps/web/src/lib/editor/useCrdtDocument.ts         |  32 +++-
+ .../src/lib/realtime/__tests__/relayClient.test.ts |   3 +-
+ apps/web/src/lib/realtime/protocol.ts              |   2 +
+ apps/web/src/lib/realtime/relayClient.ts           |  24 ++-
+ apps/ws-relay/.env.example                         |  16 ++
+ apps/ws-relay/src/main.ts                          |   7 +-
+ apps/ws-relay/src/protocol.ts                      |  10 +-
+ apps/ws-relay/src/server.ts                        |  43 +++--
+ apps/ws-relay/src/wsToken.ts                       |  53 ++++++
+ apps/ws-relay/tests/server.test.ts                 | 203 +++++++++++++++++++++
+ apps/ws-relay/tests/tokenFixture.ts                |  46 +++++
+ apps/ws-relay/tests/wsToken.test.ts                | 102 +++++++++++
+ .../com/ieum/common/security/WsTokenService.java   |  63 +++++++
+ .../src/main/java/com/ieum/config/ClockConfig.java |  15 ++
+ .../main/java/com/ieum/user/UserController.java    |  12 +-
+ backend/src/main/resources/application.yml         |   2 +
+ .../ieum/common/security/WsTokenServiceTest.java   |  64 +++++++
+ .../java/com/ieum/user/UserMeIntegrationTest.java  |  72 +++++++-
+ 31 files changed, 1361 insertions(+), 54 deletions(-)
+---
+위는 --stat 요약. 변경 파일 Read로 확인. (phase-review 후속 6건 수정 반영본)
