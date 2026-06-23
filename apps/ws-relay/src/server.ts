@@ -10,10 +10,13 @@ import { parseClientMessage } from './protocol.js';
 import { InMemoryOpStore } from './opStore.js';
 import type { OpStore } from './opStore.js';
 import type { MembershipStore } from './membershipStore.js';
+import { createAdminServer } from './adminServer.js';
 
 export interface RelayServer {
   close(): Promise<void>;
   port: number;
+  adminPort?: number;
+  disconnectUser(userId: string): number;
 }
 
 // 보안 하드닝 기본값 (walking skeleton, localhost 전용).
@@ -32,6 +35,8 @@ export function createRelayServer(opts: {
   // WS-AUTH-02 멤버십 게이트. 주입 시 join에 userId+멤버십 검증(비멤버 close 4003).
   // 미주입 시 게이트 off(DB 미구성 walking skeleton — 기존 동작 유지).
   membershipStore?: MembershipStore;
+  // admin HTTP 서버 포트. 주입 시(0 포함) admin 서버 기동. 미주입 시 admin 미기동.
+  adminPort?: number;
 }): Promise<RelayServer> {
   const registry = opts.registry ?? new RoomRegistry();
   const opStore: OpStore = opts.opStore ?? new InMemoryOpStore();
@@ -43,6 +48,7 @@ export function createRelayServer(opts: {
     maxPayload: opts.maxPayload ?? DEFAULT_MAX_PAYLOAD,
   });
   const sockets = new Map<string, WebSocket>();
+  const userConnections = new Map<string, Set<WebSocket>>();
   let nextId = 0;
 
   wss.on('connection', (socket) => {
@@ -96,7 +102,17 @@ export function createRelayServer(opts: {
               }
               return;
             }
+            // 재-join: 이전 userId가 있고 새 userId와 다르면 이전 Set에서 소켓 제거
+            if (connUserId !== null && connUserId !== joinMsg.userId) {
+              const prevSet = userConnections.get(connUserId);
+              if (prevSet) {
+                prevSet.delete(socket);
+                if (prevSet.size === 0) userConnections.delete(connUserId);
+              }
+            }
             connUserId = joinMsg.userId;
+            if (!userConnections.has(connUserId)) userConnections.set(connUserId, new Set());
+            userConnections.get(connUserId)!.add(socket);
           }
           connPage = joinMsg.pageId; // 게이트 off여도 교차 room 마감 기준으로 설정
           sendAll(registry.join(handle, joinMsg.pageId, joinMsg.presence)); // P6 presence 전달
@@ -131,6 +147,13 @@ export function createRelayServer(opts: {
       // P6: leave가 남은 peer에게 보낼 presence-leave Dispatch[]를 반환 → send 배선.
       sendAll(registry.leave(handle));
       sockets.delete(handle.id);
+      if (connUserId) {
+        const set = userConnections.get(connUserId);
+        if (set) {
+          set.delete(socket);
+          if (set.size === 0) userConnections.delete(connUserId);
+        }
+      }
     });
   });
 
@@ -138,14 +161,44 @@ export function createRelayServer(opts: {
     wss.on('listening', () => {
       const addr = wss.address();
       const port = typeof addr === 'object' && addr !== null ? addr.port : opts.port;
-      resolve({
-        port,
-        close: async () => {
-          for (const socket of sockets.values()) socket.terminate();
-          await new Promise<void>((res, rej) => wss.close((err) => (err ? rej(err) : res())));
-          await opStore.close?.(); // PgOpStore 풀 정리(InMemory는 no-op).
-        },
-      });
+
+      function disconnectUser(userId: string): number {
+        const set = userConnections.get(userId);
+        if (!set) return 0;
+        let count = 0;
+        for (const socket of set) {
+          // 방어적: 이미 닫히는 중인 소켓은 건너뜀 (sendAll의 OPEN 체크와 일관)
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.close(4003, 'removed');
+            count++;
+          }
+        }
+        userConnections.delete(userId);
+        return count;
+      }
+
+      const adminReady: Promise<{ port: number; close: () => Promise<void> } | undefined> =
+        opts.adminPort !== undefined
+          ? createAdminServer({
+              port: opts.adminPort,
+              host: opts.host ?? DEFAULT_HOST,
+              disconnectUser,
+            })
+          : Promise.resolve(undefined);
+
+      adminReady.then((admin) => {
+        resolve({
+          port,
+          adminPort: admin?.port,
+          close: async () => {
+            for (const socket of sockets.values()) socket.terminate();
+            await new Promise<void>((res, rej) => wss.close((err) => (err ? rej(err) : res())));
+            await opStore.close?.(); // PgOpStore 풀 정리(InMemory는 no-op).
+            if (admin) await admin.close();
+          },
+          disconnectUser,
+        });
+      }).catch(reject);
     });
     wss.on('error', reject);
   });

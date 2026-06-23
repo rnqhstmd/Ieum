@@ -80,7 +80,7 @@ public class WorkspaceController {
      */
     @GetMapping("/{id}/members")
     public ResponseEntity<List<MembershipDto>> listMembers(@PathVariable UUID id) {
-        UUID currentUserId = null; // TODO(Phase 1): 인증 컨텍스트에서 추출
+        UUID currentUserId = currentUserService.requireCurrentUserId();
         return ResponseEntity.ok(workspaceService.listMembers(currentUserId, id));
     }
 
@@ -92,7 +92,7 @@ public class WorkspaceController {
     public ResponseEntity<Void> removeMember(
             @PathVariable UUID id,
             @PathVariable UUID userId) {
-        UUID currentUserId = null; // TODO(Phase 1): 인증 컨텍스트에서 추출
+        UUID currentUserId = currentUserService.requireCurrentUserId();
         workspaceService.removeMember(currentUserId, id, userId);
         return ResponseEntity.noContent().build();
     }
@@ -106,7 +106,7 @@ public class WorkspaceController {
             @PathVariable UUID id,
             @PathVariable UUID userId,
             @RequestBody UpdateMemberRoleRequest request) {
-        UUID currentUserId = null; // TODO(Phase 1): 인증 컨텍스트에서 추출
+        UUID currentUserId = currentUserService.requireCurrentUserId();
         return ResponseEntity.ok(workspaceService.updateMemberRole(currentUserId, id, userId, request));
     }
 }

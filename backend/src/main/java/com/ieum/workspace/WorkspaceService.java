@@ -1,5 +1,6 @@
 package com.ieum.workspace;
 
+import com.ieum.common.security.AccessGuard;
 import com.ieum.user.User;
 import com.ieum.user.UserRepository;
 import com.ieum.workspace.dto.*;
@@ -7,8 +8,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import jakarta.persistence.EntityNotFoundException;
+
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * 워크스페이스 도메인 서비스
@@ -26,6 +32,8 @@ public class WorkspaceService {
     private final WorkspaceRepository workspaceRepository;
     private final MembershipRepository membershipRepository;
     private final UserRepository userRepository;
+    private final AccessGuard accessGuard;
+    private final WsRelayAdminClient wsRelayAdminClient;
 
     private static final int NAME_MAX = 100; // 워크스페이스 이름 최대 길이 (US-WS-02)
 
@@ -135,11 +143,24 @@ public class WorkspaceService {
      * 워크스페이스 멤버 목록 조회 (멤버 본인이면 조회 가능)
      */
     public List<MembershipDto> listMembers(UUID currentUserId, UUID workspaceId) {
-        // TODO(Phase 1):
-        //   1. requireWorkspaceMember(currentUserId, workspaceId)
-        //   2. membershipRepository.findByWorkspaceId(workspaceId)
-        //   3. 각 userId → userRepository.findById 조회 후 MembershipDto 변환
-        throw new UnsupportedOperationException("TODO(Phase 1): listMembers");
+        accessGuard.requireWorkspaceMember(currentUserId, workspaceId);
+        List<Membership> memberships = membershipRepository.findByWorkspaceId(workspaceId);
+        List<UUID> userIds = memberships.stream().map(Membership::getUserId).toList();
+        Map<UUID, User> userMap = userRepository.findAllById(userIds).stream()
+                .collect(Collectors.toMap(User::getId, Function.identity()));
+        return memberships.stream()
+                .map(m -> {
+                    User u = userMap.get(m.getUserId());
+                    return new MembershipDto(
+                            m.getId(),
+                            m.getUserId(),
+                            u != null ? u.getEmail() : null,
+                            u != null ? u.getName() : null,
+                            m.getRole(),
+                            m.getJoinedAt()
+                    );
+                })
+                .toList();
     }
 
     /**
@@ -147,13 +168,24 @@ public class WorkspaceService {
      */
     @Transactional
     public void removeMember(UUID currentUserId, UUID workspaceId, UUID targetUserId) {
-        // TODO(Phase 1):
-        //   1. requireOwner(currentUserId, workspaceId)
-        //   2. currentUserId.equals(targetUserId)이면 IllegalArgumentException("자기 자신을 제거할 수 없습니다")
-        //   3. membershipRepository.findByUserIdAndWorkspaceId(targetUserId, workspaceId)
-        //      → 없으면 EntityNotFoundException
-        //   4. membershipRepository.delete(membership)
-        throw new UnsupportedOperationException("TODO(Phase 1): removeMember");
+        accessGuard.requireOwner(currentUserId, workspaceId);
+
+        if (currentUserId.equals(targetUserId)) {
+            throw new IllegalArgumentException("자기 자신을 제거할 수 없습니다");
+        }
+
+        Membership membership = membershipRepository.findByUserIdAndWorkspaceId(targetUserId, workspaceId)
+                .orElseThrow(() -> new EntityNotFoundException("멤버를 찾을 수 없습니다."));
+
+        // BR-2: 마지막 OWNER 제거 차단
+        // 방어적 가드: 현 검증순서상 도달 불가(단독 OWNER 제거=자기제거→BR-3 흡수)이나 미래 순서 변경 대비
+        if (membership.getRole() == MemberRole.OWNER
+                && membershipRepository.countByWorkspaceIdAndRole(workspaceId, MemberRole.OWNER) <= 1) {
+            throw new IllegalArgumentException("마지막 OWNER를 제거할 수 없습니다");
+        }
+
+        membershipRepository.delete(membership);
+        wsRelayAdminClient.disconnectUser(targetUserId);
     }
 
     /**
@@ -162,12 +194,35 @@ public class WorkspaceService {
     @Transactional
     public MembershipDto updateMemberRole(UUID currentUserId, UUID workspaceId,
                                           UUID targetUserId, UpdateMemberRoleRequest request) {
-        // TODO(Phase 1):
-        //   1. requireOwner(currentUserId, workspaceId)
-        //   2. OWNER가 1명 이하로 줄어드는 경우 검증 (선택적)
-        //   3. membership.setRole(request.role()) 저장
-        //   4. MembershipDto 반환
-        throw new UnsupportedOperationException("TODO(Phase 1): updateMemberRole");
+        accessGuard.requireOwner(currentUserId, workspaceId);
+
+        if (request == null || request.role() == null) {
+            throw new IllegalArgumentException("role은 null일 수 없습니다.");
+        }
+
+        Membership membership = membershipRepository.findByUserIdAndWorkspaceId(targetUserId, workspaceId)
+                .orElseThrow(() -> new EntityNotFoundException("멤버를 찾을 수 없습니다."));
+
+        // BR-1: 대상의 현재 role이 OWNER이고 MEMBER로 강등 시, OWNER가 1명뿐이면 차단
+        if (membership.getRole() == MemberRole.OWNER && request.role() == MemberRole.MEMBER) {
+            long ownerCount = membershipRepository.countByWorkspaceIdAndRole(workspaceId, MemberRole.OWNER);
+            if (ownerCount <= 1) {
+                throw new IllegalArgumentException("마지막 OWNER의 역할을 변경할 수 없습니다");
+            }
+        }
+
+        membership.setRole(request.role());
+        membershipRepository.save(membership);
+
+        User u = userRepository.findById(targetUserId).orElse(null);
+        return new MembershipDto(
+                membership.getId(),
+                membership.getUserId(),
+                u != null ? u.getEmail() : null,
+                u != null ? u.getName() : null,
+                membership.getRole(),
+                membership.getJoinedAt()
+        );
     }
 
 }

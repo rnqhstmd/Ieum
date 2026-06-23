@@ -11,7 +11,9 @@ const relayDbUrl = process.env.RELAY_DATABASE_URL;
 const opStore = relayDbUrl ? new PgOpStore(relayDbUrl) : undefined;
 const membershipStore = relayDbUrl ? new PgMembershipStore(relayDbUrl) : undefined;
 
-createRelayServer({ port, opStore, membershipStore })
+const adminPort = process.env.ADMIN_PORT !== undefined ? Number(process.env.ADMIN_PORT) : undefined;
+
+createRelayServer({ port, opStore, membershipStore, adminPort })
   .then((server) => {
     // eslint-disable-next-line no-console
     console.log(

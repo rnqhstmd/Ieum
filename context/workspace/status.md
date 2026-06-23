@@ -40,9 +40,9 @@
 | US-INV-02 | 초대 링크 클릭해 워크스페이스 합류 | 초대 링크는 고유 token 포함, 7일 후 만료 (expiresAt) | ✅ | P8 | `acceptInvitation` 토큰 검증·만료 우선 410(EXPIRED 전이)·멱등. 만료 lazy+스케줄러(일1회) (PR #20, #22) |
 | US-INV-02 | 〃 | 로그인 상태면 즉시 Membership 생성; 미로그인이면 로그인 후 처리 | ✅ | P8 | 인증 사용자 본인 수락 시 Membership(role 승계) 생성, 이메일 불일치 403. 미인증 401 (PR #20) |
 | US-INV-02 | 〃 | 초대 상태: `PENDING → ACCEPTED \| REVOKED \| EXPIRED` | ✅ | P8 | 수락→ACCEPTED(PR #20)·철회→REVOKED(PR #21)·만료→EXPIRED(lazy+스케줄러 PR #20,#22) 전이 완비 |
-| US-INV-03 | OWNER가 MEMBER 역할 변경·내보내기 | OWNER가 MEMBER에게 OWNER 역할 부여 가능 | ⬜ | P9 | |
-| US-INV-03 | 〃 | OWNER가 MEMBER를 내보낼 수 있음 (Membership 삭제) | ⬜ | P9 | |
-| US-INV-03 | 〃 | 마지막 OWNER는 역할 변경·나가기 불가 | ⬜ | P9 | |
+| US-INV-03 | OWNER가 MEMBER 역할 변경·내보내기 | OWNER가 MEMBER에게 OWNER 역할 부여 가능 | ✅ | P9 | `updateMemberRole` PATCH `/api/workspaces/{id}/members/{userId}/role`. requireOwner→대상존재(404)→BR-1→setRole. 단위+통합 (PR #25) |
+| US-INV-03 | 〃 | OWNER가 MEMBER를 내보낼 수 있음 (Membership 삭제) | ✅ | P9 | `removeMember` DELETE `/api/workspaces/{id}/members/{userId}`. requireOwner→자기제거금지(BR-3)→대상존재(404)→delete→WS 강제종료. 단위+통합 (PR #25) |
+| US-INV-03 | 〃 | 마지막 OWNER는 역할 변경·나가기 불가 | ✅ | P9 | 마지막 OWNER 강등 금지(BR-1, 400)·제거 시 자기제거(BR-3)/방어가드(BR-2) 차단 (PR #25). ※OWNER 자발적 나가기(leave)는 P10(US-WS-04) |
 | US-INV-04 | OWNER가 보류 중 초대 취소 | OWNER가 PENDING 초대를 REVOKED로 변경 가능 | ✅ | P8 | `revokeInvitation` OWNER 검증→존재(404)→워크스페이스 일치(404 은닉)→PENDING 검증(비PENDING 409)→REVOKED 전이. 목록 조회 동반 (PR #21) |
 
 ### 권한 매트릭스 (08-auth-and-permissions.md §3)
@@ -50,9 +50,9 @@
 | 항목 | 수용 기준 | 상태 | Phase | 비고 |
 |------|-----------|------|-------|------|
 | 비멤버 접근 차단 | 워크스페이스 비멤버의 페이지 접근 시 403 반환 | ✅ | P2 | `requireWorkspaceMember`를 `PageService.createPage`/`getPageTree`에 적용 → 비멤버 403 (PR #4). auth `PERM-05`와 동일 항목 — 정합화. 단건/편집 엔드포인트 적용은 P5/P7 |
-| MEMBER 페이지 편집 | MEMBER는 워크스페이스 내 모든 페이지 편집 가능 | ⬜ | P9 | |
+| MEMBER 페이지 편집 | MEMBER는 워크스페이스 내 모든 페이지 편집 가능 | ✅ | P9 | `PageService`(create/update/getPageTree)에 `requireWorkspaceMember` 기적용 → MEMBER 편집 가능. 회귀 방지 통합테스트(`PageMemberRegressionIntegrationTest`: 생성 201·편집 200·제거된 멤버 403) (PR #25) |
 | 초대 생성 권한 | MEMBER의 초대 생성 시도 → 403 | ✅ | P7 | `accessGuard.requireOwner` → 비OWNER 403 (PR #19) |
-| 멤버 제거 권한 | MEMBER의 다른 멤버 제거 시도 → 403 | ⬜ | P9 | |
+| 멤버 제거 권한 | MEMBER의 다른 멤버 제거 시도 → 403 | ✅ | P9 | `removeMember`/`updateMemberRole` 진입부 `requireOwner` → MEMBER/비멤버 AccessDeniedException 403. 단위+통합 (PR #25) |
 
 ---
 

@@ -36,3 +36,6 @@ Thumbs.db
 .idea/
 .vscode/
 .gradle/
+
+# Windows crash dumps
+*.stackdump
