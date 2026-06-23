@@ -1,5 +1,5 @@
-phase: implement
-status: in_progress
+phase: complete
+status: completed
 vcs-type: git
 branch: feat/ws-auth-identity
 base: main
@@ -13,7 +13,9 @@ started: 2026-06-23
 last-known-head: cd1661e1f5f92808860d6b0d54c7e4b7e08d0760
 config-setup-attempts: 0
 auto-stashed: false
-current-step: "implement 완료, 변경사항 수집 → review"
+current-step: "완료 — PR #28 생성, status·architecture 동기화"
+acceptance: "ACCEPT — [Must] 8/8, [Should] 2/2"
+pr: "https://github.com/rnqhstmd/Ieum/pull/28"
 decisions: "HMAC-SHA256 토큰 / join token 필드 / GET /api/users/me 확장 / AUTH_SECRET 미설정 시 경고+trust-relay / TTL 5분 / 비대칭배포=배포순서 / skew leeway 없음 / fetchCurrentUserId 교체"
 golden-vector: "SECRET=test-secret-key-32-bytes-long!! USERID=11111111-1111-1111-1111-111111111111 EXP=1700000300 TOKEN=eyJ1c2VySWQiOiIxMTExMTExMS0xMTExLTExMTEtMTExMS0xMTExMTExMTExMTEiLCJleHAiOjE3MDAwMDAzMDB9.sdCpy_TTmL271ycglxyEpQmvxuMVgKSthO61r7UWRBs"
 phases:
