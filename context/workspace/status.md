@@ -28,8 +28,8 @@
 | US-WS-02 | 새 공유 워크스페이스 생성 | 생성 시 생성자에게 OWNER Membership 자동 생성 | ✅ | P7 | `WorkspaceService.createSharedWorkspace` SHARED 저장+생성자 OWNER 멤버십 자동, `POST /api/workspaces` 인증 배선(`requireCurrentUserId`) (PR #18) |
 | US-WS-02 | 〃 | 워크스페이스 이름 1자 이상 100자 이하 | ✅ | P7 | `normalizeName` trim 후 1~100자 검증, 위반 시 IllegalArgumentException→400 (PR #18) |
 | US-WS-03 | 사이드바에서 워크스페이스 목록 확인·전환 | 사이드바에 개인·공유 워크스페이스 목록 표시 | ✅ | P2 | 목록 API 백엔드(PR #4) + 프론트 `WorkspaceSwitcher` 목록/전환 UI (PR #5). 공유 WS 생성은 P7 |
-| US-WS-04 | OWNER로서 공유 워크스페이스 삭제 | OWNER만 삭제 가능; 삭제 시 하위 페이지·멤버십 함께 삭제 | ⬜ | P10 | |
-| US-WS-04 | 〃 | MEMBER는 나가기 가능 (Membership 삭제); 마지막 OWNER 나가기 시 경고 | ⬜ | P10 | |
+| US-WS-04 | OWNER로서 공유 워크스페이스 삭제 | OWNER만 삭제 가능; 삭제 시 하위 페이지·멤버십 함께 삭제 | ✅ | P10 | `deleteWorkspace` DELETE `/api/workspaces/{id}`. requireOwner(403, 없는 WS도 403 비누설)→PERSONAL 차단(400)→멤버 캡처+WS 강제종료→`deleteById`(DB ON DELETE CASCADE: 페이지·멤버십·초대·crdt_ops·snapshots). cascade 실증 통합테스트(archived 포함) (PR #26) |
+| US-WS-04 | 〃 | MEMBER는 나가기 가능 (Membership 삭제); 마지막 OWNER 나가기 시 경고 | ✅ | P10 | `leaveWorkspace` DELETE `/api/workspaces/{id}/members/me`. 멤버십(404)→PERSONAL 차단(400)→마지막 OWNER 차단(400, "마지막 OWNER는 워크스페이스에서 나갈 수 없습니다")→본인 delete→본인 WS 강제종료. 단위+통합 (PR #26) |
 
 ### PRD §7 — 초대 및 역할 관리 (US-INV-01 ~ US-INV-04)
 

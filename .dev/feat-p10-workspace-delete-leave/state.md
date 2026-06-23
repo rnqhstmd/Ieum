@@ -1,5 +1,5 @@
 phase: complete
-status: in_progress
+status: completed
 vcs-type: git
 branch: feat/p10-workspace-delete-leave
 base: main
@@ -14,7 +14,9 @@ started: 2026-06-23
 last-known-head: 486466367a71f2d080f8076f1320def014640d95
 auto-stashed: false
 config-setup-attempts: 0
-current-step: "review 완료(SPEC PASS·QUALITY PASS·security HIGH-1 수용+MEDIUM 수정) — complete 진입"
+current-step: "완료 — PR #26 생성(https://github.com/rnqhstmd/Ieum/pull/26)"
+pr: 26
+pr-url: https://github.com/rnqhstmd/Ieum/pull/26
 review-result: "Mechanical Gate 234 pass. spec-reviewer: AC-12 PATCH 401 갭 1건→수정 후 16/16 ✅ SPEC PASS. quality: PASS(C0/I0/Minor3). security: HIGH-1(disconnect 트랜잭션내 호출) 수용+문서화 / MEDIUM-3(null가드)·MEDIUM-2(archived cascade)·MEDIUM-4·5 수정 / MEDIUM-6 범위밖. V3 op_type 불일치 collaboration 도메인 노트."
 steps:
   implement:
@@ -43,9 +45,9 @@ phases:
   setup: completed
   requirements: completed
   design: completed
-  implement: pending
-  review: pending
-  complete: pending
+  implement: completed
+  review: completed
+  complete: completed
 execution-log:
   - phase: setup
     result: "base=main(P9 #25 머지 4864663 확인·동기화), 브랜치 feat/p10-workspace-delete-leave 생성, 코드맵 작성. 발견: DB ON DELETE CASCADE 완비 / IllegalStateException 미매핑→500 주의"
