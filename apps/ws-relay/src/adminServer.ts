@@ -42,6 +42,11 @@ export async function createAdminServer(opts: {
   return new Promise((resolve, reject) => {
     server.on('error', reject);
     server.listen(opts.port, host, () => {
+      // listen 성공 후: reject 리스너 제거, 런타임 오류 로깅 핸들러로 교체
+      server.off('error', reject);
+      server.on('error', (err) => {
+        console.error('[adminServer] runtime error', err);
+      });
       const addr = server.address();
       const port = typeof addr === 'object' && addr !== null ? addr.port : opts.port;
       resolve({

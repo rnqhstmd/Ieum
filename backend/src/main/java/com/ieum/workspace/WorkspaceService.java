@@ -214,9 +214,7 @@ public class WorkspaceService {
         membership.setRole(request.role());
         membershipRepository.save(membership);
 
-        Map<UUID, User> userMap = userRepository.findAllById(List.of(targetUserId)).stream()
-                .collect(Collectors.toMap(User::getId, Function.identity()));
-        User u = userMap.get(membership.getUserId());
+        User u = userRepository.findById(targetUserId).orElse(null);
         return new MembershipDto(
                 membership.getId(),
                 membership.getUserId(),

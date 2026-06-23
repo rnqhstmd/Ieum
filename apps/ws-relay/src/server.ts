@@ -102,6 +102,14 @@ export function createRelayServer(opts: {
               }
               return;
             }
+            // 재-join: 이전 userId가 있고 새 userId와 다르면 이전 Set에서 소켓 제거
+            if (connUserId !== null && connUserId !== joinMsg.userId) {
+              const prevSet = userConnections.get(connUserId);
+              if (prevSet) {
+                prevSet.delete(socket);
+                if (prevSet.size === 0) userConnections.delete(connUserId);
+              }
+            }
             connUserId = joinMsg.userId;
             if (!userConnections.has(connUserId)) userConnections.set(connUserId, new Set());
             userConnections.get(connUserId)!.add(socket);

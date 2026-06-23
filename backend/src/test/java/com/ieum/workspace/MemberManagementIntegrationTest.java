@@ -285,4 +285,84 @@ class MemberManagementIntegrationTest extends AbstractIntegrationTest {
                         .with(asUser(MEMBER_GOOGLE_ID)))
                 .andExpect(status().isForbidden());
     }
+
+    // ══════════════════════════════════════════════════════════════════
+    // OWNER 2명 픽스처 기반 통합 케이스 (countByWorkspaceIdAndRole 실DB 검증)
+    // ══════════════════════════════════════════════════════════════════
+
+    private static final String OWNER_B_GOOGLE_ID = "G-MMT-OWNER-B";
+
+    /**
+     * OWNER A + OWNER B 2명 픽스처를 구성하고, OWNER B의 userId를 반환한다.
+     * setUp()에서 생성한 워크스페이스/OWNER A 위에 OWNER B를 추가한다.
+     */
+    private UUID addOwnerB() {
+        User ownerB = userRepository.save(User.builder()
+                .googleId(OWNER_B_GOOGLE_ID).email("ownerB@mmt.com").name("OWNER-B유저").image("img").build());
+        membershipRepository.save(Membership.builder()
+                .userId(ownerB.getId()).workspaceId(workspaceId).role(MemberRole.OWNER).build());
+        return ownerB.getId();
+    }
+
+    // ── AC-5(통합): OWNER A·B 중 A가 자신을 MEMBER로 강등 → 200, DB A role=MEMBER ─
+
+    @Test
+    @DisplayName("AC-5(통합): OWNER 2명 — A가 자신을 MEMBER로 강등 → 200, DB A role=MEMBER (count=2, BR-1 미발동)")
+    void twoOwners_ownerA_demotesSelf_returns200_andDbUpdated() throws Exception {
+        addOwnerB();
+
+        String body = objectMapper.writeValueAsString(new UpdateMemberRoleRequest(MemberRole.MEMBER));
+
+        mockMvc.perform(patch("/api/workspaces/{id}/members/{userId}/role", workspaceId, ownerId)
+                        .with(asUser(OWNER_GOOGLE_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("MEMBER"))
+                .andExpect(jsonPath("$.userId").value(ownerId.toString()));
+
+        // DB 검증: A role=MEMBER
+        Membership updated = membershipRepository
+                .findByUserIdAndWorkspaceId(ownerId, workspaceId).orElseThrow();
+        assertThat(updated.getRole()).isEqualTo(MemberRole.MEMBER);
+    }
+
+    // ── AC-6(통합): OWNER A·B 중 A가 B를 MEMBER로 강등 → 200, DB B role=MEMBER ─
+
+    @Test
+    @DisplayName("AC-6(통합): OWNER 2명 — A가 B를 MEMBER로 강등 → 200, DB B role=MEMBER (count=2, BR-1 미발동)")
+    void twoOwners_ownerA_demotesOwnerB_returns200_andDbUpdated() throws Exception {
+        UUID ownerBId = addOwnerB();
+
+        String body = objectMapper.writeValueAsString(new UpdateMemberRoleRequest(MemberRole.MEMBER));
+
+        mockMvc.perform(patch("/api/workspaces/{id}/members/{userId}/role", workspaceId, ownerBId)
+                        .with(asUser(OWNER_GOOGLE_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("MEMBER"))
+                .andExpect(jsonPath("$.userId").value(ownerBId.toString()));
+
+        // DB 검증: B role=MEMBER
+        Membership updated = membershipRepository
+                .findByUserIdAndWorkspaceId(ownerBId, workspaceId).orElseThrow();
+        assertThat(updated.getRole()).isEqualTo(MemberRole.MEMBER);
+    }
+
+    // ── AC-12(통합): OWNER A·B 중 A가 B 제거 → 204, DB B Membership 삭제 ─
+
+    @Test
+    @DisplayName("AC-12(통합): OWNER 2명 — A가 B 제거 → 204, DB B Membership 삭제 (count=2, BR-2 미발동)")
+    void twoOwners_ownerA_removesOwnerB_returns204_andDbDeleted() throws Exception {
+        UUID ownerBId = addOwnerB();
+
+        mockMvc.perform(delete("/api/workspaces/{id}/members/{userId}", workspaceId, ownerBId)
+                        .with(asUser(OWNER_GOOGLE_ID)))
+                .andExpect(status().isNoContent());
+
+        // DB 검증: B Membership 삭제됨
+        assertThat(membershipRepository.findByUserIdAndWorkspaceId(ownerBId, workspaceId))
+                .isEmpty();
+    }
 }

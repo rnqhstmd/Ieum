@@ -14,7 +14,11 @@ auto-stashed: false
 started: 2026-06-22
 last-known-head: 8fb0a382e8d6dfbb07f127f7d86eb884a6b9496a
 config-setup-attempts: 0
-current-step: "완료 — PR #25 생성, status/context 갱신"
+current-step: "cross-review 후속 4건 수정 완료 — 커밋·푸시 (PR #25 갱신)"
+cross-review:
+  advisor: claude (+gemini PR 리뷰 동반)
+  fixed: "재-join stale 매핑(server.ts), adminServer 런타임 error 핸들러, AC-5/6/12 2-owner 통합테스트, updateMemberRole findById 단순화"
+  verify: "backend 202 + ws-relay 76 pass, 0 fail. PR #25 CI 그린"
 handoff: |
   2026-06-22 커밋·푸시 시점 상태 (집/타 환경 이어가기용):
   - 완료: setup→requirements→design→implement(T1~T7, 270 pass)→review(spec PASS, quality/security 완료) + review-fix H2(adminServer URIError/UUID 검증, ws-relay 74 pass).

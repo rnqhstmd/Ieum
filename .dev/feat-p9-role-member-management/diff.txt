@@ -9,16 +9,17 @@
  .../feat-p9-role-member-management/design-draft.md |   71 +
  .dev/feat-p9-role-member-management/design.md      |  113 +
  .dev/feat-p9-role-member-management/diff.txt       |    0
+ .dev/feat-p9-role-member-management/pr-context.md  |   31 +
  .dev/feat-p9-role-member-management/prd.md         |  102 +
- .dev/feat-p9-role-member-management/state.md       |  142 ++
+ .dev/feat-p9-role-member-management/state.md       |  150 ++
  .../feat-p9-role-member-management/trust-ledger.md |   49 +
+ .gitignore                                         |    3 +
  apps/ws-relay/src/adminServer.ts                   |   53 +
  apps/ws-relay/src/main.ts                          |    4 +-
  apps/ws-relay/src/server.ts                        |   61 +-
  apps/ws-relay/tests/adminServer.test.ts            |  108 +
  apps/ws-relay/tests/adminWiring.test.ts            |  147 ++
  apps/ws-relay/tests/disconnectUser.test.ts         |   83 +
- backend/bash.exe.stackdump                         |   28 +
  .../com/ieum/workspace/MembershipRepository.java   |    2 +
  .../com/ieum/workspace/RestWsRelayAdminClient.java |   42 +
  .../com/ieum/workspace/WorkspaceController.java    |    6 +-
@@ -29,6 +30,9 @@
  .../workspace/MemberManagementIntegrationTest.java |  288 +++
  .../ieum/workspace/RestWsRelayAdminClientTest.java |   85 +
  .../ieum/workspace/WorkspaceServiceMemberTest.java |  620 ++++++
- 31 files changed, 5082 insertions(+), 30 deletions(-)
+ context/auth/architecture.md                       |   28 +
+ context/auth/status.md                             |    6 +-
+ context/workspace/status.md                        |   10 +-
+ 35 files changed, 5132 insertions(+), 38 deletions(-)
 ---
 위는 요약입니다. 변경된 파일을 Read 도구로 직접 확인하라.

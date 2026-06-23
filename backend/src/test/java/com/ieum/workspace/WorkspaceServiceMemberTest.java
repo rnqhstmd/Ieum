@@ -188,8 +188,8 @@ class WorkspaceServiceMemberTest {
                 .thenReturn(Optional.of(targetMs));
         // 승격(MEMBER→OWNER) 시 count 조회는 호출되지 않아야 함(BR-1 미발동)
         when(membershipRepository.save(any(Membership.class))).thenReturn(targetMs);
-        when(userRepository.findAllById(anyList()))
-                .thenReturn(List.of(targetUser));
+        when(userRepository.findById(targetId))
+                .thenReturn(Optional.of(targetUser));
 
         UpdateMemberRoleRequest request = new UpdateMemberRoleRequest(MemberRole.OWNER);
 
@@ -227,8 +227,8 @@ class WorkspaceServiceMemberTest {
         when(membershipRepository.countByWorkspaceIdAndRole(workspaceId, MemberRole.OWNER))
                 .thenReturn(2L);
         when(membershipRepository.save(any(Membership.class))).thenReturn(ownerAMs);
-        when(userRepository.findAllById(anyList()))
-                .thenReturn(List.of(ownerAUser));
+        when(userRepository.findById(ownerAId))
+                .thenReturn(Optional.of(ownerAUser));
 
         UpdateMemberRoleRequest request = new UpdateMemberRoleRequest(MemberRole.MEMBER);
 
@@ -266,8 +266,8 @@ class WorkspaceServiceMemberTest {
         when(membershipRepository.countByWorkspaceIdAndRole(workspaceId, MemberRole.OWNER))
                 .thenReturn(2L);
         when(membershipRepository.save(any(Membership.class))).thenReturn(ownerBMs);
-        when(userRepository.findAllById(anyList()))
-                .thenReturn(List.of(ownerBUser));
+        when(userRepository.findById(ownerBId))
+                .thenReturn(Optional.of(ownerBUser));
 
         UpdateMemberRoleRequest request = new UpdateMemberRoleRequest(MemberRole.MEMBER);
 
