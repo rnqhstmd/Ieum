@@ -55,7 +55,7 @@ public class WorkspaceController {
     public ResponseEntity<WorkspaceDto> renameWorkspace(
             @PathVariable UUID id,
             @RequestBody RenameWorkspaceRequest request) {
-        UUID currentUserId = null; // TODO(Phase 1): 인증 컨텍스트에서 추출
+        UUID currentUserId = currentUserService.requireCurrentUserId();
         return ResponseEntity.ok(workspaceService.renameWorkspace(currentUserId, id, request));
     }
 
@@ -65,7 +65,7 @@ public class WorkspaceController {
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteWorkspace(@PathVariable UUID id) {
-        UUID currentUserId = null; // TODO(Phase 1): 인증 컨텍스트에서 추출
+        UUID currentUserId = currentUserService.requireCurrentUserId();
         workspaceService.deleteWorkspace(currentUserId, id);
         return ResponseEntity.noContent().build();
     }
@@ -82,6 +82,17 @@ public class WorkspaceController {
     public ResponseEntity<List<MembershipDto>> listMembers(@PathVariable UUID id) {
         UUID currentUserId = currentUserService.requireCurrentUserId();
         return ResponseEntity.ok(workspaceService.listMembers(currentUserId, id));
+    }
+
+    /**
+     * DELETE /api/workspaces/{id}/members/me
+     * 워크스페이스 나가기 — 본인
+     */
+    @DeleteMapping("/{id}/members/me")
+    public ResponseEntity<Void> leaveWorkspace(@PathVariable UUID id) {
+        UUID currentUserId = currentUserService.requireCurrentUserId();
+        workspaceService.leaveWorkspace(currentUserId, id);
+        return ResponseEntity.noContent().build();
     }
 
     /**

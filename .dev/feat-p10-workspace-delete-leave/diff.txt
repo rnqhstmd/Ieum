@@ -1,0 +1,12 @@
+ .dev/feat-p10-workspace-delete-leave/codemap.md    |  20 +
+ .../design-draft.md                                |  74 ++++
+ .dev/feat-p10-workspace-delete-leave/design.md     | 125 ++++++
+ .dev/feat-p10-workspace-delete-leave/prd.md        | 141 +++++++
+ .dev/feat-p10-workspace-delete-leave/state.md      |  58 +++
+ .../com/ieum/workspace/WorkspaceController.java    |  15 +-
+ .../java/com/ieum/workspace/WorkspaceService.java  |  48 ++-
+ .../WorkspaceDeleteLeaveIntegrationTest.java       | 461 +++++++++++++++++++++
+ .../workspace/WorkspaceLifecycleServiceTest.java   | 458 ++++++++++++++++++++
+ 9 files changed, 1388 insertions(+), 12 deletions(-)
+---
+위는 요약입니다. 변경된 파일을 Read 도구로 직접 확인하라.
