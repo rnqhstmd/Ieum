@@ -18,7 +18,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -294,6 +293,10 @@ class WorkspaceLifecycleServiceTest {
                 .ownerId(ownerId)
                 .build();
 
+        Membership ownerMs = Membership.builder()
+                .id(UUID.randomUUID()).userId(ownerId).workspaceId(workspaceId)
+                .role(MemberRole.OWNER).joinedAt(Instant.now()).build();
+        when(accessGuard.requireOwner(ownerId, workspaceId)).thenReturn(ownerMs);
         when(workspaceRepository.findById(workspaceId)).thenReturn(Optional.of(personalWs));
 
         // When / Then: 예외 타입이 반드시 IllegalArgumentException이어야 함(IllegalStateException 아님)

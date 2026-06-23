@@ -28,7 +28,6 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oauth2Login;
@@ -49,6 +48,8 @@ import org.mockito.ArgumentCaptor;
 class WorkspaceDeleteLeaveIntegrationTest extends AbstractIntegrationTest {
 
     @Autowired private MockMvc mockMvc;
+    // ObjectMapper는 테스트 컨텍스트(AbstractIntegrationTest)에 빈으로 없으므로 직접 생성 (P9 MemberManagementIntegrationTest 동일).
+    // gemini/cross-review의 @Autowired 제안은 이 셋업에서 NoSuchBeanDefinitionException 유발 → 미적용.
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Autowired private UserRepository userRepository;
@@ -123,6 +124,9 @@ class WorkspaceDeleteLeaveIntegrationTest extends AbstractIntegrationTest {
                         .content(body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("새이름"));
+
+        // DB 반영 확인(설계 Testability "DB 반영")
+        assertThat(workspaceRepository.findById(workspaceId).orElseThrow().getName()).isEqualTo("새이름");
     }
 
     // ── AC-13(OWNER): OWNER가 PATCH → 200 + DTO.name = 새이름 ──
@@ -247,14 +251,17 @@ class WorkspaceDeleteLeaveIntegrationTest extends AbstractIntegrationTest {
     // ── AC-15: OWNER DELETE 후 wsRelayAdminClient.disconnectUser가 멤버 수만큼 호출됨 ──
 
     @Test
-    @DisplayName("AC-15: OWNER DELETE → wsRelayAdminClient.disconnectUser가 전체 멤버 수(2)만큼 호출됨")
+    @DisplayName("AC-15: OWNER DELETE → disconnectUser가 삭제 전 전체 멤버(owner·member) userId로 각 1회 호출")
     void owner_deleteWorkspace_disconnectsAllMembers() throws Exception {
         // setUp에서 OWNER+MEMBER 멤버십 2건 생성됨
         mockMvc.perform(delete("/api/workspaces/{id}", workspaceId)
                         .with(asUser(OWNER_GOOGLE_ID)))
                 .andExpect(status().isNoContent());
 
-        verify(wsRelayAdminClient, times(2)).disconnectUser(any(UUID.class));
+        // 단순 times(2)보다 강한 단언: 호출 인자 집합이 삭제 전 멤버 userId 집합과 일치(보강권고 3)
+        ArgumentCaptor<UUID> captor = ArgumentCaptor.forClass(UUID.class);
+        verify(wsRelayAdminClient, times(2)).disconnectUser(captor.capture());
+        assertThat(captor.getAllValues()).containsExactlyInAnyOrder(ownerId, memberId);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
