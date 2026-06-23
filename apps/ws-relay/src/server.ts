@@ -159,8 +159,11 @@ export function createRelayServer(opts: {
         if (!set) return 0;
         let count = 0;
         for (const socket of set) {
-          socket.close(4003, 'removed');
-          count++;
+          // 방어적: 이미 닫히는 중인 소켓은 건너뜀 (sendAll의 OPEN 체크와 일관)
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.close(4003, 'removed');
+            count++;
+          }
         }
         userConnections.delete(userId);
         return count;

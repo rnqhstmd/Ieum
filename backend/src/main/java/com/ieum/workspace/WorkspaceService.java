@@ -177,11 +177,15 @@ public class WorkspaceService {
         Membership membership = membershipRepository.findByUserIdAndWorkspaceId(targetUserId, workspaceId)
                 .orElseThrow(() -> new EntityNotFoundException("멤버를 찾을 수 없습니다."));
 
-        membershipRepository.delete(membership);
-        try {
-            wsRelayAdminClient.disconnectUser(targetUserId);
-        } catch (Exception ignored) {
+        // BR-2: 마지막 OWNER 제거 차단
+        // 방어적 가드: 현 검증순서상 도달 불가(단독 OWNER 제거=자기제거→BR-3 흡수)이나 미래 순서 변경 대비
+        if (membership.getRole() == MemberRole.OWNER
+                && membershipRepository.countByWorkspaceIdAndRole(workspaceId, MemberRole.OWNER) <= 1) {
+            throw new IllegalArgumentException("마지막 OWNER를 제거할 수 없습니다");
         }
+
+        membershipRepository.delete(membership);
+        wsRelayAdminClient.disconnectUser(targetUserId);
     }
 
     /**

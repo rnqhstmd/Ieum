@@ -20,6 +20,9 @@ public class RestWsRelayAdminClient implements WsRelayAdminClient {
                                   @Value("${app.ws-relay.admin-url:}") String adminBaseUrl) {
         this.restClient = builder.build();
         this.adminBaseUrl = adminBaseUrl;
+        if (adminBaseUrl == null || adminBaseUrl.isBlank()) {
+            log.warn("[RestWsRelayAdminClient] app.ws-relay.admin-url 미설정 — WS 강제종료 비활성화");
+        }
     }
 
     @Override

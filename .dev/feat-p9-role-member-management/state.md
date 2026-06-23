@@ -1,4 +1,4 @@
-phase: review
+phase: complete
 status: in_progress
 vcs-type: git
 branch: feat/p9-role-member-management
@@ -14,7 +14,7 @@ auto-stashed: false
 started: 2026-06-22
 last-known-head: 8fb0a382e8d6dfbb07f127f7d86eb884a6b9496a
 config-setup-attempts: 0
-current-step: "review-fix RGR 진행 중 — H2 완료, H1/H3/하드닝 미완 (다른 환경에서 이어서)"
+current-step: "complete: verify PASS + 인수 ACCEPT → commit"
 handoff: |
   2026-06-22 커밋·푸시 시점 상태 (집/타 환경 이어가기용):
   - 완료: setup→requirements→design→implement(T1~T7, 270 pass)→review(spec PASS, quality/security 완료) + review-fix H2(adminServer URIError/UUID 검증, ws-relay 74 pass).
@@ -27,7 +27,7 @@ phases:
   requirements: completed
   design: completed
   implement: completed
-  review: in_progress
+  review: completed
   complete: pending
 execution-log:
   - phase: setup
@@ -121,3 +121,28 @@ execution-log:
     refactor: "skipped — NO_DRIFT"
   - phase: review-fix
     status: "H1/H3/하드닝 미완 — 타 환경 이어가기 위해 .dev 포함 커밋·푸시"
+  - phase: review-fix
+    task: "H3+H1 (BR-2 가드 + 빈catch 제거)"
+    red: "BR-2 단위테스트(count=1, target≠current) 1 failed RED"
+    green: "removeMember BR-2 가드 추가 + disconnect 단일호출 + WsRelayAdminClient Javadoc + AC-12 count=2 stub + AC-16 정상client로 변경 + admin-url 경고로그. 백엔드 199 pass 0 fail"
+  - phase: review-fix
+    task: "하드닝(readyState)"
+    result: "server.ts disconnectUser에 socket.readyState===OPEN 가드. ws-relay 74 pass typecheck clean"
+  - phase: review
+    round: 2
+    agent: spec-reviewer
+    result: "SPEC PASS — AC 1~22 유지, BR-2 Must 충족, AC-12/16 커버리지 유지"
+  - phase: review
+    round: 2
+    agent: quality-reviewer
+    result: "QUALITY PASS — Critical 0 Important 0(1회차 Important 해소). Minor 3 이월 비차단"
+  - phase: review
+    round: 2
+    agent: security-auditor
+    result: "HIGH 3 전부 해소(H1/H2/H3). CRITICAL/HIGH 0 배포가능. 신규 MEDIUM 1(PRD/설계 BR-6 문서불일치)→설계 유지·PRD 구현노트 정합"
+  - phase: complete
+    gate: verify
+    result: "신선 실행 — backend ./gradlew clean build SUCCESSFUL 199 pass 0 fail, ws-relay pnpm test 74 pass + tsc build OK. verify 게이트 통과"
+  - phase: complete
+    agent: product-owner
+    result: "ACCEPT — [Must] AC 22/22 충족. 비블로커: AC-22 트리조회 검증(향후 단건 GET 시 requireWorkspaceMember 적용 필요)"

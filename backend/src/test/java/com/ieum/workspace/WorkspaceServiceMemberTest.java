@@ -462,6 +462,9 @@ class WorkspaceServiceMemberTest {
         when(accessGuard.requireOwner(ownerAId, workspaceId)).thenReturn(ownerAMs);
         when(membershipRepository.findByUserIdAndWorkspaceId(ownerBId, workspaceId))
                 .thenReturn(Optional.of(ownerBMs));
+        // BR-2 가드: OWNER 대상이므로 count 조회 발생 — 2명이므로 가드 통과
+        when(membershipRepository.countByWorkspaceIdAndRole(workspaceId, MemberRole.OWNER))
+                .thenReturn(2L);
 
         // When
         workspaceService.removeMember(ownerAId, workspaceId, ownerBId);
@@ -546,11 +549,50 @@ class WorkspaceServiceMemberTest {
         verify(wsRelayAdminClient).disconnectUser(targetId);
     }
 
-    // ── AC-16: disconnectUser가 예외를 던져도 removeMember 정상 완료 ────
+    // ── BR-2: 마지막 OWNER(count=1) 제거 시도 → IllegalArgumentException, delete/disconnect 미호출 ─
 
     @Test
-    @DisplayName("AC-16: wsRelayAdminClient.disconnectUser가 예외를 던져도 removeMember가 예외 전파 않고 정상 완료")
-    void removeMember_disconnectThrows_doesNotPropagateException() {
+    @DisplayName("BR-2: 마지막 OWNER(count=1) 제거 시도 → IllegalArgumentException, delete/disconnect 미호출")
+    void removeMember_lastOwner_throwsIllegalArgument_noDeleteNoDisconnect() {
+        // Given
+        UUID workspaceId   = UUID.randomUUID();
+        UUID currentUserId = UUID.randomUUID();
+        UUID targetUserId  = UUID.randomUUID(); // 다른 사람(자기 자신 아님)
+
+        Membership callerMs = Membership.builder()
+                .id(UUID.randomUUID()).userId(currentUserId)
+                .workspaceId(workspaceId).role(MemberRole.OWNER).joinedAt(Instant.now()).build();
+        Membership targetMs = Membership.builder()
+                .id(UUID.randomUUID()).userId(targetUserId)
+                .workspaceId(workspaceId).role(MemberRole.OWNER).joinedAt(Instant.now()).build();
+
+        // requireOwner 통과(정상 반환)
+        when(accessGuard.requireOwner(currentUserId, workspaceId)).thenReturn(callerMs);
+        // currentUserId != targetUserId → BR-3 자기제거 미발동
+        // 대상 멤버십: role = OWNER
+        when(membershipRepository.findByUserIdAndWorkspaceId(targetUserId, workspaceId))
+                .thenReturn(Optional.of(targetMs));
+        // OWNER 수 = 1 → BR-2 발동 조건
+        when(membershipRepository.countByWorkspaceIdAndRole(workspaceId, MemberRole.OWNER))
+                .thenReturn(1L);
+
+        // When / Then
+        assertThatThrownBy(() -> workspaceService.removeMember(currentUserId, workspaceId, targetUserId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("마지막 OWNER를 제거할 수 없습니다");
+
+        verify(membershipRepository, never()).delete(any());
+        verify(wsRelayAdminClient, never()).disconnectUser(any());
+    }
+
+    // ── AC-16: removeMember 정상 완료 시 delete + disconnectUser 모두 호출 ─
+    // 계약: WsRelayAdminClient.disconnectUser는 best-effort(내부 흡수+로깅)이므로
+    // 서비스 레이어에서 try/catch 불필요. admin 실패 시 best-effort는
+    // RestWsRelayAdminClientTest 5xx 미전파 테스트가 커버한다.
+
+    @Test
+    @DisplayName("AC-16: removeMember 정상 완료 → delete 호출 + disconnectUser 호출(client 계약: 예외 미전파)")
+    void removeMember_success_deletesAndDisconnects() {
         // Given
         UUID workspaceId = UUID.randomUUID();
         UUID ownerId     = UUID.randomUUID();
@@ -566,15 +608,13 @@ class WorkspaceServiceMemberTest {
         when(accessGuard.requireOwner(ownerId, workspaceId)).thenReturn(ownerMs);
         when(membershipRepository.findByUserIdAndWorkspaceId(targetId, workspaceId))
                 .thenReturn(Optional.of(targetMs));
-        // disconnectUser가 런타임 예외를 던지는 상황 시뮬레이션
-        doThrow(new RuntimeException("admin server unreachable"))
-                .when(wsRelayAdminClient).disconnectUser(targetId);
+        // disconnectUser는 계약상 예외를 던지지 않음(best-effort, 내부 흡수)
 
-        // When / Then: 예외가 전파되지 않아야 함
+        // When / Then
         assertThatCode(() -> workspaceService.removeMember(ownerId, workspaceId, targetId))
                 .doesNotThrowAnyException();
 
-        // delete는 반드시 호출되었어야 함
         verify(membershipRepository).delete(targetMs);
+        verify(wsRelayAdminClient).disconnectUser(targetId);
     }
 }

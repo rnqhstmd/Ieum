@@ -1,20 +1,34 @@
- .gitignore                                         |   3 +
- apps/ws-relay/src/adminServer.ts                   |  40 ++
- apps/ws-relay/src/main.ts                          |   4 +-
- apps/ws-relay/src/server.ts                        |  58 ++-
- apps/ws-relay/tests/adminServer.test.ts            |  59 +++
- apps/ws-relay/tests/adminWiring.test.ts            | 147 ++++++
- apps/ws-relay/tests/disconnectUser.test.ts         |  83 +++
- .../com/ieum/workspace/MembershipRepository.java   |   2 +
- .../com/ieum/workspace/RestWsRelayAdminClient.java |  39 ++
- .../com/ieum/workspace/WorkspaceController.java    |   6 +-
- .../java/com/ieum/workspace/WorkspaceService.java  |  89 +++-
- .../com/ieum/workspace/WsRelayAdminClient.java     |   7 +
- backend/src/main/resources/application.yml         |   2 +
- .../page/PageMemberRegressionIntegrationTest.java  | 151 ++++++
- .../workspace/MemberManagementIntegrationTest.java | 288 ++++++++++
- .../ieum/workspace/RestWsRelayAdminClientTest.java |  85 +++
- .../ieum/workspace/WorkspaceServiceMemberTest.java | 580 +++++++++++++++++++++
- 17 files changed, 1613 insertions(+), 30 deletions(-)
+ .dev/feat-p1-auth/codemap.md                       |   34 +
+ .dev/feat-p1-auth/design.md                        |  303 +++
+ .dev/feat-p1-auth/diff.txt                         | 2176 ++++++++++++++++++++
+ .dev/feat-p1-auth/pr-context.md                    |   29 +
+ .dev/feat-p1-auth/prd.md                           |  168 ++
+ .dev/feat-p1-auth/state.md                         |   62 +
+ .dev/feat-p1-auth/trust-ledger.md                  |   40 +
+ .dev/feat-p9-role-member-management/codemap.md     |   36 +
+ .../feat-p9-role-member-management/design-draft.md |   71 +
+ .dev/feat-p9-role-member-management/design.md      |  113 +
+ .dev/feat-p9-role-member-management/diff.txt       |    0
+ .dev/feat-p9-role-member-management/prd.md         |  102 +
+ .dev/feat-p9-role-member-management/state.md       |  142 ++
+ .../feat-p9-role-member-management/trust-ledger.md |   49 +
+ apps/ws-relay/src/adminServer.ts                   |   53 +
+ apps/ws-relay/src/main.ts                          |    4 +-
+ apps/ws-relay/src/server.ts                        |   61 +-
+ apps/ws-relay/tests/adminServer.test.ts            |  108 +
+ apps/ws-relay/tests/adminWiring.test.ts            |  147 ++
+ apps/ws-relay/tests/disconnectUser.test.ts         |   83 +
+ backend/bash.exe.stackdump                         |   28 +
+ .../com/ieum/workspace/MembershipRepository.java   |    2 +
+ .../com/ieum/workspace/RestWsRelayAdminClient.java |   42 +
+ .../com/ieum/workspace/WorkspaceController.java    |    6 +-
+ .../java/com/ieum/workspace/WorkspaceService.java  |   93 +-
+ .../com/ieum/workspace/WsRelayAdminClient.java     |   14 +
+ backend/src/main/resources/application.yml         |    2 +
+ .../page/PageMemberRegressionIntegrationTest.java  |  151 ++
+ .../workspace/MemberManagementIntegrationTest.java |  288 +++
+ .../ieum/workspace/RestWsRelayAdminClientTest.java |   85 +
+ .../ieum/workspace/WorkspaceServiceMemberTest.java |  620 ++++++
+ 31 files changed, 5082 insertions(+), 30 deletions(-)
 ---
 위는 요약입니다. 변경된 파일을 Read 도구로 직접 확인하라.
