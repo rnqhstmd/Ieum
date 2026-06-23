@@ -156,6 +156,7 @@ export function useCrdtDocument(
       if (client) {
         for (const op of ops) client.sendOp(toWire(op, ++seqRef.current, doc.siteId));
       }
+      // client null이어도 bump: splitBlock/mergeBlockWithPrev 등이 doc을 로컬 변경하므로 리렌더 필요.
       bump();
     },
     [doc, bump],

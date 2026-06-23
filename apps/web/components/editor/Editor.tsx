@@ -160,6 +160,7 @@ export default function Editor({
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLElement>, block: EditorBlockView) => {
+    if (composing.current) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       const offset = getCaretOffset(e.currentTarget, block.text.length);

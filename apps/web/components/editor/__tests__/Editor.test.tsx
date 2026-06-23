@@ -159,3 +159,56 @@ describe('Editor — 구조 편집 콜백 배선 (P9)', () => {
     }).not.toThrow();
   });
 });
+
+// W1 — IME 조합 중 구조 편집 콜백 가드
+describe('Editor — IME 조합 가드 (W1)', () => {
+  // W1-a: compositionstart 후 compositionend 전 Enter → onEnter 미호출
+  it('W1-a: IME 조합 중 Enter → onEnter가 호출되지 않는다', () => {
+    const onEnter = vi.fn();
+    const { container } = render(
+      <Editor
+        blocks={[block(1, 'paragraph', '한글')]}
+        onBlockInput={vi.fn()}
+        onEnter={onEnter}
+      />,
+    );
+    const node = el(container, id(1));
+    fireEvent.compositionStart(node);
+    // 조합 중 Enter 키 — onEnter 콜백이 불려서는 안 된다
+    fireEvent.keyDown(node, { key: 'Enter' });
+    expect(onEnter).not.toHaveBeenCalled();
+  });
+
+  // W1-b: 조합 중 Backspace(빈 블록 맨앞) → onBackspace 미호출
+  it('W1-b: IME 조합 중 Backspace → onBackspace가 호출되지 않는다', () => {
+    const onBackspace = vi.fn();
+    const { container } = render(
+      <Editor
+        blocks={[block(1, 'paragraph', 'Hello'), block(2, 'paragraph', '')]}
+        onBlockInput={vi.fn()}
+        onBackspace={onBackspace}
+      />,
+    );
+    const node = el(container, id(2));
+    fireEvent.compositionStart(node);
+    fireEvent.keyDown(node, { key: 'Backspace' });
+    expect(onBackspace).not.toHaveBeenCalled();
+  });
+
+  // W1-c: compositionend 후 Enter → onEnter 정상 호출 (회귀 방지)
+  it('W1-c: compositionend 후 Enter → onEnter가 정상 호출된다', () => {
+    const onEnter = vi.fn();
+    const { container } = render(
+      <Editor
+        blocks={[block(1, 'paragraph', '한글')]}
+        onBlockInput={vi.fn()}
+        onEnter={onEnter}
+      />,
+    );
+    const node = el(container, id(1));
+    fireEvent.compositionStart(node);
+    fireEvent.compositionEnd(node);
+    fireEvent.keyDown(node, { key: 'Enter' });
+    expect(onEnter).toHaveBeenCalledTimes(1);
+  });
+});

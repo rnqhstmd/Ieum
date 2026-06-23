@@ -78,6 +78,23 @@ describe('relay protocol — parseClientMessage', () => {
   });
 });
 
+// I3 — isWireEnvelope seq 정수 검증 (ws-relay)
+describe('relay protocol — I3: op.seq 비정수 거부', () => {
+  it('I3-a: op.seq=Infinity(1e999) → null (현재 typeof number만 검사해 통과 → RED)', () => {
+    const raw = '{"type":"op","pageId":"pg_x","op":{"siteId":"site_a","seq":1e999,"opType":"insert","payload":{}}}';
+    expect(parseClientMessage(raw)).toBeNull();
+  });
+
+  it('I3-b: op.seq=1.5(소수) → null', () => {
+    const raw = JSON.stringify({
+      type: 'op',
+      pageId: 'pg_x',
+      op: { siteId: 'site_a', seq: 1.5, opType: 'insert', payload: {} },
+    });
+    expect(parseClientMessage(raw)).toBeNull();
+  });
+});
+
 // P6 / FR-1, BR-4: join 메시지의 presence 확장 (아바타 displayName 운반).
 describe('relay protocol — parseClientMessage presence 확장', () => {
   type JoinWithPresence = { type: 'join'; pageId: string; presence?: { displayName?: string } };

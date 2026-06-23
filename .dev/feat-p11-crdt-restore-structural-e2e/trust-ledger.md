@@ -39,3 +39,8 @@
 ### 교차 검증 정합 (참고)
 - BR-1(serverSeq ASC) ✓ · BR-3(개별 op 전송) ✓ · BR-4(genesis 무동작) ✓ · BR-5(crdt 무변경) ✓
 - 문서-구현 표현 차이: server.ts가 sendAll 대신 sockets.get 직접 사용(기능 동일) · PRD FR-A3 "인과버퍼로 적용" 표현 vs 구현(restoring=렌더배칭, 유실방지=crdt 인과버퍼) — 설계서 결정 4가 정정. 코드 동작 정상.
+
+## Cross-Review 추가 (2026-06-23, claude advisor + PR #27 gemini)
+- ✅ 수정: W1 IME 조합 가드(handleKeyDown)·I3 seq `Number.isInteger`(양쪽 protocol)·I4 convergence.e2e 양방향 단언·I5 미사용 import·I6 restore.e2e networkidle·I7 sendOps 주석. (gemini 인라인 3건 전부 해소)
+- ⛔ 수용: **W2 server.ts op-batch fire-and-forget(socketChain 밖)** — 설계 결정 3이 AC-A3(replay 중 실시간 op 비블록)을 위해 의도. await 직렬화 시 AC-A3 회귀, 재연결은 신규 소켓(stale batch 무해). 견고화(join-epoch) 후속.
+- 상세: `cross-review.md`. 검증 web 186 + ws-relay 87 + typecheck 0.

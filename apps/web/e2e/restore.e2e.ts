@@ -19,8 +19,9 @@ test('AC-C2: A가 입력한 내용을 새로 접속한 B가 볼 수 있다', asy
   await blockA.click();
   await blockA.type('persisted content from A');
 
-  // relay 전파 대기
-  await pageA.waitForTimeout(500);
+  // relay 전파 대기 — networkidle로 영속화 요청 완료 후 닫는다.
+  // 로컬 DB 속도에 따라 조정 필요.
+  await pageA.waitForLoadState('networkidle');
   await ctxA.close();
 
   // B 신규 접속 — A의 내용이 표시되어야 함
@@ -48,7 +49,8 @@ test('AC-C3: 재접속 후에도 이전 편집 내용이 유지된다', async ({
   await block1.click();
   await block1.type('content before reconnect');
 
-  await page1.waitForTimeout(500);
+  // 로컬 DB 속도에 따라 조정 필요.
+  await page1.waitForLoadState('networkidle');
   await ctx1.close();
 
   // 재접속

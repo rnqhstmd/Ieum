@@ -111,7 +111,7 @@ function isWireEnvelope(v: unknown): v is WireEnvelope {
   const o = v as Record<string, unknown>;
   if (
     typeof o.siteId !== 'string' ||
-    typeof o.seq !== 'number' ||
+    !Number.isInteger(o.seq) ||
     typeof o.opType !== 'string' ||
     typeof o.payload !== 'object' ||
     o.payload === null

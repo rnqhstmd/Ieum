@@ -214,3 +214,42 @@ describe('parseServerMessage — op-batch', () => {
     expect(parseServerMessage(raw)).toBeNull();
   });
 });
+
+// I3 — isWireEnvelope seq 정수 검증 (web)
+describe('parseServerMessage — I3: seq 비정수 거부', () => {
+  // 유효한 봉투의 seq만 교체해서 직접 파서에 전달한다.
+  // JSON.stringify(NaN) → "null" 이므로 객체를 직접 구성하고
+  // JSON.stringify 시 Infinity → null 이 되는 문제를 피하기 위해 raw 문자열을 사용한다.
+
+  it('I3-a: op 메시지의 op.seq=NaN → null (현재 typeof number만 검사해 통과 → RED)', () => {
+    // NaN은 JSON.stringify 시 null이 되므로 raw JSON에 직접 null을 쓰면 타입 에러로
+    // 이미 거부된다. NaN을 number로 보내려면 객체를 직접 파서에 넣어야 하지만
+    // parseServerMessage는 string을 받으므로, Infinity 케이스(1e999)로 대체한다.
+    // 1e999 → JSON.parse → Infinity → typeof number 통과 → 현재 구현 버그 재현.
+    const raw = '{"type":"op","pageId":"pg_x","op":{"siteId":"site_a","seq":1e999,"opType":"insert","payload":{}}}';
+    expect(parseServerMessage(raw)).toBeNull();
+  });
+
+  it('I3-b: op 메시지의 op.seq=1.5(소수) → null', () => {
+    const raw = JSON.stringify({
+      type: 'op',
+      pageId: 'pg_x',
+      op: { siteId: 'site_a', seq: 1.5, opType: 'insert', payload: {} },
+    });
+    expect(parseServerMessage(raw)).toBeNull();
+  });
+
+  it('I3-c: op-batch의 ops[0].seq=1.5(소수) → null', () => {
+    const raw = JSON.stringify({
+      type: 'op-batch',
+      pageId: 'pg_x',
+      ops: [{ siteId: 'site_a', seq: 1.5, opType: 'insert', payload: {} }],
+    });
+    expect(parseServerMessage(raw)).toBeNull();
+  });
+
+  it('I3-d: op-batch의 ops[0].seq=Infinity(1e999) → null', () => {
+    const raw = '{"type":"op-batch","pageId":"pg_x","ops":[{"siteId":"site_a","seq":1e999,"opType":"insert","payload":{}}]}';
+    expect(parseServerMessage(raw)).toBeNull();
+  });
+});

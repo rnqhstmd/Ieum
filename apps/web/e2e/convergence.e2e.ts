@@ -2,7 +2,7 @@
 // 실행 전 요건: DB 기동 + pageId 시드 + ws-relay 기동 + Next.js dev 기동 + storageState 준비.
 // (e2e/README.md 참조)
 
-import { test, expect, chromium } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 
 const PAGE_ID = process.env.E2E_PAGE_ID ?? 'REPLACE_WITH_VALID_PAGE_UUID';
 
@@ -30,9 +30,22 @@ test('AC-C1: 두 클라이언트 입력이 양쪽에 수렴한다', async ({ bro
   await blockB.click();
   await blockB.type(' and B');
 
-  // relay 교환 대기 후 양쪽이 동일 텍스트를 가지는지 단언
+  // relay 교환 대기 후 양쪽이 동일 텍스트를 가지는지 단언.
+  // false-positive 방지: A와 B의 입력이 양쪽 page 모두에 수렴했는지 확인한 후 동일성 비교.
   await expect
     .poll(async () => pageA.locator('[data-block-id]').first().textContent(), {
+      timeout: 10_000,
+    })
+    .toContain('hello from A');
+
+  await expect
+    .poll(async () => pageA.locator('[data-block-id]').first().textContent(), {
+      timeout: 10_000,
+    })
+    .toContain(' and B');
+
+  await expect
+    .poll(async () => pageB.locator('[data-block-id]').first().textContent(), {
       timeout: 10_000,
     })
     .toContain('hello from A');
@@ -41,7 +54,7 @@ test('AC-C1: 두 클라이언트 입력이 양쪽에 수렴한다', async ({ bro
     .poll(async () => pageB.locator('[data-block-id]').first().textContent(), {
       timeout: 10_000,
     })
-    .toContain('hello from A');
+    .toContain(' and B');
 
   const textA = await pageA.locator('[data-block-id]').first().textContent();
   const textB = await pageB.locator('[data-block-id]').first().textContent();
