@@ -1,5 +1,5 @@
 phase: complete
-status: in_progress
+status: completed
 vcs-type: git
 branch: feat/p9-role-member-management
 base: main
@@ -14,7 +14,7 @@ auto-stashed: false
 started: 2026-06-22
 last-known-head: 8fb0a382e8d6dfbb07f127f7d86eb884a6b9496a
 config-setup-attempts: 0
-current-step: "complete: verify PASS + 인수 ACCEPT → commit"
+current-step: "완료 — PR #25 생성, status/context 갱신"
 handoff: |
   2026-06-22 커밋·푸시 시점 상태 (집/타 환경 이어가기용):
   - 완료: setup→requirements→design→implement(T1~T7, 270 pass)→review(spec PASS, quality/security 완료) + review-fix H2(adminServer URIError/UUID 검증, ws-relay 74 pass).
@@ -28,7 +28,7 @@ phases:
   design: completed
   implement: completed
   review: completed
-  complete: pending
+  complete: completed
 execution-log:
   - phase: setup
     result: "VCS=git, base=main, branch=feat/p9-role-member-management, project=java-spring+node(monorepo), DEV_DIR 생성, .gitignore .dev/ 보강, 코드맵 작성(Explore 에이전트)"
@@ -146,3 +146,5 @@ execution-log:
   - phase: complete
     agent: product-owner
     result: "ACCEPT — [Must] AC 22/22 충족. 비블로커: AC-22 트리조회 검증(향후 단건 GET 시 requireWorkspaceMember 적용 필요)"
+  - phase: complete
+    result: "커밋 372d45e 푸시. PR #25 생성(https://github.com/rnqhstmd/Ieum/pull/25). status.md 갱신(auth PERM-03/04·WS-AUTH-04, workspace US-INV-03×3·MEMBER편집·멤버제거 → ✅ PR#25). auth/architecture.md에 멤버관리·WS강제종료 구조 추가. 파이프라인 완료"

@@ -36,8 +36,8 @@
 |---------|------|------|-------|------|
 | PERM-01 | `requireWorkspaceMember` 헬퍼 구현 (세션→소속→역할 3단계 검증) | ✅ | P1 | `common.security.AccessGuard.requireWorkspaceMember` (PR #3) |
 | PERM-02 | `requirePageAccess` 헬퍼 구현 (pageId→workspaceId 조회 후 위임) | ✅ | P1 | `AccessGuard.requirePageAccess` (PR #3) |
-| PERM-03 | OWNER 전용 액션(멤버 초대·제거·역할 변경·워크스페이스 삭제)에 OWNER 검증 적용 | ⬜ | P9 | `AccessGuard.requireOwner` 헬퍼·단위검증 완료(PR #3). 초대 생성엔 적용(PR #19), 나머지 액션 엔드포인트 적용은 P9 |
-| PERM-04 | MEMBER가 OWNER 전용 액션 시도 시 403 반환 | ⬜ | P9 | 역할검증 로직·단위검증 완료(PR #3). 엔드포인트 적용 시 자동 충족(P9) |
+| PERM-03 | OWNER 전용 액션(멤버 초대·제거·역할 변경·워크스페이스 삭제)에 OWNER 검증 적용 | ✅ | P9 | `AccessGuard.requireOwner` 헬퍼·단위검증(PR #3). 초대 생성(PR #19). 역할변경·멤버제거 엔드포인트 `requireOwner` 적용 (PR #25). ※워크스페이스 삭제 엔드포인트는 P10 |
+| PERM-04 | MEMBER가 OWNER 전용 액션 시도 시 403 반환 | ✅ | P9 | 역할검증 로직·단위검증(PR #3). 역할변경·멤버제거 엔드포인트 적용으로 MEMBER/비멤버 403 충족. 단위+통합 (PR #25) |
 | PERM-05 | 워크스페이스 비멤버의 페이지 접근 시 403 반환 | ✅ | P2 | `requireWorkspaceMember`를 `PageService.createPage`/`getPageTree`에 적용 → 비멤버 403 (PR #4). 단건 페이지 `requirePageAccess` 적용은 updatePage/archivePage 구현 시(다음 사이클) |
 | PERM-06 | Viewer 역할 구현 | ⬜ | P11 | post-MVP, 현재 설계 범위 외 |
 
@@ -48,7 +48,7 @@
 | WS-AUTH-01 | WebSocket 연결 시 JWT 추출·검증 (`AUTH_SECRET` 공유) | ⬜ | P11 | **trust-relay userId 채택**(JWT 아님 — Spring은 서버측 세션). 웹이 `/api/users/me`로 userId 획득 후 join에 trust-relay (PR #15). 신원 위조 방지(서명/세션 검증) 하드닝은 P11 |
 | WS-AUTH-02 | 연결 시 pageId → workspaceId → Membership 확인, 실패 시 ws.close(4003) | ✅ | P5 후반 (PR #15) | Node `MembershipStore`(pages⋈memberships DB 조회), join 게이트 비멤버 `close(4003)`. 교차 room op 영속화 공백도 connPage 게이트로 마감 |
 | WS-AUTH-03 | 메시지 수신 시 서버가 연결 컨텍스트의 userId를 op에 태깅 (siteId는 세션 UUID, 신원 비교에 미사용) | ✅ | P5 후반 (PR #15) | 영속 op에 연결 userId를 `crdt_ops.created_by_id`에 태깅 (Flyway V4). siteId 미사용 |
-| WS-AUTH-04 | 멤버 제거 API 호출 시 해당 userId의 WebSocket 연결 강제 종료 | ⬜ | P9 | 멤버 제거 API(P9) 의존 |
+| WS-AUTH-04 | 멤버 제거 API 호출 시 해당 userId의 WebSocket 연결 강제 종료 | ✅ | P9 | removeMember 후 `WsRelayAdminClient.disconnectUser` → ws-relay 별도 admin http.Server `DELETE /admin/connections/{userId}` → 해당 userId 소켓 `close(4003,"removed")`. best-effort(예외 미전파)·127.0.0.1 전용·`WS_RELAY_ADMIN_URL` 외부화. 단위+통합(adminWiring) (PR #25) |
 | WS-AUTH-05 | WebSocket 메시지 크기 상한 설정 (64KB 초과 시 연결 종료) | ✅ | P5 | server.ts `maxPayload=64KiB` 기구현(PR #10) |
 
 ### 초대 흐름 (08-auth-and-permissions.md §5, 02-prd.md §7)
