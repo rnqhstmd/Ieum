@@ -58,13 +58,14 @@ function getCaretOffset(el: HTMLElement, fallback: number): number {
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0) {
       const range = sel.getRangeAt(0);
-      // 캐럿이 이 블록 안의 텍스트 노드에 있을 때만 정밀 offset을 계산한다.
-      // - el.contains 가드: 다른 블록의 selection으로 cross-block offset이 오염되는 것을 막는다(P6 커서, PR #12 M2).
-      // - nodeType===3 가드: focus 직후/빈 블록에서 startContainer가 요소 노드(P)로 잡혀 cloneRange path가
-      //   ""를 반환하는 경우를 피하고 fallback을 쓴다.
-      // 블록 시작~caret 범위의 텍스트 길이 = 가시 offset. range.startOffset(노드 내 상대값)과 달리
-      // 멀티 텍스트노드·빈 블록·IME 조합에서도 정확하다.
-      if (el.contains(range.startContainer) && range.startContainer.nodeType === 3) {
+      // 캐럿이 이 블록 안에 있을 때만 정밀 offset을 계산한다(el.contains 가드: 다른 블록 selection으로 인한
+      // cross-block offset 오염 방지 — P6 커서, PR #12 M2). startContainer가 요소 노드(focus·placeCaret 직후의
+      // P)든 텍스트 노드든, selectNodeContents(el)+setEnd(startContainer, startOffset)로 블록 시작~caret 텍스트
+      // 길이를 계산하므로 시작(offset 0)·끝·중간 모두 정확하다. range.startOffset(노드 내 상대값)과 달리
+      // 멀티 텍스트노드·빈 블록·IME 조합에서도 정확.
+      // ※nodeType===3 가드는 placeCaret 직후(startContainer=요소노드) offset 0을 fallback(text.length)으로
+      //   오판해 연속/역방향 화살표 탐색·Enter/Backspace를 깨뜨려 제거함(cross-review/PR #29).
+      if (el.contains(range.startContainer)) {
         const pre = range.cloneRange();
         pre.selectNodeContents(el);
         pre.setEnd(range.startContainer, range.startOffset);

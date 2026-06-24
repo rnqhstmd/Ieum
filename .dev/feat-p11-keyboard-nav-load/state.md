@@ -25,7 +25,8 @@ phases:
   review: completed
   complete: completed
 pr: "https://github.com/rnqhstmd/Ieum/pull/29"
-current-step: "완료 — PR #29 생성, page status·architecture 동기화"
+current-step: "완료 — PR #29 생성·동기화 + cross-review/gemini Critical(getCaretOffset nodeType 가드) RGR 수정"
+cross-review: "claude(qa+security) + PR #29 gemini 봇. Critical 1 확정: getCaretOffset nodeType===3 가드 → placeCaret 직후(요소노드 offset0) 연속/역방향 탐색·Enter/Backspace 회귀. RGR로 가드 제거+회귀테스트. Warning(stale주석)·Info(mockCaret 결정화) 동반. 전부 수정. arrowNav 22·web 208·build OK."
 review-result: "spec PASS(Must 11/11) · quality PASS(Important 2 [동작불변]→blockSelector 추출 해소, Minor 3 메모) · security CRITICAL/HIGH 0·MEDIUM 3 수용문서화(BR-1 간접 onCursorMove=P6 정상동작 주석, idKey 인젝션 비위험=siteId crypto.randomUUID+L273 선례, e2e README 인증timeout 노트). 회귀 0(web 207)."
 rgr-cycles:
   T1 (AC-1~10 키보드탐색): "RED ok(15 fail: 순수함수 import 10 + AC-1~4·9 이동미발생 5) / GREEN ok(21 pass; green이 getCaretOffset el.contains 가드 제거→오케스트레이터가 el.contains&&nodeType===3 결합가드로 회귀교정, AC-5 mock 실텍스트노드로 교정) / REFACTOR skip(정리대상 없음)"
