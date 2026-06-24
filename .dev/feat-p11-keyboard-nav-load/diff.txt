@@ -1,5 +1,5 @@
 diff --git a/apps/web/components/editor/Editor.tsx b/apps/web/components/editor/Editor.tsx
-index 66ca751..273fa2f 100644
+index 66ca751..98b90a3 100644
 --- a/apps/web/components/editor/Editor.tsx
 +++ b/apps/web/components/editor/Editor.tsx
 @@ -13,6 +13,9 @@ import type { BlockType, EditorBlockView, RgaId } from '@ieum/crdt';
@@ -12,7 +12,7 @@ index 66ca751..273fa2f 100644
  interface EditorProps {
    blocks: EditorBlockView[];
    onBlockInput: (blockId: RgaId, newText: string) => void;
-@@ -28,15 +31,40 @@ interface EditorProps {
+@@ -28,15 +31,41 @@ interface EditorProps {
    onSetType?: (blockId: RgaId, type: BlockType) => void;
  }
  
@@ -43,20 +43,20 @@ index 66ca751..273fa2f 100644
      const sel = window.getSelection();
      if (sel && sel.rangeCount > 0) {
        const range = sel.getRangeAt(0);
--      if (el.contains(range.startContainer)) {
++      // 캐럿이 이 블록 안에 있을 때만 정밀 offset을 계산한다(el.contains 가드: 다른 블록 selection으로 인한
++      // cross-block offset 오염 방지 — P6 커서, PR #12 M2). startContainer가 요소 노드(focus·placeCaret 직후의
++      // P)든 텍스트 노드든, selectNodeContents(el)+setEnd(startContainer, startOffset)로 블록 시작~caret 텍스트
++      // 길이를 계산하므로 시작(offset 0)·끝·중간 모두 정확하다. range.startOffset(노드 내 상대값)과 달리
++      // 멀티 텍스트노드·빈 블록·IME 조합에서도 정확.
++      // ※nodeType===3 가드는 placeCaret 직후(startContainer=요소노드) offset 0을 fallback(text.length)으로
++      //   오판해 연속/역방향 화살표 탐색·Enter/Backspace를 깨뜨려 제거함(cross-review/PR #29).
+       if (el.contains(range.startContainer)) {
 -        // 블록 시작~caret 범위의 텍스트 길이 = 가시 offset. range.startOffset(노드 내 상대값)과 달리
 -        // 멀티 텍스트노드·빈 블록·IME 조합에서도 정확하다(PR #12 리뷰, M2 견고화).
-+      // 캐럿이 이 블록 안의 텍스트 노드에 있을 때만 정밀 offset을 계산한다.
-+      // - el.contains 가드: 다른 블록의 selection으로 cross-block offset이 오염되는 것을 막는다(P6 커서, PR #12 M2).
-+      // - nodeType===3 가드: focus 직후/빈 블록에서 startContainer가 요소 노드(P)로 잡혀 cloneRange path가
-+      //   ""를 반환하는 경우를 피하고 fallback을 쓴다.
-+      // 블록 시작~caret 범위의 텍스트 길이 = 가시 offset. range.startOffset(노드 내 상대값)과 달리
-+      // 멀티 텍스트노드·빈 블록·IME 조합에서도 정확하다.
-+      if (el.contains(range.startContainer) && range.startContainer.nodeType === 3) {
          const pre = range.cloneRange();
          pre.selectNodeContents(el);
          pre.setEnd(range.startContainer, range.startOffset);
-@@ -174,6 +202,23 @@ export default function Editor({
+@@ -174,6 +203,23 @@ export default function Editor({
          onBackspace?.(block.id);
        }
      }
@@ -80,7 +80,7 @@ index 66ca751..273fa2f 100644
    };
  
    // P6 FR-2/BR-3: caret 이동 → 50ms debounce → onCursorMove. FR-8: 포커스 블록만. composing 가드.
-@@ -231,7 +276,7 @@ export default function Editor({
+@@ -231,7 +277,7 @@ export default function Editor({
        if (!key) return;
        const block = blocks.find((b) => idKey(b.id) === key);
        if (!block) return;
@@ -91,15 +91,14 @@ index 66ca751..273fa2f 100644
      document.addEventListener('selectionchange', onSelectionChange);
 diff --git a/apps/web/components/editor/__tests__/Editor.arrowNav.test.tsx b/apps/web/components/editor/__tests__/Editor.arrowNav.test.tsx
 new file mode 100644
-index 0000000..be8033b
+index 0000000..960ddee
 --- /dev/null
 +++ b/apps/web/components/editor/__tests__/Editor.arrowNav.test.tsx
-@@ -0,0 +1,253 @@
+@@ -0,0 +1,287 @@
 +import { describe, it, expect, vi, afterEach } from 'vitest';
 +import { render, fireEvent } from '@testing-library/react';
 +import { idKey } from '@ieum/crdt';
 +import type { EditorBlockView, RgaId } from '@ieum/crdt';
-+// resolveArrowDirection 는 아직 named export 안 됨 → import 실패로 RED
 +import Editor, { resolveArrowDirection } from '@/components/editor/Editor';
 +
 +// ─── 헬퍼 ───────────────────────────────────────────────────────────────────
@@ -111,6 +110,24 @@ index 0000000..be8033b
 +});
 +const el = (container: HTMLElement, blockId: RgaId) =>
 +  container.querySelector(`[data-block-id="${idKey(blockId)}"]`) as HTMLElement;
++
++// 지정 블록의 caret을 offset 위치에 둔 selection을 모킹한다(getCaretOffset 입력 결정화).
++// 텍스트 노드가 있으면 그 노드를 startContainer로, 없으면(빈 블록) rangeCount 0 → getCaretOffset이 fallback(=text.length=0).
++// getCaretOffset는 el.contains(startContainer) 후 selectNodeContents(el)+setEnd(startContainer, offset)로 offset을 계산한다.
++function mockCaret(node: HTMLElement, offset: number) {
++  const textNode = node.firstChild;
++  vi.spyOn(window, 'getSelection').mockReturnValue({
++    rangeCount: textNode ? 1 : 0,
++    getRangeAt: () => {
++      const r = document.createRange();
++      if (textNode) {
++        r.setStart(textNode, offset);
++        r.setEnd(textNode, offset);
++      }
++      return r;
++    },
++  } as unknown as Selection);
++}
 +
 +// ─── 순수 함수 단위 테스트 ───────────────────────────────────────────────────
 +describe('resolveArrowDirection — 순수 함수', () => {
@@ -160,11 +177,8 @@ index 0000000..be8033b
 +});
 +
 +// ─── handleKeyDown 통합 테스트 ───────────────────────────────────────────────
-+// jsdom 한계 노트:
-+//   getCaretOffset fallback → block.text.length 반환.
-+//   따라서 텍스트 있는 블록에 focus() → offset === text.length → 끝 위치.
-+//   offset 0 재현: 빈 블록(text="") 사용 (length 0 === offset 0).
-+//   중간 offset 재현: vi.spyOn(window,'getSelection') 모킹 필요.
++// caret offset은 mockCaret(node, offset)으로 결정화한다(jsdom은 레이아웃이 없어 focus()만으로 caret 위치가
++// 비결정적). 빈 블록은 텍스트 노드가 없어 fallback(=text.length=0)으로 offset 0이 된다.
 +
 +describe('Editor — 화살표 블록 간 탐색 (handleKeyDown)', () => {
 +  afterEach(() => {
@@ -186,8 +200,8 @@ index 0000000..be8033b
 +    expect(document.activeElement).toBe(el(container, id(1)));
 +  });
 +
-+  // AC-2: 텍스트 있는 블록(fallback offset=length) + ArrowDown → 다음 블록으로 포커스 이동
-+  it('AC-2: block-1(text="hello") focus + ArrowDown → activeElement = block-2, prevented=true', () => {
++  // AC-2: 블록 끝(offset===length) + ArrowDown → 다음 블록으로 포커스 이동
++  it('AC-2: block-1(text="hello") 끝 + ArrowDown → activeElement = block-2, prevented=true', () => {
 +    const { container } = render(
 +      <Editor
 +        blocks={[block(1, 'paragraph', 'hello'), block(2, 'paragraph', '')]}
@@ -196,6 +210,7 @@ index 0000000..be8033b
 +    );
 +    const node1 = el(container, id(1));
 +    node1.focus();
++    mockCaret(node1, 5); // caret at end
 +    const prevented = !fireEvent.keyDown(node1, { key: 'ArrowDown' });
 +    expect(prevented).toBe(true);
 +    expect(document.activeElement).toBe(el(container, id(2)));
@@ -216,8 +231,8 @@ index 0000000..be8033b
 +    expect(document.activeElement).toBe(el(container, id(1)));
 +  });
 +
-+  // AC-4: 텍스트 있는 블록(fallback offset=length) + ArrowRight → 다음 블록으로 포커스 이동
-+  it('AC-4: block-1(text="hi") focus + ArrowRight → activeElement = block-2, prevented=true', () => {
++  // AC-4: 블록 끝(offset===length) + ArrowRight → 다음 블록으로 포커스 이동
++  it('AC-4: block-1(text="hi") 끝 + ArrowRight → activeElement = block-2, prevented=true', () => {
 +    const { container } = render(
 +      <Editor
 +        blocks={[block(1, 'paragraph', 'hi'), block(2, 'paragraph', '')]}
@@ -226,13 +241,14 @@ index 0000000..be8033b
 +    );
 +    const node1 = el(container, id(1));
 +    node1.focus();
++    mockCaret(node1, 2); // caret at end ("hi".length)
 +    const prevented = !fireEvent.keyDown(node1, { key: 'ArrowRight' });
 +    expect(prevented).toBe(true);
 +    expect(document.activeElement).toBe(el(container, id(2)));
 +  });
 +
 +  // AC-5: 중간 caret(offset 2, "hello") + ArrowDown → 이동 없음, prevented=false
-+  it('AC-5: block-1(text="hello") + 중간 offset 2 + ArrowDown → 이동 없음, prevented=false', () => {
++  it('AC-5: block-1(text="hello") 중간 offset 2 + ArrowDown → 이동 없음, prevented=false', () => {
 +    const { container } = render(
 +      <Editor
 +        blocks={[block(1, 'paragraph', 'hello'), block(2, 'paragraph', '')]}
@@ -240,19 +256,9 @@ index 0000000..be8033b
 +      />,
 +    );
 +    const node1 = el(container, id(1));
++    expect(node1.firstChild).not.toBeNull(); // "hello" 텍스트 노드 존재 전제(중간 caret 재현)
 +    node1.focus();
-+    // getCaretOffset의 el.contains 가드를 충족하도록 node1 내부의 "실제" 텍스트 노드를 startContainer로 쓴다.
-+    // getCaretOffset는 cloneRange()→selectNodeContents(el)→setEnd(textNode, 2)→toString().length 로 offset 2를 계산한다.
-+    const textNode = node1.firstChild as Node; // "hello" 텍스트 노드
-+    vi.spyOn(window, 'getSelection').mockReturnValue({
-+      rangeCount: 1,
-+      getRangeAt: () => {
-+        const r = document.createRange();
-+        r.setStart(textNode, 2);
-+        r.setEnd(textNode, 2);
-+        return r;
-+      },
-+    } as unknown as Selection);
++    mockCaret(node1, 2); // 중간(0 < 2 < 5)
 +    const prevented = !fireEvent.keyDown(node1, { key: 'ArrowDown' });
 +    expect(prevented).toBe(false);
 +    expect(document.activeElement).toBe(node1); // 이동 없음
@@ -273,8 +279,8 @@ index 0000000..be8033b
 +    expect(document.activeElement).toBe(node1);
 +  });
 +
-+  // AC-7: 마지막 블록(fallback offset=length) + ArrowDown → 이동 없음(다음 블록 없음), prevented=false
-+  it('AC-7: 마지막 블록(text="x") focus + ArrowDown → activeElement 그대로, prevented=false', () => {
++  // AC-7: 마지막 블록 끝(offset===length) + ArrowDown → 이동 없음(다음 블록 없음), prevented=false
++  it('AC-7: 마지막 블록(text="x") 끝 + ArrowDown → activeElement 그대로, prevented=false', () => {
 +    const { container } = render(
 +      <Editor
 +        blocks={[block(1, 'paragraph', 'hello'), block(2, 'paragraph', 'x')]}
@@ -283,6 +289,7 @@ index 0000000..be8033b
 +    );
 +    const node2 = el(container, id(2));
 +    node2.focus();
++    mockCaret(node2, 1); // caret at end ("x".length) — 경계지만 다음 블록 없음
 +    const prevented = !fireEvent.keyDown(node2, { key: 'ArrowDown' });
 +    expect(prevented).toBe(false);
 +    expect(document.activeElement).toBe(node2);
@@ -347,6 +354,33 @@ index 0000000..be8033b
 +    expect(prevented).toBe(false);
 +    expect(document.activeElement).toBe(node2); // 이동 없음
 +  });
++
++  // 회귀(cross-review/PR #29 gemini): placeCaret(atEnd=false) 직후 상태 — startContainer가 "요소 노드"(P)이고
++  // offset 0 — 에서 ArrowUp을 누르면 이전 블록으로 복귀해야 한다. selectNodeContents+collapse(true)는 스펙상
++  // startContainer를 요소 노드로 남기므로, getCaretOffset이 이 경우 offset 0을 정확히 계산해야 연속/역방향 탐색이 동작한다.
++  it('회귀: 다음 블록 처음(요소노드 caret offset 0) 도착 후 ArrowUp → 이전 블록 복귀', () => {
++    const { container } = render(
++      <Editor
++        blocks={[block(1, 'paragraph', 'hello'), block(2, 'paragraph', 'world')]}
++        onBlockInput={vi.fn()}
++      />,
++    );
++    const node2 = el(container, id(2));
++    node2.focus();
++    // placeCaret(el, atEnd=false) 직후 DOM 상태 모사: startContainer = 요소 노드 node2, offset 0.
++    vi.spyOn(window, 'getSelection').mockReturnValue({
++      rangeCount: 1,
++      getRangeAt: () => {
++        const r = document.createRange();
++        r.setStart(node2, 0);
++        r.setEnd(node2, 0);
++        return r;
++      },
++    } as unknown as Selection);
++    const prevented = !fireEvent.keyDown(node2, { key: 'ArrowUp' });
++    expect(prevented).toBe(true);
++    expect(document.activeElement).toBe(el(container, id(1)));
++  });
 +});
 diff --git a/apps/web/e2e/README.md b/apps/web/e2e/README.md
 index f4d22f1..d9844b0 100644
@@ -390,3 +424,37 @@ index 0000000..3770a42
 +
 +  expect(elapsed).toBeLessThan(2000);
 +});
+diff --git a/context/page/architecture.md b/context/page/architecture.md
+index b88fa20..ee5848a 100644
+--- a/context/page/architecture.md
++++ b/context/page/architecture.md
+@@ -50,6 +50,8 @@ position은 정수(Int)를 사용해 CRDT 레이어의 부동소수점 문자 
+ > - 마크다운 단축키(`# ## ### -`) → `detectBlockTypeShortcut`(web 신규 순수함수)로 prefix 제거 + `setBlockType` (block-set-type, LWW).
+ > - 생성된 블록 op는 개별 `sendOp`(멱등). 진실원천은 DocState(`docToBlocks`) — 로컬 즉시 + 원격 자동 반영. 동시 split 텍스트 중복은 CRDT 본질 한계로 수용(범위 밖).
+ 
++> **P11 키보드 블록 탐색 (PR #29)**: 구조편집과 별개로 `handleKeyDown`에 **화살표 키 블록 간 포커스 탐색**이 추가됐다. 방향 판정은 순수 함수 `resolveArrowDirection(key, offset, textLength)`(named export)로 분리 — caret 경계(`getCaretOffset===0` 또는 `===text.length`)에서 Up/Left→이전 블록 끝, Down/Right→다음 블록 처음. 대상 블록은 `blockSelector(idKey)` → `document.querySelector` → `focus()` + `placeCaret`(Selection API, jsdom try/catch 흡수), 이동 시에만 `preventDefault`. 중간 caret·첫/마지막 경계·IME 조합 중에는 미이동. **로컬 DOM 포커스만** — CRDT op·직접 onCursorMove 없음(BR-1). 단, `placeCaret`이 selection을 옮기면 기존 P6 `selectionchange→scheduleCursor` 경로로 새 블록의 커서 위치가 자연 브로드캐스트됨(정상 협업 동작). `getCaretOffset`은 `el.contains` 가드로 cross-block offset 오염 방지(P6)를 유지하며, startContainer가 요소 노드(placeCaret 직후)든 텍스트 노드든 offset을 정확히 계산한다(cross-review/PR #29에서 nodeType 가드 제거 — placeCaret 직후 offset 0 오판 회귀 수정).
++
+ ### 자동저장 vs 협업 op 전송
+ 
+ | 모드 | 동작 |
+@@ -70,6 +72,8 @@ position은 정수(Int)를 사용해 CRDT 레이어의 부동소수점 문자 
+     → RGA 초기화 → ops replay → 에디터 렌더링
+ ```
+ 
++> **P11 초기 로드 측정 (PR #29, FR-C4)**: 위 로드 흐름이 < 2초 안에 본문을 표시하는지 `e2e/load-time.e2e.ts`로 측정한다. `goto`부터 첫 `[data-block-id]` visible까지 `Date.now()` wall-clock(네트워크·SSR·하이드레이션 포함)을 재고 `expect(elapsed).toBeLessThan(2000)`. 전체 스택(DB·ws-relay·Next.js dev·storageState) 기동이 필요해 **수동 구동 전용**(restore/convergence e2e와 동일, 자동 게이트 비대상).
++
+ ## 주제 문서
+ 
+ | 주제 | 설명 |
+diff --git a/context/page/status.md b/context/page/status.md
+index 10d6ac4..da5b22b 100644
+--- a/context/page/status.md
++++ b/context/page/status.md
+@@ -46,5 +46,5 @@
+ 
+ | 항목 | 목표 | 상태 | Phase | 비고 |
+ |------|------|------|-------|------|
+-| 페이지 초기 로드 | < 2초 (로컬 환경, 에디터 표시까지) | ⬜ | P11 | Playwright 타이밍으로 측정 |
+-| 키보드 탐색 지원 | 에디터 및 주요 인터랙션 키보드 접근 가능 | ⬜ | P11 | 에디터 영역 ARIA 그룹(role=group)·제목 textbox 추가 (PR #8). 블록 간 화살표 탐색은 P11 |
++| 페이지 초기 로드 | < 2초 (로컬 환경, 에디터 표시까지) | ✅ | P11 (PR #29) | `e2e/load-time.e2e.ts` — `goto`부터 첫 `[data-block-id]` visible까지 `Date.now()` wall-clock 측정 후 `expect(elapsed).toBeLessThan(2000)`. 수동 구동 전용(전체 스택 기동 필요, 자동 게이트 비대상). (FR-C4/AC-11) |
++| 키보드 탐색 지원 | 에디터 및 주요 인터랙션 키보드 접근 가능 | ✅ | P11 (PR #29) | 에디터 영역 ARIA 그룹(role=group)·제목 textbox (PR #8). **블록 간 화살표 탐색 P11(PR #29)**: caret 경계(offset 0/length)에서 Up/Left→이전 블록 끝·Down/Right→다음 블록 처음 포커스 이동. 중간 caret·첫/마지막 경계·IME 중 미이동, 이동 시에만 preventDefault. 로컬 DOM 포커스만(CRDT/네트워크 무관). `resolveArrowDirection` 순수함수 + `placeCaret`. 단위 21건 (FR-1~8/AC-1~10) |
