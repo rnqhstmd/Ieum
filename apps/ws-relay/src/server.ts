@@ -115,7 +115,20 @@ export function createRelayServer(opts: {
             userConnections.get(connUserId)!.add(socket);
           }
           connPage = joinMsg.pageId; // 게이트 off여도 교차 room 마감 기준으로 설정
-          sendAll(registry.join(handle, joinMsg.pageId, joinMsg.presence)); // P6 presence 전달
+          // (1) 선등록: broadcast 수신 가능 상태로 room에 먼저 등록 (socketChain 내 동기)
+          sendAll(registry.join(handle, joinMsg.pageId, joinMsg.presence));
+          // (2)(3) loadByPage + op-batch는 socketChain 밖에서 비동기 실행.
+          // socketChain에 await를 걸지 않아 이후 op 메시지 처리가 블록되지 않는다(AC-A3 선등록).
+          const pageIdForBatch = joinMsg.pageId;
+          void opStore.loadByPage(pageIdForBatch).catch((err) => {
+            console.warn('[relay] loadByPage failed, sending empty batch', err);
+            return [] as import('@ieum/crdt').WireEnvelope[];
+          }).then((ops) => {
+            const target = sockets.get(handle.id);
+            if (target && target.readyState === WebSocket.OPEN) {
+              target.send(JSON.stringify({ type: 'op-batch', pageId: pageIdForBatch, ops }));
+            }
+          });
         }).catch(() => {
           // 체인 내 예기치 못한 예외가 socketChain을 영구 reject시켜 이후 메시지를 막는 것을 방지한다
           // (gemini CRITICAL). 인가 경로 오류이므로 연결을 1011로 안전하게 정리한다.

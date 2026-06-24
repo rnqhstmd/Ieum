@@ -128,4 +128,31 @@ describe('PgOpStore — 실 DB 영속화 (testcontainers)', () => {
     );
     expect(r.rows[0].created_by_id).toBeNull();
   });
+
+  it('AC-A1(pg): loadByPage가 serverSeq ASC WireEnvelope[] round-trip 반환', async () => {
+    // 별도 page 픽스처(기존 PAGE와 격리)
+    const PAGE_LBP = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    await admin.query('INSERT INTO pages (id,workspace_id,title,created_by_id) VALUES ($1,$2,$3,$4)', [
+      PAGE_LBP, WS, 'lbp-page', USER,
+    ]);
+    const types = ['insert', 'delete', 'block-insert'] as const;
+    for (let i = 0; i < types.length; i++) {
+      expect(await store.append(PAGE_LBP, wire(`lbp_s${i}`, i + 1, types[i]))).toBe('persisted');
+    }
+    const result = await store.loadByPage(PAGE_LBP);
+    expect(result).toHaveLength(3);
+    // serverSeq ASC 순서(삽입 순 = index 순)
+    expect(result[0]).toMatchObject({ siteId: 'lbp_s0', seq: 1, opType: 'insert' });
+    expect(result[1]).toMatchObject({ siteId: 'lbp_s1', seq: 2, opType: 'delete' });
+    expect(result[2]).toMatchObject({ siteId: 'lbp_s2', seq: 3, opType: 'block-insert' });
+    // payload 무손실 round-trip
+    for (let i = 0; i < 3; i++) {
+      expect(result[i]!.payload).toBeTruthy();
+    }
+  });
+
+  it('AC-A4(pg): 비-UUID pageId → loadByPage가 빈 배열 반환', async () => {
+    const result = await store.loadByPage('not-a-uuid');
+    expect(result).toEqual([]);
+  });
 });

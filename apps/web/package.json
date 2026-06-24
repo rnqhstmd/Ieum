@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "e2e": "playwright test",
+    "e2e:install": "playwright install chromium"
   },
   "dependencies": {
     "@ieum/crdt": "workspace:*",
@@ -18,6 +20,8 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@ieum/ws-relay": "workspace:*",
+    "@playwright/test": "^1.61.0",
     "@testing-library/jest-dom": "^6",
     "@testing-library/react": "^16",
     "@testing-library/user-event": "^14",
@@ -30,7 +34,6 @@
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8",
-    "@ieum/ws-relay": "workspace:*"
+    "vitest": "^2.1.8"
   }
 }

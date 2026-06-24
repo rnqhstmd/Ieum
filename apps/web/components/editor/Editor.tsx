@@ -9,8 +9,9 @@
 import { useEffect, useRef } from 'react';
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
 import { idKey, idEquals } from '@ieum/crdt';
-import type { EditorBlockView, RgaId } from '@ieum/crdt';
+import type { BlockType, EditorBlockView, RgaId } from '@ieum/crdt';
 import type { CursorInfo, PresenceInfo } from '@/src/lib/realtime/protocol';
+import { detectBlockTypeShortcut } from '@/src/lib/editor/crdtDocument';
 
 interface EditorProps {
   blocks: EditorBlockView[];
@@ -21,6 +22,10 @@ interface EditorProps {
   localClientId?: string | null;
   resolveCursorIndex?: (blockId: RgaId, anchorId: RgaId | null) => number;
   onCursorMove?: (blockId: RgaId, caretOffset: number) => void;
+  // P9 구조 편집 (선택적)
+  onEnter?: (blockId: RgaId, offset: number) => void;
+  onBackspace?: (blockId: RgaId) => void;
+  onSetType?: (blockId: RgaId, type: BlockType) => void;
 }
 
 /** 현재 선택 영역의 블록 내 캐럿 offset. 미지원(jsdom) 시 fallback. */
@@ -133,6 +138,9 @@ export default function Editor({
   localClientId = null,
   resolveCursorIndex,
   onCursorMove,
+  onEnter,
+  onBackspace,
+  onSetType,
 }: EditorProps) {
   // IME 조합 추적 — 조합 중 input/cursor는 무시한다.
   const composing = useRef(false);
@@ -141,17 +149,30 @@ export default function Editor({
 
   const handleInput = (blockId: RgaId, e: FormEvent<HTMLElement>) => {
     if (composing.current) return;
-    onBlockInput(blockId, e.currentTarget.textContent ?? '');
+    const newText = e.currentTarget.textContent ?? '';
+    const shortcut = detectBlockTypeShortcut(newText);
+    if (shortcut) {
+      onBlockInput(blockId, newText.slice(shortcut.consumed));
+      onSetType?.(blockId, shortcut.type);
+      return;
+    }
+    onBlockInput(blockId, newText);
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLElement>, block: EditorBlockView) => {
+    if (composing.current) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
+      const offset = getCaretOffset(e.currentTarget, block.text.length);
+      onEnter?.(block.id, offset);
       return;
     }
     if (e.key === 'Backspace') {
       const offset = getCaretOffset(e.currentTarget, block.text.length);
-      if (offset === 0) e.preventDefault();
+      if (offset === 0) {
+        e.preventDefault();
+        onBackspace?.(block.id);
+      }
     }
   };
 

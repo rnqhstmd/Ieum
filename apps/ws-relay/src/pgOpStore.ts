@@ -50,6 +50,20 @@ export class PgOpStore implements OpStore {
     }
   }
 
+  async loadByPage(pageId: string): Promise<WireEnvelope[]> {
+    if (!isUuid(pageId)) return [];
+    const r = await this.pool.query(
+      'SELECT site_id, seq, op_type, payload FROM crdt_ops WHERE page_id=$1 ORDER BY server_seq ASC',
+      [pageId],
+    );
+    return r.rows.map((row) => ({
+      siteId: row.site_id as string,
+      seq: Number(row.seq),
+      opType: row.op_type as WireEnvelope['opType'],
+      payload: row.payload as WireEnvelope['payload'],
+    }));
+  }
+
   async close(): Promise<void> {
     await this.pool.end();
   }

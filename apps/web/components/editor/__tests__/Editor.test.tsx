@@ -78,3 +78,137 @@ describe('Editor — CRDT 블록 에디터 (P5)', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 });
+
+// P9 / AC-B1~B4: 구조 편집 콜백 배선 — onEnter / onBackspace / onSetType
+describe('Editor — 구조 편집 콜백 배선 (P9)', () => {
+  // AC-B1 배선: Enter 키 → onEnter(blockId, caretOffset) 호출
+  it('AC-B1: Enter 키 → preventDefault + onEnter(blockId, offset) 호출', () => {
+    const onEnter = vi.fn();
+    const { container } = render(
+      <Editor
+        blocks={[block(1, 'paragraph', 'Hello')]}
+        onBlockInput={vi.fn()}
+        onEnter={onEnter}
+      />,
+    );
+    const node = el(container, id(1));
+    const prevented = !fireEvent.keyDown(node, { key: 'Enter' });
+    expect(prevented).toBe(true);
+    expect(onEnter).toHaveBeenCalledTimes(1);
+    // 첫 번째 인자는 blockId(RgaId 객체), 두 번째는 offset(number)
+    const [calledBlockId, calledOffset] = onEnter.mock.calls[0]!;
+    expect(calledBlockId).toEqual(id(1));
+    expect(typeof calledOffset).toBe('number');
+  });
+
+  // AC-B2 배선: Backspace at offset 0 → onBackspace(blockId) 호출
+  // 빈 블록(text.length=0)을 사용 — jsdom에서 getSelection이 없으면 fallback=text.length=0 → 조건 충족.
+  it('AC-B2: 빈 블록에서 Backspace → preventDefault + onBackspace(blockId) 호출', () => {
+    const onBackspace = vi.fn();
+    const { container } = render(
+      <Editor
+        blocks={[block(1, 'paragraph', 'Hello'), block(2, 'paragraph', '')]}
+        onBlockInput={vi.fn()}
+        onBackspace={onBackspace}
+      />,
+    );
+    // 빈 두 번째 블록: text.length=0 → fallback=0 → offset 0 조건 충족
+    const node = el(container, id(2));
+    const prevented = !fireEvent.keyDown(node, { key: 'Backspace' });
+    expect(prevented).toBe(true);
+    expect(onBackspace).toHaveBeenCalledTimes(1);
+    expect(onBackspace).toHaveBeenCalledWith(id(2));
+  });
+
+  // AC-B4 배선: '# ' 입력 → onSetType('heading1') 호출
+  it('AC-B4: "# " 입력 → onSetType(blockId, "heading1") 호출', () => {
+    const onSetType = vi.fn();
+    const onBlockInput = vi.fn();
+    const { container } = render(
+      <Editor
+        blocks={[block(1, 'paragraph', '')]}
+        onBlockInput={onBlockInput}
+        onSetType={onSetType}
+      />,
+    );
+    const node = el(container, id(1));
+    // '# ' prefix를 포함한 텍스트 입력 시뮬레이션
+    node.textContent = '# ';
+    fireEvent.input(node);
+    expect(onSetType).toHaveBeenCalledTimes(1);
+    expect(onSetType).toHaveBeenCalledWith(id(1), 'heading1');
+  });
+
+  // onEnter prop 없을 때 Enter → TypeError 없이 무시
+  it('onEnter prop 없을 때 Enter → 에러 없이 preventDefault만', () => {
+    const { container } = render(
+      <Editor blocks={[block(1, 'paragraph', 'ab')]} onBlockInput={vi.fn()} />,
+    );
+    expect(() => {
+      fireEvent.keyDown(el(container, id(1)), { key: 'Enter' });
+    }).not.toThrow();
+  });
+
+  // onBackspace prop 없을 때 Backspace at 0 → TypeError 없이 무시
+  it('onBackspace prop 없을 때 Backspace at 0 → 에러 없이 preventDefault만', () => {
+    const { container } = render(
+      <Editor blocks={[block(1, 'paragraph', '')]} onBlockInput={vi.fn()} />,
+    );
+    expect(() => {
+      fireEvent.keyDown(el(container, id(1)), { key: 'Backspace' });
+    }).not.toThrow();
+  });
+});
+
+// W1 — IME 조합 중 구조 편집 콜백 가드
+describe('Editor — IME 조합 가드 (W1)', () => {
+  // W1-a: compositionstart 후 compositionend 전 Enter → onEnter 미호출
+  it('W1-a: IME 조합 중 Enter → onEnter가 호출되지 않는다', () => {
+    const onEnter = vi.fn();
+    const { container } = render(
+      <Editor
+        blocks={[block(1, 'paragraph', '한글')]}
+        onBlockInput={vi.fn()}
+        onEnter={onEnter}
+      />,
+    );
+    const node = el(container, id(1));
+    fireEvent.compositionStart(node);
+    // 조합 중 Enter 키 — onEnter 콜백이 불려서는 안 된다
+    fireEvent.keyDown(node, { key: 'Enter' });
+    expect(onEnter).not.toHaveBeenCalled();
+  });
+
+  // W1-b: 조합 중 Backspace(빈 블록 맨앞) → onBackspace 미호출
+  it('W1-b: IME 조합 중 Backspace → onBackspace가 호출되지 않는다', () => {
+    const onBackspace = vi.fn();
+    const { container } = render(
+      <Editor
+        blocks={[block(1, 'paragraph', 'Hello'), block(2, 'paragraph', '')]}
+        onBlockInput={vi.fn()}
+        onBackspace={onBackspace}
+      />,
+    );
+    const node = el(container, id(2));
+    fireEvent.compositionStart(node);
+    fireEvent.keyDown(node, { key: 'Backspace' });
+    expect(onBackspace).not.toHaveBeenCalled();
+  });
+
+  // W1-c: compositionend 후 Enter → onEnter 정상 호출 (회귀 방지)
+  it('W1-c: compositionend 후 Enter → onEnter가 정상 호출된다', () => {
+    const onEnter = vi.fn();
+    const { container } = render(
+      <Editor
+        blocks={[block(1, 'paragraph', '한글')]}
+        onBlockInput={vi.fn()}
+        onEnter={onEnter}
+      />,
+    );
+    const node = el(container, id(1));
+    fireEvent.compositionStart(node);
+    fireEvent.compositionEnd(node);
+    fireEvent.keyDown(node, { key: 'Enter' });
+    expect(onEnter).toHaveBeenCalledTimes(1);
+  });
+});

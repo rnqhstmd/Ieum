@@ -25,7 +25,7 @@ const STATUS_LABEL: Record<SaveStatus, string> = {
 };
 
 export default function EditorContainer({ pageId, initialTitle = '' }: EditorContainerProps) {
-  const { blocks, presences, cursors, localClientId, onBlockInput, onCursorMove, resolveCursorIndex } =
+  const { blocks, presences, cursors, localClientId, onBlockInput, onCursorMove, resolveCursorIndex, onEnter, onBackspace, onSetType } =
     useCrdtDocument(pageId);
 
   // 제목 로드(단일 페이지 GET)·저장(PATCH save-port). 블록 본문은 CRDT op로 별도 즉시 영속.
@@ -52,6 +52,9 @@ export default function EditorContainer({ pageId, initialTitle = '' }: EditorCon
         localClientId={localClientId}
         resolveCursorIndex={resolveCursorIndex}
         onCursorMove={onCursorMove}
+        onEnter={onEnter}
+        onBackspace={onBackspace}
+        onSetType={onSetType}
       />
     </div>
   );

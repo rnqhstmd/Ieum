@@ -96,6 +96,7 @@ describe('relay server — op 영속화 배선 (T3)', () => {
           calls.push({ pageId, siteId: op.siteId, seq: op.seq });
           return outcome;
         },
+        async loadByPage() { return []; },
       },
     };
   }
@@ -230,6 +231,154 @@ describe('relay server — 멤버십 게이트 (T3)', () => {
   });
 });
 
+// op-batch 재접속 복원 (AC-A1, AC-A3, AC-A4)
+describe('relay server — op-batch 재접속 복원', () => {
+  const PAGE = '550e8400-e29b-41d4-a716-446655440001';
+
+  function makeOpEnvelope(siteId: string, seq: number) {
+    return toWire(
+      makeInlineInsertOp({ counter: seq, siteId }, null, '나', { counter: 99, siteId }),
+      seq,
+      siteId,
+    );
+  }
+
+  function opMessage(pageId: string, siteId: string, seq: number): string {
+    const env = makeOpEnvelope(siteId, seq);
+    return JSON.stringify({ type: 'op', pageId, op: env });
+  }
+
+  /** join 후 join-ack 수신 시점에 resolve되는 Promise<WebSocket> */
+  function connectAndJoin(port: number, pageId: string): Promise<WebSocket> {
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket(`ws://localhost:${port}`);
+      ws.on('open', () => ws.send(JSON.stringify({ type: 'join', pageId })));
+      ws.on('message', (data) => {
+        if (JSON.parse(data.toString()).type === 'join-ack') resolve(ws);
+      });
+      ws.on('error', reject);
+    });
+  }
+
+  it('AC-A1: loadByPage가 ops 3건 반환 → join 소켓이 op-batch(ops 길이 3, serverSeq ASC) 수신', async () => {
+    const ops = [
+      makeOpEnvelope('site_h', 1),
+      makeOpEnvelope('site_h', 2),
+      makeOpEnvelope('site_h', 3),
+    ];
+    const store: OpStore = {
+      async append() { return 'persisted'; },
+      async loadByPage() { return ops; },
+    };
+    server = await createRelayServer({ port: 0, opStore: store });
+    const ws = new WebSocket(`ws://localhost:${server.port}`);
+
+    const batch = await new Promise<{ type: string; pageId: string; ops: unknown[] }>((resolve, reject) => {
+      ws.on('open', () => ws.send(JSON.stringify({ type: 'join', pageId: PAGE })));
+      ws.on('message', (data) => {
+        const m = JSON.parse(data.toString());
+        if (m.type === 'op-batch') resolve(m);
+      });
+      ws.on('error', reject);
+    });
+
+    expect(batch.type).toBe('op-batch');
+    expect(batch.pageId).toBe(PAGE);
+    expect(batch.ops).toHaveLength(3);
+    expect((batch.ops[0] as { seq: number }).seq).toBe(1);
+    expect((batch.ops[1] as { seq: number }).seq).toBe(2);
+    expect((batch.ops[2] as { seq: number }).seq).toBe(3);
+    ws.close();
+  });
+
+  it('AC-A4: loadByPage가 [] 반환 → join 소켓이 op-batch{ops:[]} 수신', async () => {
+    const store: OpStore = {
+      async append() { return 'persisted'; },
+      async loadByPage() { return []; },
+    };
+    server = await createRelayServer({ port: 0, opStore: store });
+    const ws = new WebSocket(`ws://localhost:${server.port}`);
+
+    const batch = await new Promise<{ type: string; ops: unknown[] }>((resolve, reject) => {
+      ws.on('open', () => ws.send(JSON.stringify({ type: 'join', pageId: PAGE })));
+      ws.on('message', (data) => {
+        const m = JSON.parse(data.toString());
+        if (m.type === 'op-batch') resolve(m);
+      });
+      ws.on('error', reject);
+    });
+
+    expect(batch.type).toBe('op-batch');
+    expect(batch.ops).toHaveLength(0);
+    ws.close();
+  });
+
+  it('AC-A3(유실방지/BR-2): loadByPage 진행 중 broadcast op도 신규 소켓이 수신(선등록)', async () => {
+    // deferred: loadByPage를 수동으로 resolve하여 타이밍을 결정론적으로 제어
+    let resolveBatch!: (ops: ReturnType<typeof makeOpEnvelope>[]) => void;
+    const batchPromise = new Promise<ReturnType<typeof makeOpEnvelope>[]>((res) => {
+      resolveBatch = res;
+    });
+
+    const store: OpStore = {
+      async append() { return 'persisted'; },
+      loadByPage() { return batchPromise; },
+    };
+    server = await createRelayServer({ port: 0, opStore: store });
+
+    // 클라 A: 기존 room 멤버 (join 완료)
+    const wsA = await connectAndJoin(server.port, PAGE);
+
+    // 클라 B: join 송신 → loadByPage 보류 상태로 대기 중
+    const wsB = new WebSocket(`ws://localhost:${server.port}`);
+    const bReceivedMessages: unknown[] = [];
+    const bGotRealtime = new Promise<void>((resolve) => {
+      wsB.on('message', (data) => {
+        const m = JSON.parse(data.toString());
+        bReceivedMessages.push(m);
+        if (m.type === 'op') resolve(); // 실시간 op 수신 확인
+      });
+    });
+    await new Promise<void>((resolve, reject) => {
+      wsB.on('open', () => {
+        wsB.send(JSON.stringify({ type: 'join', pageId: PAGE }));
+        resolve();
+      });
+      wsB.on('error', reject);
+    });
+
+    // loadByPage 보류 중 클라 A가 op 송신 → B는 선등록 덕에 이 broadcast를 받아야 함
+    wsA.send(opMessage(PAGE, 'site_a', 1));
+    await bGotRealtime; // 실시간 op 수신 확인
+
+    // 이제 loadByPage resolve → op-batch 전송
+    const historyOps = [makeOpEnvelope('site_old', 10)];
+    resolveBatch(historyOps);
+
+    // B가 op-batch도 수신할 때까지 대기
+    const bGotBatch = await new Promise<{ type: string; ops: unknown[] }>((resolve) => {
+      const check = () => {
+        const found = bReceivedMessages.find((m: unknown) => (m as { type: string }).type === 'op-batch');
+        if (found) {
+          resolve(found as { type: string; ops: unknown[] });
+        } else {
+          setTimeout(check, 10);
+        }
+      };
+      check();
+    });
+
+    // B는 실시간 op(broadcast)와 op-batch 모두 수신해야 함(유실 없음)
+    const realtimeOps = bReceivedMessages.filter((m) => (m as { type: string }).type === 'op');
+    expect(realtimeOps).toHaveLength(1);
+    expect(bGotBatch.type).toBe('op-batch');
+    expect(bGotBatch.ops).toHaveLength(1);
+
+    wsA.close();
+    wsB.close();
+  });
+});
+
 // WS-AUTH T4 / AC-6,7: 인가 합류 page로만 영속(교차 room 마감) + 연결 userId를 append에 태깅.
 describe('relay server — op 인가·태깅 (T4)', () => {
   const PAGE = '550e8400-e29b-41d4-a716-446655440000';
@@ -248,6 +397,7 @@ describe('relay server — op 인가·태깅 (T4)', () => {
           calls.push({ pageId, siteId: op.siteId, userId: userId ?? null });
           return 'persisted';
         },
+        async loadByPage() { return []; },
       },
     };
   }

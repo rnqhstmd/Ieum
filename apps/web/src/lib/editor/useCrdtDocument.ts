@@ -13,8 +13,11 @@ import {
   idEquals,
   resolveAnchorToIndex,
   indexToAnchorId,
+  splitBlock,
+  mergeBlockWithPrev,
+  setBlockType,
 } from '@ieum/crdt';
-import type { DocState, EditorBlockView, RgaId } from '@ieum/crdt';
+import type { AnyOp, BlockType, DocState, EditorBlockView, RgaId } from '@ieum/crdt';
 import { createCollaborativeDocument, diffBlockText } from './crdtDocument';
 import { createRetryingTransport } from '@/src/lib/realtime/transport';
 import type { Transport } from '@/src/lib/realtime/transport';
@@ -40,6 +43,10 @@ export interface UseCrdtDocumentResult {
   onCursorMove: (blockId: RgaId, caretOffset: number) => void;
   /** 원격 커서 anchorId → 현재 가시 index(Editor 오버레이 위치). */
   resolveCursorIndex: (blockId: RgaId, anchorId: RgaId | null) => number;
+  // P9 구조 편집
+  onEnter: (blockId: RgaId, offset: number) => void;
+  onBackspace: (blockId: RgaId) => void;
+  onSetType: (blockId: RgaId, type: BlockType) => void;
 }
 
 // 탭별 고유 siteId. crypto.randomUUID(현대 브라우저 표준)를 우선 사용한다.
@@ -73,6 +80,7 @@ export function useCrdtDocument(
 
   const seqRef = useRef(0);
   const clientRef = useRef<RelayClient | null>(null);
+  const restoringRef = useRef(false);
   // WS-AUTH: /api/users/me에서 얻은 실 userId를 ref에 보관해 join 시점에 trust-relay한다.
   // ref라 fetch 완료가 재렌더/재연결을 유발하지 않는다(상태 미사용). 게이트 활성 시 멤버십 검증용.
   const userIdRef = useRef<string | undefined>(undefined);
@@ -107,6 +115,16 @@ export function useCrdtDocument(
       {
         onRemoteOp: (env) => {
           applyDocOp(doc, fromWire(env));
+          if (!restoringRef.current) bump();
+        },
+        onOpBatch: (ops, batchPageId) => {
+          if (batchPageId !== pageId) return;
+          restoringRef.current = true;
+          try {
+            for (const env of ops) applyDocOp(doc, fromWire(env));
+          } finally {
+            restoringRef.current = false;
+          }
           bump();
         },
         onJoinAck: (n, clientId) => {
@@ -132,20 +150,48 @@ export function useCrdtDocument(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageId]);
 
+  const sendOps = useCallback(
+    (ops: AnyOp[]) => {
+      const client = clientRef.current;
+      if (client) {
+        for (const op of ops) client.sendOp(toWire(op, ++seqRef.current, doc.siteId));
+      }
+      // client null이어도 bump: splitBlock/mergeBlockWithPrev 등이 doc을 로컬 변경하므로 리렌더 필요.
+      bump();
+    },
+    [doc, bump],
+  );
+
   const onBlockInput = useCallback(
     (blockId: RgaId, newText: string) => {
       const block = docToBlocks(doc).find((b) => idEquals(b.id, blockId));
       const oldText = block?.text ?? '';
       const ops = diffBlockText(doc, blockId, oldText, newText); // 로컬 즉시 적용
-      const client = clientRef.current;
-      // relay 배선(useEffect) 전 입력 시 client가 null이면 송신을 조용히 건너뛴다.
-      // 로컬 DocState에는 이미 적용되며, 미송신 op 복원은 walking skeleton 범위 밖(P8).
-      if (client) {
-        for (const op of ops) client.sendOp(toWire(op, ++seqRef.current, doc.siteId));
-      }
-      bump();
+      sendOps(ops);
     },
-    [doc, bump],
+    [doc, sendOps],
+  );
+
+  const onEnter = useCallback(
+    (blockId: RgaId, offset: number) => {
+      sendOps(splitBlock(doc, blockId, offset));
+    },
+    [doc, sendOps],
+  );
+
+  const onBackspace = useCallback(
+    (blockId: RgaId) => {
+      const ops = mergeBlockWithPrev(doc, blockId);
+      if (ops) sendOps(ops);
+    },
+    [doc, sendOps],
+  );
+
+  const onSetType = useCallback(
+    (blockId: RgaId, type: BlockType) => {
+      sendOps([setBlockType(doc, blockId, type)]);
+    },
+    [doc, sendOps],
   );
 
   // P6 커서: Editor가 올린 caret 가시 index를 직전 문자 id로 변환해 전송.
@@ -172,5 +218,8 @@ export function useCrdtDocument(
     localClientId,
     onCursorMove,
     resolveCursorIndex,
+    onEnter,
+    onBackspace,
+    onSetType,
   };
 }

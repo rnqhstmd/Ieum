@@ -145,3 +145,4 @@ describe('RoomRegistry — op 영속화 outcome (T2)', () => {
     expect(d).toHaveLength(0);
   });
 });
+

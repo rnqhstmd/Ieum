@@ -35,7 +35,7 @@
 | US-CRDT-01 | 편집이 상대방 화면에 즉시 반영 | 2인 이상 동시 편집 시 모든 클라이언트가 동일한 최종 텍스트로 수렴 | ✅ | P5 (PR #10) |
 | US-CRDT-01 | 편집이 상대방 화면에 즉시 반영 | op가 WebSocket relay로 전송되고 같은 페이지의 다른 클라이언트에 broadcast됨 | ✅ | P5 (PR #10) |
 | US-CRDT-01 | 편집이 상대방 화면에 즉시 반영 | 동일 위치 동시 삽입이 siteId 기준 결정론적 순서로 해소됨 | ✅ | P4 |
-| US-CRDT-02 | 재연결 후 편집 내용 유실 없음 | 신규 접속 클라이언트가 snapshot 또는 op 재생으로 초기화됨 | ⬜ | P10 |
+| US-CRDT-02 | 재연결 후 편집 내용 유실 없음 | 신규 접속 클라이언트가 snapshot 또는 op 재생으로 초기화됨 | ✅ | P11 (PR #27) — relay join 시 `loadByPage`로 pageId 전체 op를 serverSeq ASC 조회→`op-batch` 송신, 클라 `applyDocOp` 순차 replay. 순수 op replay(Snapshot 연동 후속), 유실방지=선등록+crdt 인과버퍼·멱등 |
 | US-CRDT-02 | 재연결 후 편집 내용 유실 없음 | 모든 op가 CrdtOp 테이블에 append-only로 저장됨 | ✅ | P5 후반 (PR #14) |
 | US-CRDT-03 | op 로그로 편집 이력 추적 가능 | CrdtOp 테이블 append-only 보장, 감사 추적 가능 | ✅ | P5 후반 (PR #14) |
 | US-CRDT-03 | op 로그로 편집 이력 추적 가능 | wire 봉투: `{siteId, seq, opType, payload}` — payload는 아래 정본 구조 | ✅ | P4b (PR #9) |
@@ -72,7 +72,7 @@
 
 | 항목 | 설명 | 상태 | Phase |
 |------|------|------|-------|
-| 재접속 replay | 50개 op 적용 후 Snapshot 생성 → 새 RGA에 Snapshot + 이후 op replay → 원본과 `toText()` 동일 | ⬜ | P10 |
+| 재접속 replay | 50개 op 적용 후 Snapshot 생성 → 새 RGA에 Snapshot + 이후 op replay → 원본과 `toText()` 동일 | ✅ | P11 (PR #27) — 전량 op replay로 수렴 충족(Snapshot 생성은 후속). `pgOpStore.int` loadByPage round-trip(무손실 ASC) + ws-relay/web op-batch replay 수렴(AC-A1/A2/A5) |
 | presence 커서 유지 | 사이트 B 커서 anchorId 지정 → 사이트 A가 앞쪽에 삽입 → B의 anchorId가 동일 노드를 가리키는지 확인 | ✅ | P6 (PR #12) |
 | tombstone 커서 | 커서가 앵커링된 문자를 삭제 → `resolveAnchorToIndex()` fallback 동작 확인 | ✅ | P6 (PR #12) |
-| e2e (Playwright) | 브라우저 2개에서 동시 편집 후 양쪽 텍스트가 동일함을 확인 | ⬜ | P11 |
+| e2e (Playwright) | 브라우저 2개에서 동시 편집 후 양쪽 텍스트가 동일함을 확인 | ✅ | P11 (PR #27) — `apps/web/e2e/convergence.e2e.ts`(동시편집)·`restore.e2e.ts`(재접속) 작성. 로컬 수동 구동(자동 게이트 비포함, storageState 사전주입) |

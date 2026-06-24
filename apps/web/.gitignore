@@ -1,0 +1,2 @@
+# E2E storageState — 세션 쿠키/토큰 포함, 커밋 금지
+e2e/.auth/
