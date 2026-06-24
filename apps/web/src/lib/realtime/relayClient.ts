@@ -20,6 +20,8 @@ export interface RelayClientHandlers {
   onCursorUpdate?(info: CursorInfo): void;
   /** P9: op-batch 수신 → 훅이 일괄 applyDocOp. */
   onOpBatch?(ops: WireEnvelope[], pageId: string): void;
+  /** A: op-batch-error 수신 → 훅이 restoreError=true. */
+  onOpBatchError?(pageId: string): void;
 }
 
 export interface RelayClient {
@@ -80,6 +82,9 @@ export function createRelayClient(
           break;
         case 'op-batch':
           handlers.onOpBatch?.(msg.ops, msg.pageId);
+          break;
+        case 'op-batch-error':
+          handlers.onOpBatchError?.(msg.pageId);
           break;
       }
     }),

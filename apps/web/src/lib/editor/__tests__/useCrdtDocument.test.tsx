@@ -285,4 +285,134 @@ describe('useCrdtDocument', () => {
       .filter((m) => m.type === 'join');
     expect(joinMsgs).toHaveLength(0);
   });
+
+  // ── 복원 실패 UX (WS-AUTH-RESTORE) ────────────────────────────────
+
+  it('AC-9: op-batch-error 수신 → restoreError === true', () => {
+    const fake = createFakeTransport();
+    const { result } = renderHook(() =>
+      useCrdtDocument(PAGE, { transportFactory: () => fake }),
+    );
+
+    act(() =>
+      fake.emitMessage(JSON.stringify({ type: 'op-batch-error', pageId: PAGE })),
+    );
+
+    expect(result.current.restoreError).toBe(true);
+  });
+
+  it('AC-11: op-batch-error 후 op-batch 수신 → restoreError === false(해제)', () => {
+    const fake = createFakeTransport();
+    const { result } = renderHook(() =>
+      useCrdtDocument(PAGE, { transportFactory: () => fake }),
+    );
+
+    // 먼저 에러 상태 만들기
+    act(() =>
+      fake.emitMessage(JSON.stringify({ type: 'op-batch-error', pageId: PAGE })),
+    );
+    expect(result.current.restoreError).toBe(true);
+
+    // 빈 ops로도 성공 수신이면 에러 해제
+    act(() =>
+      fake.emitMessage(JSON.stringify({ type: 'op-batch', pageId: PAGE, ops: [] })),
+    );
+    expect(result.current.restoreError).toBe(false);
+  });
+
+  // ── 하드닝 (1): retry 스팸 가드 ────────────────────────────────────
+  it('HARD-1: retryRestore 연속 2회 호출 시 fetch(/me)는 1회만 발화된다(in-flight 중 재호출 무시)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ id: 'U1', token: 'tok-spam' }),
+      })),
+    );
+
+    const fake = createFakeTransport();
+    const { result } = renderHook(() =>
+      useCrdtDocument(PAGE, { transportFactory: () => fake }),
+    );
+
+    // 마운트 open → 초기 join 완료
+    await act(async () => {
+      fake.emitOpen();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // retryRestore 호출 직전 fetch 카운터 리셋(마운트 시 fetch와 구분)
+    vi.mocked(fetch).mockClear();
+
+    // 연속 2회 호출 — in-flight 중 두 번째 호출은 무시돼야 한다
+    await act(async () => {
+      result.current.retryRestore();
+      result.current.retryRestore();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // 가드 미구현 시 fetch는 2회 → 현재 RED
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  // ── 하드닝 (3): fetchAuth 실패 시 authError 확신 ─────────────────
+  it('HARD-3: retryRestore 호출 시 fetchAuth가 null(401) → authError===true(확신용)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 401 })));
+
+    const fake = createFakeTransport();
+    const { result } = renderHook(() =>
+      useCrdtDocument(PAGE, { transportFactory: () => fake }),
+    );
+
+    // retryRestore 직접 호출(open 없이) — fetchAuth 실패 → authError
+    await act(async () => {
+      result.current.retryRestore();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(result.current.authError).toBe(true);
+  });
+
+  it('AC-10(retryRestore): retryRestore 호출 → fetchAuth 성공 후 join 재전송', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ id: 'U1', token: 'tok-retry' }),
+      })),
+    );
+
+    const fake = createFakeTransport();
+    const { result } = renderHook(() =>
+      useCrdtDocument(PAGE, { transportFactory: () => fake }),
+    );
+
+    // 마운트 후 open → ready → 초기 join 전송
+    await act(async () => {
+      fake.emitOpen();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // retryRestore 호출 전 sent 스냅샷
+    const sentBeforeRetry = fake.sent.length;
+
+    // retryRestore 호출 → fetchAuth(비동기) → join 재전송
+    await act(async () => {
+      result.current.retryRestore();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // retryRestore 호출 후 새 join이 추가 전송됐는지 확인
+    const newJoins = fake.sent
+      .slice(sentBeforeRetry)
+      .map((s) => JSON.parse(s))
+      .filter((m) => m.type === 'join' && m.pageId === PAGE);
+
+    expect(newJoins.length).toBeGreaterThanOrEqual(1);
+  });
 });
