@@ -46,5 +46,5 @@
 
 | 항목 | 목표 | 상태 | Phase | 비고 |
 |------|------|------|-------|------|
-| 페이지 초기 로드 | < 2초 (로컬 환경, 에디터 표시까지) | ⬜ | P11 | Playwright 타이밍으로 측정 |
-| 키보드 탐색 지원 | 에디터 및 주요 인터랙션 키보드 접근 가능 | ⬜ | P11 | 에디터 영역 ARIA 그룹(role=group)·제목 textbox 추가 (PR #8). 블록 간 화살표 탐색은 P11 |
+| 페이지 초기 로드 | < 2초 (로컬 환경, 에디터 표시까지) | ✅ | P11 (PR #29) | `e2e/load-time.e2e.ts` — `goto`부터 첫 `[data-block-id]` visible까지 `Date.now()` wall-clock 측정 후 `expect(elapsed).toBeLessThan(2000)`. 수동 구동 전용(전체 스택 기동 필요, 자동 게이트 비대상). (FR-C4/AC-11) |
+| 키보드 탐색 지원 | 에디터 및 주요 인터랙션 키보드 접근 가능 | ✅ | P11 (PR #29) | 에디터 영역 ARIA 그룹(role=group)·제목 textbox (PR #8). **블록 간 화살표 탐색 P11(PR #29)**: caret 경계(offset 0/length)에서 Up/Left→이전 블록 끝·Down/Right→다음 블록 처음 포커스 이동. 중간 caret·첫/마지막 경계·IME 중 미이동, 이동 시에만 preventDefault. 로컬 DOM 포커스만(CRDT/네트워크 무관). `resolveArrowDirection` 순수함수 + `placeCaret`. 단위 21건 (FR-1~8/AC-1~10) |

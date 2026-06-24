@@ -13,6 +13,9 @@ import type { BlockType, EditorBlockView, RgaId } from '@ieum/crdt';
 import type { CursorInfo, PresenceInfo } from '@/src/lib/realtime/protocol';
 import { detectBlockTypeShortcut } from '@/src/lib/editor/crdtDocument';
 
+// data-block-id 셀렉터 단일 출처. 화살표 탐색·selectionchange 양쪽에서 재사용.
+const blockSelector = (key: string): string => `[data-block-id="${key}"]`;
+
 interface EditorProps {
   blocks: EditorBlockView[];
   onBlockInput: (blockId: RgaId, newText: string) => void;
@@ -28,15 +31,41 @@ interface EditorProps {
   onSetType?: (blockId: RgaId, type: BlockType) => void;
 }
 
+export type ArrowDir = 'prev' | 'next';
+export function resolveArrowDirection(key: string, offset: number, textLength: number): ArrowDir | null {
+  if ((key === 'ArrowUp' || key === 'ArrowLeft') && offset === 0) return 'prev';
+  if ((key === 'ArrowDown' || key === 'ArrowRight') && offset === textLength) return 'next';
+  return null;
+}
+
+function placeCaret(el: HTMLElement, atEnd: boolean): void {
+  try {
+    const sel = window.getSelection();
+    if (!sel) return;
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    range.collapse(!atEnd);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  } catch {
+    /* jsdom 등 selection 미지원 */
+  }
+}
+
 /** 현재 선택 영역의 블록 내 캐럿 offset. 미지원(jsdom) 시 fallback. */
 function getCaretOffset(el: HTMLElement, fallback: number): number {
   try {
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0) {
       const range = sel.getRangeAt(0);
+      // 캐럿이 이 블록 안에 있을 때만 정밀 offset을 계산한다(el.contains 가드: 다른 블록 selection으로 인한
+      // cross-block offset 오염 방지 — P6 커서, PR #12 M2). startContainer가 요소 노드(focus·placeCaret 직후의
+      // P)든 텍스트 노드든, selectNodeContents(el)+setEnd(startContainer, startOffset)로 블록 시작~caret 텍스트
+      // 길이를 계산하므로 시작(offset 0)·끝·중간 모두 정확하다. range.startOffset(노드 내 상대값)과 달리
+      // 멀티 텍스트노드·빈 블록·IME 조합에서도 정확.
+      // ※nodeType===3 가드는 placeCaret 직후(startContainer=요소노드) offset 0을 fallback(text.length)으로
+      //   오판해 연속/역방향 화살표 탐색·Enter/Backspace를 깨뜨려 제거함(cross-review/PR #29).
       if (el.contains(range.startContainer)) {
-        // 블록 시작~caret 범위의 텍스트 길이 = 가시 offset. range.startOffset(노드 내 상대값)과 달리
-        // 멀티 텍스트노드·빈 블록·IME 조합에서도 정확하다(PR #12 리뷰, M2 견고화).
         const pre = range.cloneRange();
         pre.selectNodeContents(el);
         pre.setEnd(range.startContainer, range.startOffset);
@@ -174,6 +203,23 @@ export default function Editor({
         onBackspace?.(block.id);
       }
     }
+    // 화살표 블록 간 탐색 (FR-1~8). 로컬 DOM 포커스 이동만 — onCursorMove를 직접 호출하지 않는다(BR-1).
+    // 단 placeCaret이 대상 블록에 selection을 설정하면 selectionchange→scheduleCursor 경로로 커서 위치가
+    // 브로드캐스트된다. 이는 커서가 실제로 새 블록으로 이동한 것을 반영하는 P6의 정상 동작이다(BR-1 충족).
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      const offset = getCaretOffset(e.currentTarget, block.text.length);
+      const dir = resolveArrowDirection(e.key, offset, block.text.length);
+      if (!dir) return;
+      const idx = blocks.findIndex((b) => idEquals(b.id, block.id));
+      const target = dir === 'prev' ? blocks[idx - 1] : blocks[idx + 1];
+      if (!target) return;
+      const targetEl = document.querySelector<HTMLElement>(blockSelector(idKey(target.id)));
+      if (targetEl) {
+        e.preventDefault();
+        targetEl.focus();
+        placeCaret(targetEl, dir === 'prev');
+      }
+    }
   };
 
   // P6 FR-2/BR-3: caret 이동 → 50ms debounce → onCursorMove. FR-8: 포커스 블록만. composing 가드.
@@ -231,7 +277,7 @@ export default function Editor({
       if (!key) return;
       const block = blocks.find((b) => idKey(b.id) === key);
       if (!block) return;
-      const el = document.querySelector(`[data-block-id="${key}"]`);
+      const el = document.querySelector(blockSelector(key));
       if (el instanceof HTMLElement) scheduleCursor(block, el);
     };
     document.addEventListener('selectionchange', onSelectionChange);

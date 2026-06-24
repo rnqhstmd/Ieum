@@ -79,6 +79,11 @@ E2E_PAGE_ID=실제-page-uuid pnpm --filter web e2e
 | `convergence.e2e.ts` | AC-C1 | 두 클라이언트 입력 → CRDT relay → 양쪽 수렴 |
 | `restore.e2e.ts` | AC-C2 | A 입력 후 B 신규 접속 → B에 A 내용 표시 |
 | `restore.e2e.ts` | AC-C3 | 재접속 후에도 이전 편집 내용 유지 |
+| `load-time.e2e.ts` | AC-11 | 페이지 초기 로드 2초 미만 측정(FR-C4) |
+
+> **`load-time.e2e.ts` 주의**: `e2e/.auth/state.json`(storageState)이 없으면 비인증 상태로 `/page/:id`가
+> 로그인 페이지로 리다이렉트되어 `[data-block-id]`가 표시되지 않고 10초 timeout으로 실패한다.
+> 이 실패는 "로드가 느려서"가 아니라 "인증 안 됨"이 원인이므로, 측정 전 storageState 준비(위 4단계)를 먼저 확인한다.
 
 ## 블록 Selector
 
