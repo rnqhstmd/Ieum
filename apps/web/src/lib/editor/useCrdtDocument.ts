@@ -49,6 +49,10 @@ export interface UseCrdtDocumentResult {
   onSetType: (blockId: RgaId, type: BlockType) => void;
   /** WS-AUTH: fetchCurrentUser 실패(401 등) 시 true — UI가 로그인 유도 표시. */
   authError: boolean;
+  /** A: 재접속 복원 실패(op-batch-error) 시 true — UI 비차단 배너·재시도. */
+  restoreError: boolean;
+  /** A: 복원 재시도 — ready(토큰 재발급) 후 join 재전송으로 loadByPage 재실행. */
+  retryRestore: () => void;
 }
 
 // 탭별 고유 siteId. crypto.randomUUID(현대 브라우저 표준)를 우선 사용한다.
@@ -83,11 +87,13 @@ export function useCrdtDocument(
   const seqRef = useRef(0);
   const clientRef = useRef<RelayClient | null>(null);
   const restoringRef = useRef(false);
+  const retryingRef = useRef(false);
   // WS-AUTH: /api/users/me에서 얻은 실 userId·token을 ref에 보관해 join 시점에 사용한다.
   // ref라 fetch 완료가 재렌더/재연결을 유발하지 않는다(상태 미사용).
   const userIdRef = useRef<string | undefined>(undefined);
   const tokenRef = useRef<string | undefined>(undefined);
   const [authError, setAuthError] = useState(false);
+  const [restoreError, setRestoreError] = useState(false);
   const [, setVersion] = useState(0);
   const [connectedClients, setConnectedClients] = useState(0);
   const [localClientId, setLocalClientId] = useState<string | null>(null);
@@ -139,7 +145,11 @@ export function useCrdtDocument(
           } finally {
             restoringRef.current = false;
           }
+          setRestoreError((prev) => (prev ? false : prev));
           bump();
+        },
+        onOpBatchError: (errPageId) => {
+          if (errPageId === pageId) setRestoreError(true);
         },
         onJoinAck: (n, clientId) => {
           setConnectedClients(n);
@@ -208,6 +218,15 @@ export function useCrdtDocument(
     [doc, sendOps],
   );
 
+  const retryRestore = useCallback(() => {
+    if (retryingRef.current) return;
+    retryingRef.current = true;
+    fetchAuth()
+      .then(() => clientRef.current?.join(pageId))
+      .catch(() => { /* fetchAuth 실패는 내부에서 authError로 처리; join은 동기 전송이라 추가 처리 불필요 */ })
+      .finally(() => { retryingRef.current = false; });
+  }, [fetchAuth, pageId]);
+
   // P6 커서: Editor가 올린 caret 가시 index를 직전 문자 id로 변환해 전송.
   // deps [doc]: doc은 useRef 파생이라 참조 불변 → 실질적으로 마운트 1회 생성(onBlockInput과 동일, N-3).
   const onCursorMove = useCallback(
@@ -236,5 +255,7 @@ export function useCrdtDocument(
     onBackspace,
     onSetType,
     authError,
+    restoreError,
+    retryRestore,
   };
 }

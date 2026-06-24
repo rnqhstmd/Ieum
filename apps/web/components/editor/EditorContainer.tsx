@@ -25,7 +25,7 @@ const STATUS_LABEL: Record<SaveStatus, string> = {
 };
 
 export default function EditorContainer({ pageId, initialTitle = '' }: EditorContainerProps) {
-  const { blocks, presences, cursors, localClientId, onBlockInput, onCursorMove, resolveCursorIndex, onEnter, onBackspace, onSetType, authError } =
+  const { blocks, presences, cursors, localClientId, onBlockInput, onCursorMove, resolveCursorIndex, onEnter, onBackspace, onSetType, authError, restoreError, retryRestore } =
     useCrdtDocument(pageId);
 
   // 제목 로드(단일 페이지 GET)·저장(PATCH save-port). 블록 본문은 CRDT op로 별도 즉시 영속.
@@ -42,6 +42,12 @@ export default function EditorContainer({ pageId, initialTitle = '' }: EditorCon
       {authError && (
         <div role="alert" data-testid="auth-error" className="text-sm text-red-600">
           세션이 만료되었습니다. <a href="/login">login</a>이 필요합니다.
+        </div>
+      )}
+      {restoreError && !authError && (
+        <div role="alert" data-testid="restore-error" className="text-sm text-red-600">
+          이전 편집 내용을 불러오지 못했습니다.{' '}
+          <button type="button" onClick={retryRestore} className="underline">재시도</button>
         </div>
       )}
       <PresenceAvatars presences={presences} />

@@ -202,4 +202,24 @@ describe('relayClient', () => {
     ).not.toThrow();
     expect(onRemoteOp).not.toHaveBeenCalled();
   });
+
+  // WS-AUTH-IDENTITY / AC-8: op-batch-error 수신 시 onOpBatchError 라우팅
+  it('AC-8a: op-batch-error 수신 시 onOpBatchError(pageId)를 호출하고 onOpBatch는 호출하지 않는다', () => {
+    const t = createFakeTransport();
+    const onOpBatchError = vi.fn();
+    const onOpBatch = vi.fn();
+    createRelayClient(t, PAGE, { onRemoteOp: () => {}, onOpBatch, onOpBatchError });
+    t.emitMessage(JSON.stringify({ type: 'op-batch-error', pageId: 'p1' }));
+    expect(onOpBatchError).toHaveBeenCalledTimes(1);
+    expect(onOpBatchError).toHaveBeenCalledWith('p1');
+    expect(onOpBatch).not.toHaveBeenCalled();
+  });
+
+  it('AC-8b(회귀가드): onOpBatchError 미제공 시 op-batch-error 수신해도 에러 없이 무시된다', () => {
+    const t = createFakeTransport();
+    createRelayClient(t, PAGE, { onRemoteOp: () => {} }); // onOpBatchError 없음
+    expect(() =>
+      t.emitMessage(JSON.stringify({ type: 'op-batch-error', pageId: 'p1' })),
+    ).not.toThrow();
+  });
 });
