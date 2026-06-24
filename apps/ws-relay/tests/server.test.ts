@@ -495,6 +495,9 @@ describe('relay server — HMAC 토큰 게이트 (WS-AUTH-01)', () => {
           calls.push({ pageId, siteId: op.siteId, userId: userId ?? null });
           return 'persisted';
         },
+        async loadByPage() {
+          return [];
+        },
       },
     };
   }
