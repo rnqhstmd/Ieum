@@ -7,6 +7,9 @@ import type { OpStore, AppendOutcome } from '../src/opStore.js';
 import { InMemoryMembershipStore } from '../src/membershipStore.js';
 import { makeToken } from './tokenFixture.js';
 
+// stale 미수신 음성 단언 보조 여유분 — 동기 expect 전 비동기 메시지 안착 대기(ms).
+const STALE_GRACE_MS = 80;
+
 // T6 / AC-1: 실제 ws 서버 기동 → 연결 수락. port:0(OS 임의 포트) + teardown으로 flaky 최소화.
 let server: RelayServer | undefined;
 afterEach(async () => {
@@ -156,7 +159,7 @@ describe('relay server — op 영속화 배선 (T3)', () => {
       if (JSON.parse(data.toString()).type === 'op-ack') gotAck = true;
     });
     a.send(opMessage(PAGE, 'site_a', 1));
-    await new Promise((r) => setTimeout(r, 80)); // 전파 대기
+    await new Promise((r) => setTimeout(r, STALE_GRACE_MS)); // 전파 대기
     expect(gotOp).toBe(false);
     expect(gotAck).toBe(false);
     a.close();
@@ -430,7 +433,7 @@ describe('relay server — op 인가·태깅 (T4)', () => {
     server = await createRelayServer({ port: 0, opStore: store, membershipStore: ms });
     const a = await joinMember(server.port, PAGE, U); // P에 인가 합류
     a.send(opMsg(OTHER, 'site_a', 1)); // 합류하지 않은 다른 page로 op
-    await new Promise((r) => setTimeout(r, 80));
+    await new Promise((r) => setTimeout(r, STALE_GRACE_MS));
     expect(calls).toHaveLength(0);
     a.close();
   });
@@ -442,7 +445,7 @@ describe('relay server — op 인가·태깅 (T4)', () => {
     server = await createRelayServer({ port: 0, opStore: store, membershipStore: ms });
     const a = await joinMember(server.port, PAGE, U);
     a.send(opMsg(PAGE, 'site_a', 1));
-    await new Promise((r) => setTimeout(r, 80));
+    await new Promise((r) => setTimeout(r, STALE_GRACE_MS));
     expect(calls).toHaveLength(1);
     expect(calls[0]!.userId).toBe(U);
     a.close();
@@ -550,7 +553,7 @@ describe('relay server — HMAC 토큰 게이트 (WS-AUTH-01)', () => {
     } as Parameters<typeof createRelayServer>[0]);
     const ws = await joinAndWaitAck(server.port, PAGE, USERID, token);
     ws.send(opMsg(PAGE, 'site_a', 1));
-    await new Promise((r) => setTimeout(r, 80));
+    await new Promise((r) => setTimeout(r, STALE_GRACE_MS));
     expect(calls).toHaveLength(1);
     expect(calls[0]!.userId).toBe(USERID);
     ws.close();
@@ -585,7 +588,7 @@ describe('relay server — HMAC 토큰 게이트 (WS-AUTH-01)', () => {
     // join.userId=USER_B(B)로 보내지만 token은 A
     const ws = await joinAndWaitAck(server.port, PAGE, USER_B, tokenA);
     ws.send(opMsg(PAGE, 'site_a', 1));
-    await new Promise((r) => setTimeout(r, 80));
+    await new Promise((r) => setTimeout(r, STALE_GRACE_MS));
     expect(calls).toHaveLength(1);
     // token에서 도출한 userId=USERID(A)로 태깅 — join.userId=USER_B(B) 무시
     expect(calls[0]!.userId).toBe(USERID);
@@ -596,6 +599,308 @@ describe('relay server — HMAC 토큰 게이트 (WS-AUTH-01)', () => {
     // authSecret 미주입: 기존 trust-relay 모드 — token 없어도 수락
     server = await createRelayServer({ port: 0 });
     expect(await joinWithToken(server.port, PAGE, USERID, undefined)).toBe('ack');
+  });
+});
+
+// ─── op-batch 견고화: op-batch-error + join-epoch 격리 ───────────────────────
+// 아직 미구현 (op-batch-error 타입·epoch 격리 없음) → AC-1/AC-5/AC-6은 RED 상태여야 한다.
+describe('op-batch 견고화 (op-batch-error + join-epoch)', () => {
+  const PAGE = '550e8400-e29b-41d4-a716-446655440002';
+
+  function makeOpEnvelope(siteId: string, seq: number) {
+    return toWire(
+      makeInlineInsertOp({ counter: seq, siteId }, null, '글', { counter: 99, siteId }),
+      seq,
+      siteId,
+    );
+  }
+
+  /** 외부에서 resolve/reject 할 수 있는 Promise 팩토리 */
+  function deferred<T>() {
+    let resolve!: (v: T) => void;
+    let reject!: (e?: unknown) => void;
+    const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+    return { promise, resolve, reject };
+  }
+
+  /** membershipStore 미주입(게이트 off) + 에러 throw 스토어 → op-batch-error 수신, op-batch 미수신 */
+  it('AC-1: loadByPage가 throw → 클라에 op-batch-error 전송, op-batch(빈배치 포함) 미수신', async () => {
+    const store: OpStore = {
+      async append() { return 'persisted'; },
+      async loadByPage() { throw new Error('DB 연결 실패'); },
+    };
+    server = await createRelayServer({ port: 0, opStore: store });
+
+    const ws = new WebSocket(`ws://localhost:${server.port}`);
+
+    let gotBatch = false;
+    const errorReceived = new Promise<{ type: string; pageId: string }>((resolve, reject) => {
+      ws.on('open', () => ws.send(JSON.stringify({ type: 'join', pageId: PAGE })));
+      ws.on('message', (data) => {
+        const m = JSON.parse(data.toString());
+        if (m.type === 'op-batch-error') resolve(m);
+        if (m.type === 'op-batch') { gotBatch = true; }
+      });
+      ws.on('error', reject);
+    });
+
+    const errMsg = await Promise.race([
+      errorReceived,
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error('op-batch-error 수신 타임아웃')), 2000)),
+    ]);
+
+    expect(errMsg.type).toBe('op-batch-error');
+    expect(errMsg.pageId).toBe(PAGE);
+
+    // 80ms 추가 대기 후 op-batch가 오지 않아야 함
+    await new Promise((r) => setTimeout(r, STALE_GRACE_MS));
+    expect(gotBatch).toBe(false);
+
+    ws.close();
+  });
+
+  /** loadByPage가 [] resolve → op-batch{ops:[]} 수신, op-batch-error 미수신 */
+  it('AC-2: loadByPage가 [] resolve → op-batch{ops:[]} 수신, op-batch-error 미수신', async () => {
+    const store: OpStore = {
+      async append() { return 'persisted'; },
+      async loadByPage() { return []; },
+    };
+    server = await createRelayServer({ port: 0, opStore: store });
+
+    const ws = new WebSocket(`ws://localhost:${server.port}`);
+
+    let gotBatchError = false;
+    const batchReceived = new Promise<{ type: string; ops: unknown[] }>((resolve, reject) => {
+      ws.on('open', () => ws.send(JSON.stringify({ type: 'join', pageId: PAGE })));
+      ws.on('message', (data) => {
+        const m = JSON.parse(data.toString());
+        if (m.type === 'op-batch') resolve(m);
+        if (m.type === 'op-batch-error') gotBatchError = true;
+      });
+      ws.on('error', reject);
+    });
+
+    const batch = await Promise.race([
+      batchReceived,
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error('op-batch 수신 타임아웃')), 2000)),
+    ]);
+
+    expect(batch.type).toBe('op-batch');
+    expect(batch.ops).toHaveLength(0);
+    await new Promise((r) => setTimeout(r, STALE_GRACE_MS));
+    expect(gotBatchError).toBe(false);
+
+    ws.close();
+  });
+
+  /** loadByPage가 op 1건 배열 resolve → op-batch{ops}.length===1 */
+  it('AC-3: loadByPage가 op 1건 resolve → op-batch.ops.length===1', async () => {
+    const opB = makeOpEnvelope('site_z', 1);
+    const store: OpStore = {
+      async append() { return 'persisted'; },
+      async loadByPage() { return [opB]; },
+    };
+    server = await createRelayServer({ port: 0, opStore: store });
+
+    const ws = new WebSocket(`ws://localhost:${server.port}`);
+
+    const batchReceived = new Promise<{ type: string; ops: unknown[] }>((resolve, reject) => {
+      ws.on('open', () => ws.send(JSON.stringify({ type: 'join', pageId: PAGE })));
+      ws.on('message', (data) => {
+        const m = JSON.parse(data.toString());
+        if (m.type === 'op-batch') resolve(m);
+      });
+      ws.on('error', reject);
+    });
+
+    const batch = await Promise.race([
+      batchReceived,
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error('op-batch 수신 타임아웃')), 2000)),
+    ]);
+
+    expect(batch.ops).toHaveLength(1);
+
+    ws.close();
+  });
+
+  /** deferred loadByPage → join 1회 → resolve → op-batch 수신(epoch 정상 경로) */
+  it('AC-4: loadByPage deferred → resolve → op-batch 수신(epoch 일치)', async () => {
+    const d = deferred<ReturnType<typeof makeOpEnvelope>[]>();
+    const store: OpStore = {
+      async append() { return 'persisted'; },
+      loadByPage() { return d.promise; },
+    };
+    server = await createRelayServer({ port: 0, opStore: store });
+
+    const ws = new WebSocket(`ws://localhost:${server.port}`);
+    const batchReceived = new Promise<{ type: string; ops: unknown[] }>((resolve, reject) => {
+      ws.on('open', () => ws.send(JSON.stringify({ type: 'join', pageId: PAGE })));
+      ws.on('message', (data) => {
+        const m = JSON.parse(data.toString());
+        if (m.type === 'op-batch') resolve(m);
+      });
+      ws.on('error', reject);
+    });
+
+    // loadByPage 보류 중 → resolve 후 op-batch 수신
+    await new Promise((r) => setTimeout(r, 20)); // join 처리 시간 여유
+    d.resolve([makeOpEnvelope('site_q', 7)]);
+
+    const batch = await Promise.race([
+      batchReceived,
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error('op-batch 수신 타임아웃')), 2000)),
+    ]);
+
+    expect(batch.type).toBe('op-batch');
+    expect(batch.ops).toHaveLength(1);
+
+    ws.close();
+  });
+
+  /**
+   * AC-5(핵심): 동일 소켓 재join → epoch 격리
+   * - 첫 join의 loadByPage(defer1)가 늦게 resolve돼도 결과가 전송되지 않아야 함
+   * - 두 번째 join의 loadByPage(defer2) 결과만 전송되어야 함
+   */
+  it('AC-5: 동일 소켓 재join 시 첫 loadByPage(defer1) 결과는 stale 격리 — 두 번째 결과만 수신', async () => {
+    const opA = makeOpEnvelope('site_stale', 1);
+    const opB = makeOpEnvelope('site_fresh', 2);
+
+    const defer1 = deferred<ReturnType<typeof makeOpEnvelope>[]>();
+    const defer2 = deferred<ReturnType<typeof makeOpEnvelope>[]>();
+
+    // 첫 호출 시 firstCalled를 resolve
+    const firstCalledDefer = deferred<void>();
+    let callCount = 0;
+
+    const store: OpStore = {
+      async append() { return 'persisted'; },
+      loadByPage() {
+        callCount += 1;
+        if (callCount === 1) {
+          firstCalledDefer.resolve();
+          return defer1.promise;
+        }
+        return defer2.promise;
+      },
+    };
+
+    server = await createRelayServer({ port: 0, opStore: store });
+
+    const ws = new WebSocket(`ws://localhost:${server.port}`);
+    const receivedBatches: Array<{ type: string; ops: unknown[] }> = [];
+    let batchCount = 0;
+
+    // 두 번째 op-batch 수신 시 resolve되는 Promise
+    const secondBatchReceived = new Promise<{ type: string; ops: unknown[] }>((resolve, reject) => {
+      ws.on('open', () => ws.send(JSON.stringify({ type: 'join', pageId: PAGE })));
+      ws.on('message', (data) => {
+        const m = JSON.parse(data.toString());
+        if (m.type === 'op-batch') {
+          receivedBatches.push(m);
+          batchCount += 1;
+          if (batchCount >= 1) resolve(m); // 첫 op-batch 수신 시 즉시 resolve(두 번째 join의 결과여야 함)
+        }
+      });
+      ws.on('error', reject);
+    });
+
+    // 첫 loadByPage 호출 확인 후 동일 소켓으로 재join
+    await firstCalledDefer.promise;
+    ws.send(JSON.stringify({ type: 'join', pageId: PAGE }));
+
+    // 두 번째 join의 loadByPage(defer2)를 먼저 resolve → opB 담긴 op-batch가 와야 함
+    defer2.resolve([opB]);
+
+    const secondBatch = await Promise.race([
+      secondBatchReceived,
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error('두 번째 op-batch 수신 타임아웃')), 2000)),
+    ]);
+
+    // 두 번째 join 결과(opB)를 받았는지 확인
+    expect(secondBatch.ops).toHaveLength(1);
+    expect((secondBatch.ops[0] as { siteId: string }).siteId).toBe('site_fresh');
+
+    // 이제 defer1(stale)을 resolve → 80ms 대기 → stale op-batch 미수신 단언
+    defer1.resolve([opA]);
+    await new Promise((r) => setTimeout(r, STALE_GRACE_MS));
+
+    // stale op-batch(opA)는 수신되지 않아야 함 → receivedBatches에 opA가 없어야 함
+    const staleReceived = receivedBatches.some((b) =>
+      b.ops.some((op) => (op as { siteId: string }).siteId === 'site_stale'),
+    );
+    expect(staleReceived).toBe(false);
+
+    ws.close();
+  });
+
+  /**
+   * AC-6: AC-5와 동일 구조, defer1을 reject →
+   * 재join 후 defer1 reject → stale op-batch-error 미수신
+   */
+  it('AC-6: 동일 소켓 재join 후 첫 loadByPage reject → stale op-batch-error 미수신', async () => {
+    const opB = makeOpEnvelope('site_fresh', 2);
+
+    const defer1 = deferred<ReturnType<typeof makeOpEnvelope>[]>();
+    const defer2 = deferred<ReturnType<typeof makeOpEnvelope>[]>();
+
+    const firstCalledDefer = deferred<void>();
+    let callCount = 0;
+
+    const store: OpStore = {
+      async append() { return 'persisted'; },
+      loadByPage() {
+        callCount += 1;
+        if (callCount === 1) {
+          firstCalledDefer.resolve();
+          return defer1.promise;
+        }
+        return defer2.promise;
+      },
+    };
+
+    server = await createRelayServer({ port: 0, opStore: store });
+
+    const ws = new WebSocket(`ws://localhost:${server.port}`);
+    let staleBatchErrorReceived = false;
+    let secondBatchReceived = false;
+
+    const secondBatchPromise = new Promise<void>((resolve, reject) => {
+      ws.on('open', () => ws.send(JSON.stringify({ type: 'join', pageId: PAGE })));
+      ws.on('message', (data) => {
+        const m = JSON.parse(data.toString());
+        if (m.type === 'op-batch') {
+          secondBatchReceived = true;
+          resolve();
+        }
+        // op-batch-error: 두 번째 join 결과(op-batch) 수신 후 도착하면 stale → 선등록 리스너가 포착
+        if (m.type === 'op-batch-error') staleBatchErrorReceived = true;
+      });
+      ws.on('error', reject);
+    });
+
+    // 첫 loadByPage 호출 후 재join
+    await firstCalledDefer.promise;
+    ws.send(JSON.stringify({ type: 'join', pageId: PAGE }));
+
+    // 두 번째 join의 loadByPage(defer2) 먼저 resolve → op-batch 수신
+    defer2.resolve([opB]);
+
+    await Promise.race([
+      secondBatchPromise,
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error('두 번째 op-batch 수신 타임아웃')), 2000)),
+    ]);
+
+    expect(secondBatchReceived).toBe(true);
+
+    // defer1을 reject → 80ms 대기 → stale op-batch-error 미수신 단언
+    // (staleBatchErrorReceived 감시는 secondBatchPromise 리스너에서 이미 선등록됨)
+    defer1.reject(new Error('DB 오류'));
+    await new Promise((r) => setTimeout(r, STALE_GRACE_MS));
+
+    expect(staleBatchErrorReceived).toBe(false);
+
+    ws.close();
   });
 });
 

@@ -215,6 +215,26 @@ describe('parseServerMessage — op-batch', () => {
   });
 });
 
+// WS-AUTH-IDENTITY / AC-7: op-batch-error 메시지 파싱
+describe('parseServerMessage — op-batch-error', () => {
+  it('AC-7a: 유효한 op-batch-error를 {type,pageId} 객체로 파싱한다', () => {
+    const raw = JSON.stringify({ type: 'op-batch-error', pageId: 'p1' });
+    const msg = parseServerMessage(raw);
+    expect(msg).not.toBeNull();
+    expect(msg).toEqual({ type: 'op-batch-error', pageId: 'p1' });
+  });
+
+  it('AC-7b(엣지): pageId 누락 시 null이다', () => {
+    const raw = JSON.stringify({ type: 'op-batch-error' });
+    expect(parseServerMessage(raw)).toBeNull();
+  });
+
+  it('AC-7b(엣지): pageId가 문자열이 아닌 경우(숫자) null이다', () => {
+    const raw = JSON.stringify({ type: 'op-batch-error', pageId: 123 });
+    expect(parseServerMessage(raw)).toBeNull();
+  });
+});
+
 // I3 — isWireEnvelope seq 정수 검증 (web)
 describe('parseServerMessage — I3: seq 비정수 거부', () => {
   // 유효한 봉투의 seq만 교체해서 직접 파서에 전달한다.

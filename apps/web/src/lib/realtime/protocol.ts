@@ -75,6 +75,7 @@ export interface OpBatchMsg {
   pageId: string;
   ops: WireEnvelope[];
 }
+export interface OpBatchErrorMsg { type: 'op-batch-error'; pageId: string; }
 
 export type ServerToClient =
   | JoinAckMsg
@@ -83,7 +84,8 @@ export type ServerToClient =
   | PresenceUpdateMsg
   | PresenceLeaveMsg
   | CursorUpdateMsg
-  | OpBatchMsg;
+  | OpBatchMsg
+  | OpBatchErrorMsg;
 
 // RgaId siteId 상한 — 커서 anchorId siteId로 대용량 문자열 broadcast 증폭 차단(C2).
 const MAX_SITE_ID = 64;
@@ -171,6 +173,8 @@ export function parseServerMessage(raw: string): ServerToClient | null {
         (o.ops as unknown[]).every(isWireEnvelope)
         ? (o as unknown as OpBatchMsg)
         : null;
+    case 'op-batch-error':
+      return typeof o.pageId === 'string' ? (o as unknown as OpBatchErrorMsg) : null;
     default:
       return null;
   }

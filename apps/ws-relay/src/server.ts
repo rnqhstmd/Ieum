@@ -7,6 +7,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { RoomRegistry } from './room.js';
 import type { ClientHandle } from './room.js';
 import { parseClientMessage } from './protocol.js';
+import type { OpBatchMsg, OpBatchErrorMsg } from './protocol.js';
 import { InMemoryOpStore } from './opStore.js';
 import type { OpStore } from './opStore.js';
 import type { MembershipStore } from './membershipStore.js';
@@ -81,11 +82,21 @@ export function createRelayServer(opts: {
       }
     };
 
+    // op-batch/op-batch-error 전송 헬퍼: 재join stale 격리.
+    // myEpoch가 현재 joinEpoch와 다르면 조용히 폐기(재join으로 superseded된 결과).
+    const sendIfCurrent = (myEpoch: number, message: OpBatchMsg | OpBatchErrorMsg): void => {
+      if (joinEpoch !== myEpoch) return;
+      const target = sockets.get(handle.id);
+      if (target && target.readyState === WebSocket.OPEN) target.send(JSON.stringify(message));
+    };
+
     // join·op는 비동기(멤버십 조회/영속화)이므로 소켓별 promise 체인으로 직렬화한다.
     // join이 op보다 먼저 처리되어 connPage가 설정되도록 FIFO를 보장한다. 소켓 간은 병렬.
     let socketChain: Promise<void> = Promise.resolve();
     let connUserId: string | null = null; // 인가된 연결 userId (WS-AUTH-03 op 태깅)
     let connPage: string | null = null; // 인가 합류한 page (교차 room 영속화 마감 기준)
+    // op-batch 재join 격리: 연결-로컬 epoch 카운터. join마다 증가, stale 비동기 결과를 폐기.
+    let joinEpoch = 0;
     socket.on('message', (raw: { toString(): string }) => {
       const msg = parseClientMessage(raw.toString());
       if (!msg) return; // 잘못된 JSON/규격 외 메시지는 무시
@@ -146,15 +157,14 @@ export function createRelayServer(opts: {
           // (2)(3) loadByPage + op-batch는 socketChain 밖에서 비동기 실행.
           // socketChain에 await를 걸지 않아 이후 op 메시지 처리가 블록되지 않는다(AC-A3 선등록).
           const pageIdForBatch = joinMsg.pageId;
-          void opStore.loadByPage(pageIdForBatch).catch((err) => {
-            console.warn('[relay] loadByPage failed, sending empty batch', err);
-            return [] as import('@ieum/crdt').WireEnvelope[];
-          }).then((ops) => {
-            const target = sockets.get(handle.id);
-            if (target && target.readyState === WebSocket.OPEN) {
-              target.send(JSON.stringify({ type: 'op-batch', pageId: pageIdForBatch, ops }));
-            }
-          });
+          // epoch는 socketChain 동기 구간에서 캡처 — 재join FIFO로 직렬 증가 보장.
+          const myEpoch = ++joinEpoch;
+          void opStore.loadByPage(pageIdForBatch)
+            .then((ops) => sendIfCurrent(myEpoch, { type: 'op-batch', pageId: pageIdForBatch, ops }))
+            .catch((err) => {
+              console.warn('[relay] loadByPage failed, sending op-batch-error', err);
+              sendIfCurrent(myEpoch, { type: 'op-batch-error', pageId: pageIdForBatch });
+            });
         }).catch(() => {
           // 체인 내 예기치 못한 예외가 socketChain을 영구 reject시켜 이후 메시지를 막는 것을 방지한다
           // (gemini CRITICAL). 인가 경로 오류이므로 연결을 1011로 안전하게 정리한다.
