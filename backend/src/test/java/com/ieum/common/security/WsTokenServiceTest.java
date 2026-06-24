@@ -61,4 +61,14 @@ class WsTokenServiceTest {
 
         assertThat(token).isNull();
     }
+
+    @Test
+    @DisplayName("enabled여도 userId == null → issue() == null (오토큰 방지)")
+    void nullUserId_returnsNull() {
+        WsTokenService sut = new WsTokenService(SECRET, fixedClock());
+
+        String token = sut.issue(null);
+
+        assertThat(token).isNull();
+    }
 }

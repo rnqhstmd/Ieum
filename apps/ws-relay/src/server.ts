@@ -96,6 +96,8 @@ export function createRelayServer(opts: {
       if (msg.type === 'join') {
         const joinMsg = msg;
         socketChain = socketChain.then(async () => {
+          // 비동기 socketChain 진입 시점에 소켓이 이미 닫혔으면(직전 처리 대기 중 close) 조기 반환 — 누수 방지(gemini).
+          if (socket.readyState !== WebSocket.OPEN) return;
           // WS-AUTH-01: authSecret 설정 시 HMAC 토큰 검증 → identity 확정.
           let identity: string | undefined = joinMsg.userId;
           if (authSecret) {
@@ -121,6 +123,9 @@ export function createRelayServer(opts: {
               return;
             }
           }
+          // membershipGate await 중 소켓이 닫혔으면 등록 직전에 조기 반환 — close 핸들러가 이미 정리한 뒤
+          // userConnections에 고아 등록되는 누수를 막는다(gemini HIGH의 실 누수 지점).
+          if (socket.readyState !== WebSocket.OPEN) return;
           // 공통: 재-join 정리 + connUserId 설정 + userConnections 등록 (게이트 여부 무관)
           const newUserId = identity ?? null;
           if (connUserId !== null && connUserId !== newUserId) {

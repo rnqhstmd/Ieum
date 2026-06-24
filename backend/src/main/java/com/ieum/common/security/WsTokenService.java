@@ -35,7 +35,8 @@ public class WsTokenService {
     }
 
     public String issue(UUID userId) {
-        if (!enabled) {
+        // userId가 null이면 {"userId":"null",...} 오토큰이 생성되므로 방어적으로 null 반환(gemini).
+        if (!enabled || userId == null) {
             return null;
         }
         long exp = clock.instant().getEpochSecond() + 300;
