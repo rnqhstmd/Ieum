@@ -38,6 +38,8 @@ spring:
               - email
 
 app:
+  auth:
+    secret: ${AUTH_SECRET:}
   frontend-url: ${FRONTEND_URL:http://localhost:3000}
   resend:
     api-key: ${RESEND_API_KEY:}

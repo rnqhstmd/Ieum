@@ -7,6 +7,8 @@ import type { WireEnvelope, RgaId } from '@ieum/crdt';
 export interface JoinMsg {
   type: 'join';
   pageId: string;
+  token?: string;
+  userId?: string;
   // P6: 참여 시 표시 이름(아바타용). 서버가 색상을 할당한다.
   presence?: { displayName?: string };
 }

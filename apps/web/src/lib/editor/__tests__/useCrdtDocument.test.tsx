@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import { toWire, makeInlineInsertOp } from '@ieum/crdt';
 import { useCrdtDocument } from '../useCrdtDocument';
@@ -7,6 +7,8 @@ import { createFakeTransport } from '@/src/lib/realtime/__tests__/fakeTransport'
 
 // T7 / AC-6,7: DocState를 진실 원천으로 보유하고 로컬/원격 op로 화면(blocks)을 갱신한다.
 const PAGE = 'pg_test001';
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe('useCrdtDocument', () => {
   it('AC-7: 초기 blocks는 genesis 블록(빈 paragraph) 1개다', () => {
@@ -205,5 +207,82 @@ describe('useCrdtDocument', () => {
     });
     // 최종 수렴: 중복 적용이 멱등이면 텍스트는 'abc'여야 함
     expect(result.current.blocks[0]!.text).toBe('abc');
+  });
+
+  // ── WS-AUTH-01 신규 테스트 ─────────────────────────────────────────
+
+  it('AC-09: WS 재연결 시 ready 팩토리를 재호출하여 새 token으로 join을 전송한다', async () => {
+    // fetchCurrentUser 전역 fetch mock: 1회차 tok-1, 2회차 tok-2
+    let callCount = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        callCount += 1;
+        const token = callCount === 1 ? 'tok-1' : 'tok-2';
+        return { ok: true, json: async () => ({ id: 'U1', token }) };
+      }),
+    );
+
+    const fake = createFakeTransport();
+    renderHook(() => useCrdtDocument(PAGE, { transportFactory: () => fake }));
+
+    // 1번째 open → ready(fetch) → join 전송
+    await act(async () => {
+      fake.emitOpen();
+      // ready Promise가 마이크로태스크 큐에서 해소될 시간을 준다
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // fetch가 최소 1회 호출됐는지 확인
+    expect(callCount).toBeGreaterThanOrEqual(1);
+
+    const firstJoin = fake.sent
+      .map((s) => JSON.parse(s))
+      .filter((m) => m.type === 'join');
+    expect(firstJoin.length).toBeGreaterThanOrEqual(1);
+    // 1번째 join에 tok-1
+    expect(firstJoin[0].token).toBe('tok-1');
+
+    // 2번째 open (재연결 시뮬레이션)
+    await act(async () => {
+      fake.emitOpen();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // fetch 총 2회 호출 (매 open마다 재호출)
+    expect(callCount).toBe(2);
+
+    const allJoins = fake.sent
+      .map((s) => JSON.parse(s))
+      .filter((m) => m.type === 'join');
+    expect(allJoins.length).toBeGreaterThanOrEqual(2);
+    // 2번째 join에 새 tok-2
+    expect(allJoins[allJoins.length - 1].token).toBe('tok-2');
+  });
+
+  it('AC-10: fetchCurrentUser 401 → null → join 미시도 + authError === true', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 401 })));
+
+    const fake = createFakeTransport();
+    const { result } = renderHook(() =>
+      useCrdtDocument(PAGE, { transportFactory: () => fake }),
+    );
+
+    await act(async () => {
+      fake.emitOpen();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // authError 상태가 true로 노출돼야 한다
+    expect(result.current.authError).toBe(true);
+
+    // join 메시지가 전송되지 않아야 한다
+    const joinMsgs = fake.sent
+      .map((s) => JSON.parse(s))
+      .filter((m) => m.type === 'join');
+    expect(joinMsgs).toHaveLength(0);
   });
 });

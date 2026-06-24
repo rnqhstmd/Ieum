@@ -22,7 +22,7 @@ import { createCollaborativeDocument, diffBlockText } from './crdtDocument';
 import { createRetryingTransport } from '@/src/lib/realtime/transport';
 import type { Transport } from '@/src/lib/realtime/transport';
 import { createRelayClient } from '@/src/lib/realtime/relayClient';
-import { fetchCurrentUserId } from '@/src/lib/auth/currentUser';
+import { fetchCurrentUser } from '@/src/lib/auth/currentUser';
 import type { RelayClient } from '@/src/lib/realtime/relayClient';
 import { usePresence } from '@/src/lib/realtime/usePresence';
 import { useCursor } from '@/src/lib/realtime/useCursor';
@@ -47,6 +47,8 @@ export interface UseCrdtDocumentResult {
   onEnter: (blockId: RgaId, offset: number) => void;
   onBackspace: (blockId: RgaId) => void;
   onSetType: (blockId: RgaId, type: BlockType) => void;
+  /** WS-AUTH: fetchCurrentUser 실패(401 등) 시 true — UI가 로그인 유도 표시. */
+  authError: boolean;
 }
 
 // 탭별 고유 siteId. crypto.randomUUID(현대 브라우저 표준)를 우선 사용한다.
@@ -81,9 +83,11 @@ export function useCrdtDocument(
   const seqRef = useRef(0);
   const clientRef = useRef<RelayClient | null>(null);
   const restoringRef = useRef(false);
-  // WS-AUTH: /api/users/me에서 얻은 실 userId를 ref에 보관해 join 시점에 trust-relay한다.
-  // ref라 fetch 완료가 재렌더/재연결을 유발하지 않는다(상태 미사용). 게이트 활성 시 멤버십 검증용.
+  // WS-AUTH: /api/users/me에서 얻은 실 userId·token을 ref에 보관해 join 시점에 사용한다.
+  // ref라 fetch 완료가 재렌더/재연결을 유발하지 않는다(상태 미사용).
   const userIdRef = useRef<string | undefined>(undefined);
+  const tokenRef = useRef<string | undefined>(undefined);
+  const [authError, setAuthError] = useState(false);
   const [, setVersion] = useState(0);
   const [connectedClients, setConnectedClients] = useState(0);
   const [localClientId, setLocalClientId] = useState<string | null>(null);
@@ -101,14 +105,24 @@ export function useCrdtDocument(
     [presence.onPresenceLeave, cursor.onCursorLeave],
   );
 
+  // fetchAuth: 매 onOpen마다 호출되는 ready 팩토리.
+  // fetchCurrentUser 실패(null) 시 authError=true + throw → join 미전송.
+  const fetchAuth = useCallback(async () => {
+    const me = await fetchCurrentUser();
+    if (me === null) {
+      setAuthError(true);
+      userIdRef.current = undefined;
+      tokenRef.current = undefined;
+      throw new Error('auth required');
+    }
+    setAuthError(false);
+    userIdRef.current = me.userId;
+    tokenRef.current = me.token ?? undefined;
+  }, []);
+
   useEffect(() => {
     const factory = opts?.transportFactory ?? ((url: string) => createRetryingTransport(url));
     const transport = factory(WS_URL);
-    // userId fetch(/me) — auto-join은 이 fetch 완료 후 수행(아래 ready)되어 게이트 활성 시
-    // 첫 connect가 userId 없이 거부되는 레이스를 제거한다. 실패/미인증 → undefined(비멤버 처리).
-    const ready = fetchCurrentUserId().then((id) => {
-      userIdRef.current = id ?? undefined;
-    });
     const client = createRelayClient(
       transport,
       pageId,
@@ -137,7 +151,7 @@ export function useCrdtDocument(
         onPresenceLeave: handlePresenceLeave,
         onCursorUpdate: cursor.onCursorUpdate,
       },
-      { displayName, getUserId: () => userIdRef.current, ready },
+      { displayName, getUserId: () => userIdRef.current, getToken: () => tokenRef.current, ready: fetchAuth },
     );
     clientRef.current = client;
     return () => {
@@ -221,5 +235,6 @@ export function useCrdtDocument(
     onEnter,
     onBackspace,
     onSetType,
+    authError,
   };
 }

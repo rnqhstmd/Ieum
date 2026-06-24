@@ -45,7 +45,7 @@
 
 | 항목 ID | 설명 | 상태 | Phase | 비고 |
 |---------|------|------|-------|------|
-| WS-AUTH-01 | WebSocket 연결 시 JWT 추출·검증 (`AUTH_SECRET` 공유) | ⬜ | P11 | **trust-relay userId 채택**(JWT 아님 — Spring은 서버측 세션). 웹이 `/api/users/me`로 userId 획득 후 join에 trust-relay (PR #15). 신원 위조 방지(서명/세션 검증) 하드닝은 P11 |
+| WS-AUTH-01 | WebSocket 연결 시 서명 토큰 추출·검증 (`AUTH_SECRET` 공유) | ✅ | P11 (PR #28) | **HMAC-SHA256 서명 토큰**으로 신원위조 방지. backend `GET /api/users/me`가 `{userId,exp+5분}`를 `AUTH_SECRET` HMAC 서명한 `token` 반환(WsTokenService, payload 수동조립·base64url, JDK Mac 무라이브러리) → web이 join `token` 필드로 전송 → relay `verifyToken`(원시바이트 timingSafeEqual·exp 정수·proto가드)이 **token의 userId를 connUserId로 채택, join.userId 무시**(사칭 차단). 부재·위조·만료 `close(4001)`. AUTH_SECRET 미설정 시 trust-relay 유지(BR-6). 골든벡터 backend·relay 양측 박제. 재연결 토큰 재획득·401 재로그인 유도. ⚠️배포 시 backend·ws-relay 동일 AUTH_SECRET 동시 주입(미주입 시 trust-relay). 단위+통합 (PR #28). ※기존 trust-relay(PR #15)의 신원 진위 갭 마감 |
 | WS-AUTH-02 | 연결 시 pageId → workspaceId → Membership 확인, 실패 시 ws.close(4003) | ✅ | P5 후반 (PR #15) | Node `MembershipStore`(pages⋈memberships DB 조회), join 게이트 비멤버 `close(4003)`. 교차 room op 영속화 공백도 connPage 게이트로 마감 |
 | WS-AUTH-03 | 메시지 수신 시 서버가 연결 컨텍스트의 userId를 op에 태깅 (siteId는 세션 UUID, 신원 비교에 미사용) | ✅ | P5 후반 (PR #15) | 영속 op에 연결 userId를 `crdt_ops.created_by_id`에 태깅 (Flyway V4). siteId 미사용 |
 | WS-AUTH-04 | 멤버 제거 API 호출 시 해당 userId의 WebSocket 연결 강제 종료 | ✅ | P9 | removeMember 후 `WsRelayAdminClient.disconnectUser` → ws-relay 별도 admin http.Server `DELETE /admin/connections/{userId}` → 해당 userId 소켓 `close(4003,"removed")`. best-effort(예외 미전파)·127.0.0.1 전용·`WS_RELAY_ADMIN_URL` 외부화. 단위+통합(adminWiring) (PR #25) |

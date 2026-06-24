@@ -13,11 +13,14 @@ const membershipStore = relayDbUrl ? new PgMembershipStore(relayDbUrl) : undefin
 
 const adminPort = process.env.ADMIN_PORT !== undefined ? Number(process.env.ADMIN_PORT) : undefined;
 
-createRelayServer({ port, opStore, membershipStore, adminPort })
+const authSecret = process.env.AUTH_SECRET || undefined;
+if (!authSecret) console.warn('[ws-relay] AUTH_SECRET not set, identity verification disabled');
+
+createRelayServer({ port, opStore, membershipStore, adminPort, authSecret })
   .then((server) => {
     // eslint-disable-next-line no-console
     console.log(
-      `[ws-relay] listening on ws://localhost:${server.port} (opStore: ${relayDbUrl ? 'postgres' : 'in-memory'}, auth: ${relayDbUrl ? 'membership-gate' : 'off'})`,
+      `[ws-relay] listening on ws://localhost:${server.port} (opStore: ${relayDbUrl ? 'postgres' : 'in-memory'}, auth: ${authSecret ? 'hmac' : 'off'})`,
     );
 
     // 종료 신호 시 정상 종료(소켓·서버 정리) — 개발 서버 재시작 시 포트 점유 방지.

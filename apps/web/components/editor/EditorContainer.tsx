@@ -25,7 +25,7 @@ const STATUS_LABEL: Record<SaveStatus, string> = {
 };
 
 export default function EditorContainer({ pageId, initialTitle = '' }: EditorContainerProps) {
-  const { blocks, presences, cursors, localClientId, onBlockInput, onCursorMove, resolveCursorIndex, onEnter, onBackspace, onSetType } =
+  const { blocks, presences, cursors, localClientId, onBlockInput, onCursorMove, resolveCursorIndex, onEnter, onBackspace, onSetType, authError } =
     useCrdtDocument(pageId);
 
   // 제목 로드(단일 페이지 GET)·저장(PATCH save-port). 블록 본문은 CRDT op로 별도 즉시 영속.
@@ -39,6 +39,11 @@ export default function EditorContainer({ pageId, initialTitle = '' }: EditorCon
 
   return (
     <div data-page-id={pageId}>
+      {authError && (
+        <div role="alert" data-testid="auth-error" className="text-sm text-red-600">
+          세션이 만료되었습니다. <a href="/login">login</a>이 필요합니다.
+        </div>
+      )}
       <PresenceAvatars presences={presences} />
       <div className="mb-2 h-4 text-xs text-faint" aria-live="polite" data-testid="autosave-status">
         {STATUS_LABEL[status]}

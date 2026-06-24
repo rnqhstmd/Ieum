@@ -11,6 +11,7 @@ import { InMemoryOpStore } from './opStore.js';
 import type { OpStore } from './opStore.js';
 import type { MembershipStore } from './membershipStore.js';
 import { createAdminServer } from './adminServer.js';
+import { verifyToken } from './wsToken.js';
 
 export interface RelayServer {
   close(): Promise<void>;
@@ -37,10 +38,16 @@ export function createRelayServer(opts: {
   membershipStore?: MembershipStore;
   // admin HTTP 서버 포트. 주입 시(0 포함) admin 서버 기동. 미주입 시 admin 미기동.
   adminPort?: number;
+  // WS-AUTH-01: HMAC 토큰 검증 비밀키. 설정 시 join.token 필수 검증.
+  authSecret?: string;
+  // WS-AUTH-01: 현재 시각 공급자(Unix epoch 초). 기본값 Date.now()/1000. 테스트 주입용.
+  now?: () => number;
 }): Promise<RelayServer> {
   const registry = opts.registry ?? new RoomRegistry();
   const opStore: OpStore = opts.opStore ?? new InMemoryOpStore();
   const membershipGate = opts.membershipStore; // undefined = 게이트 off
+  const authSecret = opts.authSecret;
+  const nowFn = opts.now ?? (() => Math.floor(Date.now() / 1000));
   const maxConnections = opts.maxConnections ?? DEFAULT_MAX_CONNECTIONS;
   const wss = new WebSocketServer({
     port: opts.port,
@@ -89,11 +96,24 @@ export function createRelayServer(opts: {
       if (msg.type === 'join') {
         const joinMsg = msg;
         socketChain = socketChain.then(async () => {
-          // WS-AUTH-02: 게이트 활성 시 userId+멤버십 검증, 실패하면 close(4003).
+          // 비동기 socketChain 진입 시점에 소켓이 이미 닫혔으면(직전 처리 대기 중 close) 조기 반환 — 누수 방지(gemini).
+          if (socket.readyState !== WebSocket.OPEN) return;
+          // WS-AUTH-01: authSecret 설정 시 HMAC 토큰 검증 → identity 확정.
+          let identity: string | undefined = joinMsg.userId;
+          if (authSecret) {
+            const v = verifyToken(joinMsg.token, authSecret, nowFn());
+            if (v === null) {
+              console.warn('[ws-relay] join rejected: invalid/expired/missing token');
+              try { socket.close(4001, 'unauthorized'); } catch { /* 이미 닫힘 */ }
+              return;
+            }
+            identity = v.userId; // token.userId 우선 — join.userId 무시
+          }
+          // WS-AUTH-02: 게이트 활성 시 identity+멤버십 검증, 실패하면 close(4003).
           if (membershipGate) {
             if (
-              joinMsg.userId === undefined ||
-              !(await membershipGate.isMember(joinMsg.userId, joinMsg.pageId))
+              identity === undefined ||
+              !(await membershipGate.isMember(identity, joinMsg.pageId))
             ) {
               try {
                 socket.close(4003, 'forbidden');
@@ -102,15 +122,21 @@ export function createRelayServer(opts: {
               }
               return;
             }
-            // 재-join: 이전 userId가 있고 새 userId와 다르면 이전 Set에서 소켓 제거
-            if (connUserId !== null && connUserId !== joinMsg.userId) {
-              const prevSet = userConnections.get(connUserId);
-              if (prevSet) {
-                prevSet.delete(socket);
-                if (prevSet.size === 0) userConnections.delete(connUserId);
-              }
+          }
+          // membershipGate await 중 소켓이 닫혔으면 등록 직전에 조기 반환 — close 핸들러가 이미 정리한 뒤
+          // userConnections에 고아 등록되는 누수를 막는다(gemini HIGH의 실 누수 지점).
+          if (socket.readyState !== WebSocket.OPEN) return;
+          // 공통: 재-join 정리 + connUserId 설정 + userConnections 등록 (게이트 여부 무관)
+          const newUserId = identity ?? null;
+          if (connUserId !== null && connUserId !== newUserId) {
+            const prevSet = userConnections.get(connUserId);
+            if (prevSet) {
+              prevSet.delete(socket);
+              if (prevSet.size === 0) userConnections.delete(connUserId);
             }
-            connUserId = joinMsg.userId;
+          }
+          connUserId = newUserId;
+          if (connUserId) {
             if (!userConnections.has(connUserId)) userConnections.set(connUserId, new Set());
             userConnections.get(connUserId)!.add(socket);
           }

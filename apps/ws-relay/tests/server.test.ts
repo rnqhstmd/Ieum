@@ -5,6 +5,7 @@ import { createRelayServer } from '../src/server.js';
 import type { RelayServer } from '../src/server.js';
 import type { OpStore, AppendOutcome } from '../src/opStore.js';
 import { InMemoryMembershipStore } from '../src/membershipStore.js';
+import { makeToken } from './tokenFixture.js';
 
 // T6 / AC-1: 실제 ws 서버 기동 → 연결 수락. port:0(OS 임의 포트) + teardown으로 flaky 최소화.
 let server: RelayServer | undefined;
@@ -445,5 +446,210 @@ describe('relay server — op 인가·태깅 (T4)', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]!.userId).toBe(U);
     a.close();
+  });
+});
+
+// ─── WS-AUTH-01 HMAC 토큰 검증 + join 게이트 신원 확정 (RED) ──────────────
+// createRelayServer opts에 authSecret?, now? 추가 예정.
+// 아직 미구현이므로 이 suite 전체가 실패(RED) 상태여야 한다.
+describe('relay server — HMAC 토큰 게이트 (WS-AUTH-01)', () => {
+  const PAGE   = '550e8400-e29b-41d4-a716-446655440000';
+  const SECRET = 'test-secret-key-32-bytes-long!!';
+  const USERID = '11111111-1111-1111-1111-111111111111';
+  const USER_B = '22222222-2222-2222-2222-222222222222';
+  const NOW    = 1700000200; // 기준 now (토큰 exp=1700000300 보다 100초 전)
+
+  // join 전송 후 join-ack 또는 close(code) 중 먼저 도착한 것을 반환.
+  // token을 join 메시지에 포함.
+  function joinWithToken(
+    port: number,
+    pageId: string,
+    userId: string,
+    token?: string,
+  ): Promise<string> {
+    return new Promise((resolve) => {
+      const ws = new WebSocket(`ws://localhost:${port}`);
+      ws.on('open', () => {
+        const msg: Record<string, unknown> = { type: 'join', pageId, userId };
+        if (token !== undefined) msg['token'] = token;
+        ws.send(JSON.stringify(msg));
+      });
+      ws.on('message', (data) => {
+        if (JSON.parse(data.toString()).type === 'join-ack') resolve('ack');
+      });
+      ws.on('close', (code) => resolve(`close:${code}`));
+      ws.on('error', () => { /* close가 따라온다 */ });
+    });
+  }
+
+  // recordingStore: append 호출 기록 (pageId, siteId, userId)
+  function recordingStore(): {
+    store: OpStore;
+    calls: Array<{ pageId: string; siteId: string; userId: string | null }>;
+  } {
+    const calls: Array<{ pageId: string; siteId: string; userId: string | null }> = [];
+    return {
+      calls,
+      store: {
+        async append(pageId, op, userId) {
+          calls.push({ pageId, siteId: op.siteId, userId: userId ?? null });
+          return 'persisted';
+        },
+        async loadByPage() {
+          return [];
+        },
+      },
+    };
+  }
+
+  function opMsg(pageId: string, siteId: string, seq: number): string {
+    const env = toWire(
+      makeInlineInsertOp({ counter: seq, siteId }, null, '안', { counter: 99, siteId }),
+      seq,
+      siteId,
+    );
+    return JSON.stringify({ type: 'op', pageId, op: env });
+  }
+
+  // join-ack를 받을 때까지 기다렸다가 WebSocket을 반환.
+  function joinAndWaitAck(
+    port: number,
+    pageId: string,
+    userId: string,
+    token?: string,
+  ): Promise<WebSocket> {
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket(`ws://localhost:${port}`);
+      ws.on('open', () => {
+        const msg: Record<string, unknown> = { type: 'join', pageId, userId };
+        if (token !== undefined) msg['token'] = token;
+        ws.send(JSON.stringify(msg));
+      });
+      ws.on('message', (data) => {
+        if (JSON.parse(data.toString()).type === 'join-ack') resolve(ws);
+      });
+      ws.on('close', (code) => reject(new Error(`unexpected close: ${code}`)));
+      ws.on('error', reject);
+    });
+  }
+
+  it('AC-01: 유효 token join → join-ack', async () => {
+    const token = makeToken(SECRET, USERID, NOW + 200); // exp = NOW+200 > NOW
+    server = await createRelayServer({ port: 0, authSecret: SECRET, now: () => NOW } as Parameters<typeof createRelayServer>[0]);
+    expect(await joinWithToken(server.port, PAGE, USERID, token)).toBe('ack');
+  });
+
+  it('AC-01: 유효 token join → 이후 op가 token.userId로 태깅됨', async () => {
+    const { store, calls } = recordingStore();
+    const token = makeToken(SECRET, USERID, NOW + 200);
+    server = await createRelayServer({
+      port: 0,
+      opStore: store,
+      authSecret: SECRET,
+      now: () => NOW,
+    } as Parameters<typeof createRelayServer>[0]);
+    const ws = await joinAndWaitAck(server.port, PAGE, USERID, token);
+    ws.send(opMsg(PAGE, 'site_a', 1));
+    await new Promise((r) => setTimeout(r, 80));
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.userId).toBe(USERID);
+    ws.close();
+  });
+
+  it('AC-02: authSecret 설정 + token 없이 join → close(4001)', async () => {
+    server = await createRelayServer({ port: 0, authSecret: SECRET, now: () => NOW } as Parameters<typeof createRelayServer>[0]);
+    expect(await joinWithToken(server.port, PAGE, USERID, undefined)).toBe('close:4001');
+  });
+
+  it('AC-03: authSecret 설정 + 서명 위조 token → close(4001)', async () => {
+    const forged = makeToken('wrong-secret', USERID, NOW + 200);
+    server = await createRelayServer({ port: 0, authSecret: SECRET, now: () => NOW } as Parameters<typeof createRelayServer>[0]);
+    expect(await joinWithToken(server.port, PAGE, USERID, forged)).toBe('close:4001');
+  });
+
+  it('AC-04: authSecret 설정 + 만료 token(exp≤now) → close(4001)', async () => {
+    const expiredToken = makeToken(SECRET, USERID, NOW - 1); // exp < NOW → 만료
+    server = await createRelayServer({ port: 0, authSecret: SECRET, now: () => NOW } as Parameters<typeof createRelayServer>[0]);
+    expect(await joinWithToken(server.port, PAGE, USERID, expiredToken)).toBe('close:4001');
+  });
+
+  it('AC-05: token=A 유효 + join.userId=B → connUserId=A(token 우선, close 아님)', async () => {
+    const { store, calls } = recordingStore();
+    const tokenA = makeToken(SECRET, USERID, NOW + 200); // token은 USERID(A)
+    server = await createRelayServer({
+      port: 0,
+      opStore: store,
+      authSecret: SECRET,
+      now: () => NOW,
+    } as Parameters<typeof createRelayServer>[0]);
+    // join.userId=USER_B(B)로 보내지만 token은 A
+    const ws = await joinAndWaitAck(server.port, PAGE, USER_B, tokenA);
+    ws.send(opMsg(PAGE, 'site_a', 1));
+    await new Promise((r) => setTimeout(r, 80));
+    expect(calls).toHaveLength(1);
+    // token에서 도출한 userId=USERID(A)로 태깅 — join.userId=USER_B(B) 무시
+    expect(calls[0]!.userId).toBe(USERID);
+    ws.close();
+  });
+
+  it('AC-08: authSecret 미설정 + token 없이 join → join-ack(trust-relay 기존 동작)', async () => {
+    // authSecret 미주입: 기존 trust-relay 모드 — token 없어도 수락
+    server = await createRelayServer({ port: 0 });
+    expect(await joinWithToken(server.port, PAGE, USERID, undefined)).toBe('ack');
+  });
+});
+
+// ─── WS-AUTH-04 정합: authSecret 설정 + membershipStore 미주입 조합에서
+//     토큰 신원 확정 후 disconnectUser가 소켓을 강제종료해야 한다 (G1 RED)
+//
+// 버그: join 게이트 else(membershipGate 없음) 경로에서 connUserId만 설정하고
+//       userConnections 맵에 소켓을 등록하지 않아 disconnectUser(userId)가 0을 반환한다.
+describe('relay server — authSecret+membershipStore 미주입 시 userConnections 등록 (G1)', () => {
+  const PAGE   = '550e8400-e29b-41d4-a716-446655440000';
+  const SECRET = 'test-secret-key-32-bytes-long!!';
+  const USERID = '11111111-1111-1111-1111-111111111111';
+  // 골든벡터 토큰: now=1700000299 에서 유효 (exp=1700000300)
+  const VALID_TOKEN =
+    'eyJ1c2VySWQiOiIxMTExMTExMS0xMTExLTExMTEtMTExMS0xMTExMTExMTExMTEiLCJleHAiOjE3MDAwMDAzMDB9' +
+    '.sdCpy_TTmL271ycglxyEpQmvxuMVgKSthO61r7UWRBs';
+  const NOW = 1700000299; // exp(1700000300) > NOW → 유효
+
+  it('G1: authSecret 설정 + membershipStore 미주입 + 유효 token join → disconnectUser(USERID)가 1 반환하고 소켓을 닫는다', async () => {
+    // membershipStore 미주입: 게이트 off 경로 (else 블록)
+    server = await createRelayServer({
+      port: 0,
+      authSecret: SECRET,
+      now: () => NOW,
+    } as Parameters<typeof createRelayServer>[0]);
+
+    // 유효 토큰으로 join → join-ack 수신
+    const ws = await new Promise<WebSocket>((resolve, reject) => {
+      const c = new WebSocket(`ws://localhost:${server!.port}`);
+      c.on('open', () =>
+        c.send(JSON.stringify({ type: 'join', pageId: PAGE, userId: USERID, token: VALID_TOKEN })),
+      );
+      c.on('message', (data) => {
+        if (JSON.parse(data.toString()).type === 'join-ack') resolve(c);
+      });
+      c.on('close', (code) => reject(new Error(`unexpected close: ${code}`)));
+      c.on('error', reject);
+    });
+
+    const closePromise = new Promise<number>((resolve) => {
+      ws.on('close', (code) => resolve(code));
+    });
+
+    // disconnectUser 호출 — 버그 시 userConnections 미등록으로 0 반환 (RED)
+    const count = (server as unknown as { disconnectUser(userId: string): number }).disconnectUser(USERID);
+
+    // 기대: 1 이상 반환 + 소켓 close(4003)
+    // 현재 구현에서는 0 반환 → assertion 실패 → RED
+    expect(count).toBeGreaterThanOrEqual(1);
+
+    const code = await Promise.race([
+      closePromise,
+      new Promise<number>((_, rej) => setTimeout(() => rej(new Error('ws close timeout')), 2000)),
+    ]);
+    expect(code).toBe(4003);
   });
 });
