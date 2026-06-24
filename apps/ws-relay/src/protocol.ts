@@ -80,6 +80,12 @@ export interface OpBatchMsg {
   ops: WireEnvelope[];
 }
 
+/** S→C: loadByPage 실패 시 클라에 알리는 에러 메시지 (FR-1). */
+export interface OpBatchErrorMsg {
+  type: 'op-batch-error';
+  pageId: string;
+}
+
 export type ClientToServer = JoinMsg | OpMsg | CursorMsg;
 export type ServerToClient =
   | JoinAckMsg
@@ -88,7 +94,8 @@ export type ServerToClient =
   | PresenceUpdateMsg
   | PresenceLeaveMsg
   | CursorUpdateMsg
-  | OpBatchMsg;
+  | OpBatchMsg
+  | OpBatchErrorMsg;
 
 // presence displayName 상한 — 64KiB payload를 displayName으로 채워 broadcast 증폭(DoS)하는 것을 차단(S2).
 const MAX_DISPLAY_NAME = 64;

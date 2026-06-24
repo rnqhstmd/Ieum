@@ -1,0 +1,888 @@
+diff --git a/apps/web/components/editor/EditorContainer.tsx b/apps/web/components/editor/EditorContainer.tsx
+index bef1f54..efa584e 100644
+--- a/apps/web/components/editor/EditorContainer.tsx
++++ b/apps/web/components/editor/EditorContainer.tsx
+@@ -25,7 +25,7 @@ const STATUS_LABEL: Record<SaveStatus, string> = {
+ };
+ 
+ export default function EditorContainer({ pageId, initialTitle = '' }: EditorContainerProps) {
+-  const { blocks, presences, cursors, localClientId, onBlockInput, onCursorMove, resolveCursorIndex, onEnter, onBackspace, onSetType, authError } =
++  const { blocks, presences, cursors, localClientId, onBlockInput, onCursorMove, resolveCursorIndex, onEnter, onBackspace, onSetType, authError, restoreError, retryRestore } =
+     useCrdtDocument(pageId);
+ 
+   // 제목 로드(단일 페이지 GET)·저장(PATCH save-port). 블록 본문은 CRDT op로 별도 즉시 영속.
+@@ -44,6 +44,12 @@ export default function EditorContainer({ pageId, initialTitle = '' }: EditorCon
+           세션이 만료되었습니다. <a href="/login">login</a>이 필요합니다.
+         </div>
+       )}
++      {restoreError && !authError && (
++        <div role="alert" data-testid="restore-error" className="text-sm text-red-600">
++          이전 편집 내용을 불러오지 못했습니다.{' '}
++          <button type="button" onClick={retryRestore} className="underline">재시도</button>
++        </div>
++      )}
+       <PresenceAvatars presences={presences} />
+       <div className="mb-2 h-4 text-xs text-faint" aria-live="polite" data-testid="autosave-status">
+         {STATUS_LABEL[status]}
+diff --git a/apps/web/components/editor/__tests__/EditorContainer.test.tsx b/apps/web/components/editor/__tests__/EditorContainer.test.tsx
+index 04456fe..df17c1c 100644
+--- a/apps/web/components/editor/__tests__/EditorContainer.test.tsx
++++ b/apps/web/components/editor/__tests__/EditorContainer.test.tsx
+@@ -1,5 +1,5 @@
+ import { describe, it, expect, vi } from 'vitest';
+-import { render, screen } from '@testing-library/react';
++import { render, screen, fireEvent } from '@testing-library/react';
+ import EditorContainer from '../EditorContainer';
+ 
+ // WS-AUTH-01 AC-10: authError=true 시 data-testid="auth-error"(role=alert) 렌더.
+@@ -17,6 +17,11 @@ vi.mock('@/src/lib/editor/usePageTitle', () => ({
+   usePageTitle: () => ({ title: '', setTitle: vi.fn(), saveTitle: vi.fn() }),
+ }));
+ 
++// AC-13: Editor를 경량 stub으로 대체 — editor-surface testid로 존재 확인
++vi.mock('@/components/editor/Editor', () => ({
++  default: () => <div data-testid="editor-surface" />,
++}));
++
+ import { useCrdtDocument } from '@/src/lib/editor/useCrdtDocument';
+ 
+ const baseResult = {
+@@ -32,6 +37,8 @@ const baseResult = {
+   onBackspace: vi.fn(),
+   onSetType: vi.fn(),
+   authError: false,
++  restoreError: false,
++  retryRestore: vi.fn(),
+ };
+ 
+ describe('EditorContainer — WS-AUTH-01 authError UI', () => {
+@@ -56,3 +63,57 @@ describe('EditorContainer — WS-AUTH-01 authError UI', () => {
+     expect(link).toHaveAttribute('href', '/login');
+   });
+ });
++
++describe('EditorContainer — 복원 실패 UX (restoreError)', () => {
++  it('AC-12: restoreError=false 일 때 restore-error 배너가 렌더되지 않는다', () => {
++    vi.mocked(useCrdtDocument).mockReturnValue({ ...baseResult, restoreError: false });
++    render(<EditorContainer pageId="pg_1" />);
++    expect(screen.queryByTestId('restore-error')).toBeNull();
++  });
++
++  it('AC-12: restoreError=true 일 때 data-testid="restore-error" 배너와 재시도 버튼이 렌더된다', () => {
++    const retryFn = vi.fn();
++    vi.mocked(useCrdtDocument).mockReturnValue({
++      ...baseResult,
++      restoreError: true,
++      retryRestore: retryFn,
++    });
++    render(<EditorContainer pageId="pg_1" />);
++
++    // 배너 존재
++    expect(screen.getByTestId('restore-error')).toBeInTheDocument();
++
++    // 재시도 버튼 존재
++    const btn = screen.getByRole('button', { name: /재시도/ });
++    expect(btn).toBeInTheDocument();
++
++    // 버튼 클릭 시 retryRestore 호출
++    fireEvent.click(btn);
++    expect(retryFn).toHaveBeenCalled();
++  });
++
++  it('AC-13: restoreError=true 일 때 배너와 에디터 영역이 동시에 렌더된다(편집 미차단)', () => {
++    vi.mocked(useCrdtDocument).mockReturnValue({ ...baseResult, restoreError: true });
++    render(<EditorContainer pageId="pg_1" />);
++
++    // 배너와 에디터가 동시에 존재해야 한다
++    expect(screen.getByTestId('restore-error')).toBeInTheDocument();
++    expect(screen.getByTestId('editor-surface')).toBeInTheDocument();
++  });
++
++  // ── 하드닝 (2): authError 시 restoreError 배너 억제 ─────────────
++  it('HARD-2: authError=true이면 restoreError 배너를 렌더하지 않는다(세션 만료 시 복원 무의미)', () => {
++    vi.mocked(useCrdtDocument).mockReturnValue({
++      ...baseResult,
++      authError: true,
++      restoreError: true,
++    });
++    render(<EditorContainer pageId="pg_1" />);
++
++    // auth-error는 존재해야 한다
++    expect(screen.getByTestId('auth-error')).toBeInTheDocument();
++
++    // authError가 true이면 restoreError 배너는 억제돼야 한다 — 미구현 시 RED
++    expect(screen.queryByTestId('restore-error')).toBeNull();
++  });
++});
+diff --git a/apps/web/src/lib/editor/__tests__/useCrdtDocument.test.tsx b/apps/web/src/lib/editor/__tests__/useCrdtDocument.test.tsx
+index acc4558..bce8cac 100644
+--- a/apps/web/src/lib/editor/__tests__/useCrdtDocument.test.tsx
++++ b/apps/web/src/lib/editor/__tests__/useCrdtDocument.test.tsx
+@@ -285,4 +285,134 @@ describe('useCrdtDocument', () => {
+       .filter((m) => m.type === 'join');
+     expect(joinMsgs).toHaveLength(0);
+   });
++
++  // ── 복원 실패 UX (WS-AUTH-RESTORE) ────────────────────────────────
++
++  it('AC-9: op-batch-error 수신 → restoreError === true', () => {
++    const fake = createFakeTransport();
++    const { result } = renderHook(() =>
++      useCrdtDocument(PAGE, { transportFactory: () => fake }),
++    );
++
++    act(() =>
++      fake.emitMessage(JSON.stringify({ type: 'op-batch-error', pageId: PAGE })),
++    );
++
++    expect(result.current.restoreError).toBe(true);
++  });
++
++  it('AC-11: op-batch-error 후 op-batch 수신 → restoreError === false(해제)', () => {
++    const fake = createFakeTransport();
++    const { result } = renderHook(() =>
++      useCrdtDocument(PAGE, { transportFactory: () => fake }),
++    );
++
++    // 먼저 에러 상태 만들기
++    act(() =>
++      fake.emitMessage(JSON.stringify({ type: 'op-batch-error', pageId: PAGE })),
++    );
++    expect(result.current.restoreError).toBe(true);
++
++    // 빈 ops로도 성공 수신이면 에러 해제
++    act(() =>
++      fake.emitMessage(JSON.stringify({ type: 'op-batch', pageId: PAGE, ops: [] })),
++    );
++    expect(result.current.restoreError).toBe(false);
++  });
++
++  // ── 하드닝 (1): retry 스팸 가드 ────────────────────────────────────
++  it('HARD-1: retryRestore 연속 2회 호출 시 fetch(/me)는 1회만 발화된다(in-flight 중 재호출 무시)', async () => {
++    vi.stubGlobal(
++      'fetch',
++      vi.fn(async () => ({
++        ok: true,
++        json: async () => ({ id: 'U1', token: 'tok-spam' }),
++      })),
++    );
++
++    const fake = createFakeTransport();
++    const { result } = renderHook(() =>
++      useCrdtDocument(PAGE, { transportFactory: () => fake }),
++    );
++
++    // 마운트 open → 초기 join 완료
++    await act(async () => {
++      fake.emitOpen();
++      await Promise.resolve();
++      await Promise.resolve();
++    });
++
++    // retryRestore 호출 직전 fetch 카운터 리셋(마운트 시 fetch와 구분)
++    vi.mocked(fetch).mockClear();
++
++    // 연속 2회 호출 — in-flight 중 두 번째 호출은 무시돼야 한다
++    await act(async () => {
++      result.current.retryRestore();
++      result.current.retryRestore();
++      await Promise.resolve();
++      await Promise.resolve();
++    });
++
++    // 가드 미구현 시 fetch는 2회 → 현재 RED
++    expect(fetch).toHaveBeenCalledTimes(1);
++  });
++
++  // ── 하드닝 (3): fetchAuth 실패 시 authError 확신 ─────────────────
++  it('HARD-3: retryRestore 호출 시 fetchAuth가 null(401) → authError===true(확신용)', async () => {
++    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 401 })));
++
++    const fake = createFakeTransport();
++    const { result } = renderHook(() =>
++      useCrdtDocument(PAGE, { transportFactory: () => fake }),
++    );
++
++    // retryRestore 직접 호출(open 없이) — fetchAuth 실패 → authError
++    await act(async () => {
++      result.current.retryRestore();
++      await Promise.resolve();
++      await Promise.resolve();
++    });
++
++    expect(result.current.authError).toBe(true);
++  });
++
++  it('AC-10(retryRestore): retryRestore 호출 → fetchAuth 성공 후 join 재전송', async () => {
++    vi.stubGlobal(
++      'fetch',
++      vi.fn(async () => ({
++        ok: true,
++        json: async () => ({ id: 'U1', token: 'tok-retry' }),
++      })),
++    );
++
++    const fake = createFakeTransport();
++    const { result } = renderHook(() =>
++      useCrdtDocument(PAGE, { transportFactory: () => fake }),
++    );
++
++    // 마운트 후 open → ready → 초기 join 전송
++    await act(async () => {
++      fake.emitOpen();
++      await Promise.resolve();
++      await Promise.resolve();
++    });
++
++    // retryRestore 호출 전 sent 스냅샷
++    const sentBeforeRetry = fake.sent.length;
++
++    // retryRestore 호출 → fetchAuth(비동기) → join 재전송
++    await act(async () => {
++      result.current.retryRestore();
++      await Promise.resolve();
++      await Promise.resolve();
++    });
++
++    // retryRestore 호출 후 새 join이 추가 전송됐는지 확인
++    const newJoins = fake.sent
++      .slice(sentBeforeRetry)
++      .map((s) => JSON.parse(s))
++      .filter((m) => m.type === 'join' && m.pageId === PAGE);
++
++    expect(newJoins.length).toBeGreaterThanOrEqual(1);
++  });
+ });
+diff --git a/apps/web/src/lib/editor/useCrdtDocument.ts b/apps/web/src/lib/editor/useCrdtDocument.ts
+index fe19049..d5ec8e7 100644
+--- a/apps/web/src/lib/editor/useCrdtDocument.ts
++++ b/apps/web/src/lib/editor/useCrdtDocument.ts
+@@ -49,6 +49,10 @@ export interface UseCrdtDocumentResult {
+   onSetType: (blockId: RgaId, type: BlockType) => void;
+   /** WS-AUTH: fetchCurrentUser 실패(401 등) 시 true — UI가 로그인 유도 표시. */
+   authError: boolean;
++  /** A: 재접속 복원 실패(op-batch-error) 시 true — UI 비차단 배너·재시도. */
++  restoreError: boolean;
++  /** A: 복원 재시도 — ready(토큰 재발급) 후 join 재전송으로 loadByPage 재실행. */
++  retryRestore: () => void;
+ }
+ 
+ // 탭별 고유 siteId. crypto.randomUUID(현대 브라우저 표준)를 우선 사용한다.
+@@ -83,11 +87,13 @@ export function useCrdtDocument(
+   const seqRef = useRef(0);
+   const clientRef = useRef<RelayClient | null>(null);
+   const restoringRef = useRef(false);
++  const retryingRef = useRef(false);
+   // WS-AUTH: /api/users/me에서 얻은 실 userId·token을 ref에 보관해 join 시점에 사용한다.
+   // ref라 fetch 완료가 재렌더/재연결을 유발하지 않는다(상태 미사용).
+   const userIdRef = useRef<string | undefined>(undefined);
+   const tokenRef = useRef<string | undefined>(undefined);
+   const [authError, setAuthError] = useState(false);
++  const [restoreError, setRestoreError] = useState(false);
+   const [, setVersion] = useState(0);
+   const [connectedClients, setConnectedClients] = useState(0);
+   const [localClientId, setLocalClientId] = useState<string | null>(null);
+@@ -139,8 +145,12 @@ export function useCrdtDocument(
+           } finally {
+             restoringRef.current = false;
+           }
++          setRestoreError((prev) => (prev ? false : prev));
+           bump();
+         },
++        onOpBatchError: (errPageId) => {
++          if (errPageId === pageId) setRestoreError(true);
++        },
+         onJoinAck: (n, clientId) => {
+           setConnectedClients(n);
+           setLocalClientId(clientId); // 자기 식별(AC-7)
+@@ -208,6 +218,15 @@ export function useCrdtDocument(
+     [doc, sendOps],
+   );
+ 
++  const retryRestore = useCallback(() => {
++    if (retryingRef.current) return;
++    retryingRef.current = true;
++    fetchAuth()
++      .then(() => clientRef.current?.join(pageId))
++      .catch(() => { /* fetchAuth 실패는 내부에서 authError로 처리; join은 동기 전송이라 추가 처리 불필요 */ })
++      .finally(() => { retryingRef.current = false; });
++  }, [fetchAuth, pageId]);
++
+   // P6 커서: Editor가 올린 caret 가시 index를 직전 문자 id로 변환해 전송.
+   // deps [doc]: doc은 useRef 파생이라 참조 불변 → 실질적으로 마운트 1회 생성(onBlockInput과 동일, N-3).
+   const onCursorMove = useCallback(
+@@ -236,5 +255,7 @@ export function useCrdtDocument(
+     onBackspace,
+     onSetType,
+     authError,
++    restoreError,
++    retryRestore,
+   };
+ }
+diff --git a/apps/web/src/lib/realtime/__tests__/protocol.test.ts b/apps/web/src/lib/realtime/__tests__/protocol.test.ts
+index 6ee16fb..b6bf1b7 100644
+--- a/apps/web/src/lib/realtime/__tests__/protocol.test.ts
++++ b/apps/web/src/lib/realtime/__tests__/protocol.test.ts
+@@ -215,6 +215,26 @@ describe('parseServerMessage — op-batch', () => {
+   });
+ });
+ 
++// WS-AUTH-IDENTITY / AC-7: op-batch-error 메시지 파싱
++describe('parseServerMessage — op-batch-error', () => {
++  it('AC-7a: 유효한 op-batch-error를 {type,pageId} 객체로 파싱한다', () => {
++    const raw = JSON.stringify({ type: 'op-batch-error', pageId: 'p1' });
++    const msg = parseServerMessage(raw);
++    expect(msg).not.toBeNull();
++    expect(msg).toEqual({ type: 'op-batch-error', pageId: 'p1' });
++  });
++
++  it('AC-7b(엣지): pageId 누락 시 null이다', () => {
++    const raw = JSON.stringify({ type: 'op-batch-error' });
++    expect(parseServerMessage(raw)).toBeNull();
++  });
++
++  it('AC-7b(엣지): pageId가 문자열이 아닌 경우(숫자) null이다', () => {
++    const raw = JSON.stringify({ type: 'op-batch-error', pageId: 123 });
++    expect(parseServerMessage(raw)).toBeNull();
++  });
++});
++
+ // I3 — isWireEnvelope seq 정수 검증 (web)
+ describe('parseServerMessage — I3: seq 비정수 거부', () => {
+   // 유효한 봉투의 seq만 교체해서 직접 파서에 전달한다.
+diff --git a/apps/web/src/lib/realtime/__tests__/relayClient.test.ts b/apps/web/src/lib/realtime/__tests__/relayClient.test.ts
+index c21753d..0e66d9c 100644
+--- a/apps/web/src/lib/realtime/__tests__/relayClient.test.ts
++++ b/apps/web/src/lib/realtime/__tests__/relayClient.test.ts
+@@ -202,4 +202,24 @@ describe('relayClient', () => {
+     ).not.toThrow();
+     expect(onRemoteOp).not.toHaveBeenCalled();
+   });
++
++  // WS-AUTH-IDENTITY / AC-8: op-batch-error 수신 시 onOpBatchError 라우팅
++  it('AC-8a: op-batch-error 수신 시 onOpBatchError(pageId)를 호출하고 onOpBatch는 호출하지 않는다', () => {
++    const t = createFakeTransport();
++    const onOpBatchError = vi.fn();
++    const onOpBatch = vi.fn();
++    createRelayClient(t, PAGE, { onRemoteOp: () => {}, onOpBatch, onOpBatchError });
++    t.emitMessage(JSON.stringify({ type: 'op-batch-error', pageId: 'p1' }));
++    expect(onOpBatchError).toHaveBeenCalledTimes(1);
++    expect(onOpBatchError).toHaveBeenCalledWith('p1');
++    expect(onOpBatch).not.toHaveBeenCalled();
++  });
++
++  it('AC-8b(회귀가드): onOpBatchError 미제공 시 op-batch-error 수신해도 에러 없이 무시된다', () => {
++    const t = createFakeTransport();
++    createRelayClient(t, PAGE, { onRemoteOp: () => {} }); // onOpBatchError 없음
++    expect(() =>
++      t.emitMessage(JSON.stringify({ type: 'op-batch-error', pageId: 'p1' })),
++    ).not.toThrow();
++  });
+ });
+diff --git a/apps/web/src/lib/realtime/protocol.ts b/apps/web/src/lib/realtime/protocol.ts
+index 11707e3..5238d08 100644
+--- a/apps/web/src/lib/realtime/protocol.ts
++++ b/apps/web/src/lib/realtime/protocol.ts
+@@ -75,6 +75,7 @@ export interface OpBatchMsg {
+   pageId: string;
+   ops: WireEnvelope[];
+ }
++export interface OpBatchErrorMsg { type: 'op-batch-error'; pageId: string; }
+ 
+ export type ServerToClient =
+   | JoinAckMsg
+@@ -83,7 +84,8 @@ export type ServerToClient =
+   | PresenceUpdateMsg
+   | PresenceLeaveMsg
+   | CursorUpdateMsg
+-  | OpBatchMsg;
++  | OpBatchMsg
++  | OpBatchErrorMsg;
+ 
+ // RgaId siteId 상한 — 커서 anchorId siteId로 대용량 문자열 broadcast 증폭 차단(C2).
+ const MAX_SITE_ID = 64;
+@@ -171,6 +173,8 @@ export function parseServerMessage(raw: string): ServerToClient | null {
+         (o.ops as unknown[]).every(isWireEnvelope)
+         ? (o as unknown as OpBatchMsg)
+         : null;
++    case 'op-batch-error':
++      return typeof o.pageId === 'string' ? (o as unknown as OpBatchErrorMsg) : null;
+     default:
+       return null;
+   }
+diff --git a/apps/web/src/lib/realtime/relayClient.ts b/apps/web/src/lib/realtime/relayClient.ts
+index ac0cfe3..84707b4 100644
+--- a/apps/web/src/lib/realtime/relayClient.ts
++++ b/apps/web/src/lib/realtime/relayClient.ts
+@@ -20,6 +20,8 @@ export interface RelayClientHandlers {
+   onCursorUpdate?(info: CursorInfo): void;
+   /** P9: op-batch 수신 → 훅이 일괄 applyDocOp. */
+   onOpBatch?(ops: WireEnvelope[], pageId: string): void;
++  /** A: op-batch-error 수신 → 훅이 restoreError=true. */
++  onOpBatchError?(pageId: string): void;
+ }
+ 
+ export interface RelayClient {
+@@ -81,6 +83,9 @@ export function createRelayClient(
+         case 'op-batch':
+           handlers.onOpBatch?.(msg.ops, msg.pageId);
+           break;
++        case 'op-batch-error':
++          handlers.onOpBatchError?.(msg.pageId);
++          break;
+       }
+     }),
+   );
+diff --git a/apps/ws-relay/src/protocol.ts b/apps/ws-relay/src/protocol.ts
+index 3dadf54..b8a507c 100644
+--- a/apps/ws-relay/src/protocol.ts
++++ b/apps/ws-relay/src/protocol.ts
+@@ -80,6 +80,12 @@ export interface OpBatchMsg {
+   ops: WireEnvelope[];
+ }
+ 
++/** S→C: loadByPage 실패 시 클라에 알리는 에러 메시지 (FR-1). */
++export interface OpBatchErrorMsg {
++  type: 'op-batch-error';
++  pageId: string;
++}
++
+ export type ClientToServer = JoinMsg | OpMsg | CursorMsg;
+ export type ServerToClient =
+   | JoinAckMsg
+@@ -88,7 +94,8 @@ export type ServerToClient =
+   | PresenceUpdateMsg
+   | PresenceLeaveMsg
+   | CursorUpdateMsg
+-  | OpBatchMsg;
++  | OpBatchMsg
++  | OpBatchErrorMsg;
+ 
+ // presence displayName 상한 — 64KiB payload를 displayName으로 채워 broadcast 증폭(DoS)하는 것을 차단(S2).
+ const MAX_DISPLAY_NAME = 64;
+diff --git a/apps/ws-relay/src/server.ts b/apps/ws-relay/src/server.ts
+index feea004..2f4df7b 100644
+--- a/apps/ws-relay/src/server.ts
++++ b/apps/ws-relay/src/server.ts
+@@ -7,6 +7,7 @@ import { WebSocketServer, WebSocket } from 'ws';
+ import { RoomRegistry } from './room.js';
+ import type { ClientHandle } from './room.js';
+ import { parseClientMessage } from './protocol.js';
++import type { OpBatchMsg, OpBatchErrorMsg } from './protocol.js';
+ import { InMemoryOpStore } from './opStore.js';
+ import type { OpStore } from './opStore.js';
+ import type { MembershipStore } from './membershipStore.js';
+@@ -81,11 +82,21 @@ export function createRelayServer(opts: {
+       }
+     };
+ 
++    // op-batch/op-batch-error 전송 헬퍼: 재join stale 격리.
++    // myEpoch가 현재 joinEpoch와 다르면 조용히 폐기(재join으로 superseded된 결과).
++    const sendIfCurrent = (myEpoch: number, message: OpBatchMsg | OpBatchErrorMsg): void => {
++      if (joinEpoch !== myEpoch) return;
++      const target = sockets.get(handle.id);
++      if (target && target.readyState === WebSocket.OPEN) target.send(JSON.stringify(message));
++    };
++
+     // join·op는 비동기(멤버십 조회/영속화)이므로 소켓별 promise 체인으로 직렬화한다.
+     // join이 op보다 먼저 처리되어 connPage가 설정되도록 FIFO를 보장한다. 소켓 간은 병렬.
+     let socketChain: Promise<void> = Promise.resolve();
+     let connUserId: string | null = null; // 인가된 연결 userId (WS-AUTH-03 op 태깅)
+     let connPage: string | null = null; // 인가 합류한 page (교차 room 영속화 마감 기준)
++    // op-batch 재join 격리: 연결-로컬 epoch 카운터. join마다 증가, stale 비동기 결과를 폐기.
++    let joinEpoch = 0;
+     socket.on('message', (raw: { toString(): string }) => {
+       const msg = parseClientMessage(raw.toString());
+       if (!msg) return; // 잘못된 JSON/규격 외 메시지는 무시
+@@ -146,15 +157,14 @@ export function createRelayServer(opts: {
+           // (2)(3) loadByPage + op-batch는 socketChain 밖에서 비동기 실행.
+           // socketChain에 await를 걸지 않아 이후 op 메시지 처리가 블록되지 않는다(AC-A3 선등록).
+           const pageIdForBatch = joinMsg.pageId;
+-          void opStore.loadByPage(pageIdForBatch).catch((err) => {
+-            console.warn('[relay] loadByPage failed, sending empty batch', err);
+-            return [] as import('@ieum/crdt').WireEnvelope[];
+-          }).then((ops) => {
+-            const target = sockets.get(handle.id);
+-            if (target && target.readyState === WebSocket.OPEN) {
+-              target.send(JSON.stringify({ type: 'op-batch', pageId: pageIdForBatch, ops }));
+-            }
+-          });
++          // epoch는 socketChain 동기 구간에서 캡처 — 재join FIFO로 직렬 증가 보장.
++          const myEpoch = ++joinEpoch;
++          void opStore.loadByPage(pageIdForBatch)
++            .then((ops) => sendIfCurrent(myEpoch, { type: 'op-batch', pageId: pageIdForBatch, ops }))
++            .catch((err) => {
++              console.warn('[relay] loadByPage failed, sending op-batch-error', err);
++              sendIfCurrent(myEpoch, { type: 'op-batch-error', pageId: pageIdForBatch });
++            });
+         }).catch(() => {
+           // 체인 내 예기치 못한 예외가 socketChain을 영구 reject시켜 이후 메시지를 막는 것을 방지한다
+           // (gemini CRITICAL). 인가 경로 오류이므로 연결을 1011로 안전하게 정리한다.
+diff --git a/apps/ws-relay/tests/server.test.ts b/apps/ws-relay/tests/server.test.ts
+index 3ad7653..927d955 100644
+--- a/apps/ws-relay/tests/server.test.ts
++++ b/apps/ws-relay/tests/server.test.ts
+@@ -7,6 +7,9 @@ import type { OpStore, AppendOutcome } from '../src/opStore.js';
+ import { InMemoryMembershipStore } from '../src/membershipStore.js';
+ import { makeToken } from './tokenFixture.js';
+ 
++// stale 미수신 음성 단언 보조 여유분 — 동기 expect 전 비동기 메시지 안착 대기(ms).
++const STALE_GRACE_MS = 80;
++
+ // T6 / AC-1: 실제 ws 서버 기동 → 연결 수락. port:0(OS 임의 포트) + teardown으로 flaky 최소화.
+ let server: RelayServer | undefined;
+ afterEach(async () => {
+@@ -156,7 +159,7 @@ describe('relay server — op 영속화 배선 (T3)', () => {
+       if (JSON.parse(data.toString()).type === 'op-ack') gotAck = true;
+     });
+     a.send(opMessage(PAGE, 'site_a', 1));
+-    await new Promise((r) => setTimeout(r, 80)); // 전파 대기
++    await new Promise((r) => setTimeout(r, STALE_GRACE_MS)); // 전파 대기
+     expect(gotOp).toBe(false);
+     expect(gotAck).toBe(false);
+     a.close();
+@@ -430,7 +433,7 @@ describe('relay server — op 인가·태깅 (T4)', () => {
+     server = await createRelayServer({ port: 0, opStore: store, membershipStore: ms });
+     const a = await joinMember(server.port, PAGE, U); // P에 인가 합류
+     a.send(opMsg(OTHER, 'site_a', 1)); // 합류하지 않은 다른 page로 op
+-    await new Promise((r) => setTimeout(r, 80));
++    await new Promise((r) => setTimeout(r, STALE_GRACE_MS));
+     expect(calls).toHaveLength(0);
+     a.close();
+   });
+@@ -442,7 +445,7 @@ describe('relay server — op 인가·태깅 (T4)', () => {
+     server = await createRelayServer({ port: 0, opStore: store, membershipStore: ms });
+     const a = await joinMember(server.port, PAGE, U);
+     a.send(opMsg(PAGE, 'site_a', 1));
+-    await new Promise((r) => setTimeout(r, 80));
++    await new Promise((r) => setTimeout(r, STALE_GRACE_MS));
+     expect(calls).toHaveLength(1);
+     expect(calls[0]!.userId).toBe(U);
+     a.close();
+@@ -550,7 +553,7 @@ describe('relay server — HMAC 토큰 게이트 (WS-AUTH-01)', () => {
+     } as Parameters<typeof createRelayServer>[0]);
+     const ws = await joinAndWaitAck(server.port, PAGE, USERID, token);
+     ws.send(opMsg(PAGE, 'site_a', 1));
+-    await new Promise((r) => setTimeout(r, 80));
++    await new Promise((r) => setTimeout(r, STALE_GRACE_MS));
+     expect(calls).toHaveLength(1);
+     expect(calls[0]!.userId).toBe(USERID);
+     ws.close();
+@@ -585,7 +588,7 @@ describe('relay server — HMAC 토큰 게이트 (WS-AUTH-01)', () => {
+     // join.userId=USER_B(B)로 보내지만 token은 A
+     const ws = await joinAndWaitAck(server.port, PAGE, USER_B, tokenA);
+     ws.send(opMsg(PAGE, 'site_a', 1));
+-    await new Promise((r) => setTimeout(r, 80));
++    await new Promise((r) => setTimeout(r, STALE_GRACE_MS));
+     expect(calls).toHaveLength(1);
+     // token에서 도출한 userId=USERID(A)로 태깅 — join.userId=USER_B(B) 무시
+     expect(calls[0]!.userId).toBe(USERID);
+@@ -599,6 +602,308 @@ describe('relay server — HMAC 토큰 게이트 (WS-AUTH-01)', () => {
+   });
+ });
+ 
++// ─── op-batch 견고화: op-batch-error + join-epoch 격리 ───────────────────────
++// 아직 미구현 (op-batch-error 타입·epoch 격리 없음) → AC-1/AC-5/AC-6은 RED 상태여야 한다.
++describe('op-batch 견고화 (op-batch-error + join-epoch)', () => {
++  const PAGE = '550e8400-e29b-41d4-a716-446655440002';
++
++  function makeOpEnvelope(siteId: string, seq: number) {
++    return toWire(
++      makeInlineInsertOp({ counter: seq, siteId }, null, '글', { counter: 99, siteId }),
++      seq,
++      siteId,
++    );
++  }
++
++  /** 외부에서 resolve/reject 할 수 있는 Promise 팩토리 */
++  function deferred<T>() {
++    let resolve!: (v: T) => void;
++    let reject!: (e?: unknown) => void;
++    const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
++    return { promise, resolve, reject };
++  }
++
++  /** membershipStore 미주입(게이트 off) + 에러 throw 스토어 → op-batch-error 수신, op-batch 미수신 */
++  it('AC-1: loadByPage가 throw → 클라에 op-batch-error 전송, op-batch(빈배치 포함) 미수신', async () => {
++    const store: OpStore = {
++      async append() { return 'persisted'; },
++      async loadByPage() { throw new Error('DB 연결 실패'); },
++    };
++    server = await createRelayServer({ port: 0, opStore: store });
++
++    const ws = new WebSocket(`ws://localhost:${server.port}`);
++
++    let gotBatch = false;
++    const errorReceived = new Promise<{ type: string; pageId: string }>((resolve, reject) => {
++      ws.on('open', () => ws.send(JSON.stringify({ type: 'join', pageId: PAGE })));
++      ws.on('message', (data) => {
++        const m = JSON.parse(data.toString());
++        if (m.type === 'op-batch-error') resolve(m);
++        if (m.type === 'op-batch') { gotBatch = true; }
++      });
++      ws.on('error', reject);
++    });
++
++    const errMsg = await Promise.race([
++      errorReceived,
++      new Promise<never>((_, rej) => setTimeout(() => rej(new Error('op-batch-error 수신 타임아웃')), 2000)),
++    ]);
++
++    expect(errMsg.type).toBe('op-batch-error');
++    expect(errMsg.pageId).toBe(PAGE);
++
++    // 80ms 추가 대기 후 op-batch가 오지 않아야 함
++    await new Promise((r) => setTimeout(r, STALE_GRACE_MS));
++    expect(gotBatch).toBe(false);
++
++    ws.close();
++  });
++
++  /** loadByPage가 [] resolve → op-batch{ops:[]} 수신, op-batch-error 미수신 */
++  it('AC-2: loadByPage가 [] resolve → op-batch{ops:[]} 수신, op-batch-error 미수신', async () => {
++    const store: OpStore = {
++      async append() { return 'persisted'; },
++      async loadByPage() { return []; },
++    };
++    server = await createRelayServer({ port: 0, opStore: store });
++
++    const ws = new WebSocket(`ws://localhost:${server.port}`);
++
++    let gotBatchError = false;
++    const batchReceived = new Promise<{ type: string; ops: unknown[] }>((resolve, reject) => {
++      ws.on('open', () => ws.send(JSON.stringify({ type: 'join', pageId: PAGE })));
++      ws.on('message', (data) => {
++        const m = JSON.parse(data.toString());
++        if (m.type === 'op-batch') resolve(m);
++        if (m.type === 'op-batch-error') gotBatchError = true;
++      });
++      ws.on('error', reject);
++    });
++
++    const batch = await Promise.race([
++      batchReceived,
++      new Promise<never>((_, rej) => setTimeout(() => rej(new Error('op-batch 수신 타임아웃')), 2000)),
++    ]);
++
++    expect(batch.type).toBe('op-batch');
++    expect(batch.ops).toHaveLength(0);
++    await new Promise((r) => setTimeout(r, STALE_GRACE_MS));
++    expect(gotBatchError).toBe(false);
++
++    ws.close();
++  });
++
++  /** loadByPage가 op 1건 배열 resolve → op-batch{ops}.length===1 */
++  it('AC-3: loadByPage가 op 1건 resolve → op-batch.ops.length===1', async () => {
++    const opB = makeOpEnvelope('site_z', 1);
++    const store: OpStore = {
++      async append() { return 'persisted'; },
++      async loadByPage() { return [opB]; },
++    };
++    server = await createRelayServer({ port: 0, opStore: store });
++
++    const ws = new WebSocket(`ws://localhost:${server.port}`);
++
++    const batchReceived = new Promise<{ type: string; ops: unknown[] }>((resolve, reject) => {
++      ws.on('open', () => ws.send(JSON.stringify({ type: 'join', pageId: PAGE })));
++      ws.on('message', (data) => {
++        const m = JSON.parse(data.toString());
++        if (m.type === 'op-batch') resolve(m);
++      });
++      ws.on('error', reject);
++    });
++
++    const batch = await Promise.race([
++      batchReceived,
++      new Promise<never>((_, rej) => setTimeout(() => rej(new Error('op-batch 수신 타임아웃')), 2000)),
++    ]);
++
++    expect(batch.ops).toHaveLength(1);
++
++    ws.close();
++  });
++
++  /** deferred loadByPage → join 1회 → resolve → op-batch 수신(epoch 정상 경로) */
++  it('AC-4: loadByPage deferred → resolve → op-batch 수신(epoch 일치)', async () => {
++    const d = deferred<ReturnType<typeof makeOpEnvelope>[]>();
++    const store: OpStore = {
++      async append() { return 'persisted'; },
++      loadByPage() { return d.promise; },
++    };
++    server = await createRelayServer({ port: 0, opStore: store });
++
++    const ws = new WebSocket(`ws://localhost:${server.port}`);
++    const batchReceived = new Promise<{ type: string; ops: unknown[] }>((resolve, reject) => {
++      ws.on('open', () => ws.send(JSON.stringify({ type: 'join', pageId: PAGE })));
++      ws.on('message', (data) => {
++        const m = JSON.parse(data.toString());
++        if (m.type === 'op-batch') resolve(m);
++      });
++      ws.on('error', reject);
++    });
++
++    // loadByPage 보류 중 → resolve 후 op-batch 수신
++    await new Promise((r) => setTimeout(r, 20)); // join 처리 시간 여유
++    d.resolve([makeOpEnvelope('site_q', 7)]);
++
++    const batch = await Promise.race([
++      batchReceived,
++      new Promise<never>((_, rej) => setTimeout(() => rej(new Error('op-batch 수신 타임아웃')), 2000)),
++    ]);
++
++    expect(batch.type).toBe('op-batch');
++    expect(batch.ops).toHaveLength(1);
++
++    ws.close();
++  });
++
++  /**
++   * AC-5(핵심): 동일 소켓 재join → epoch 격리
++   * - 첫 join의 loadByPage(defer1)가 늦게 resolve돼도 결과가 전송되지 않아야 함
++   * - 두 번째 join의 loadByPage(defer2) 결과만 전송되어야 함
++   */
++  it('AC-5: 동일 소켓 재join 시 첫 loadByPage(defer1) 결과는 stale 격리 — 두 번째 결과만 수신', async () => {
++    const opA = makeOpEnvelope('site_stale', 1);
++    const opB = makeOpEnvelope('site_fresh', 2);
++
++    const defer1 = deferred<ReturnType<typeof makeOpEnvelope>[]>();
++    const defer2 = deferred<ReturnType<typeof makeOpEnvelope>[]>();
++
++    // 첫 호출 시 firstCalled를 resolve
++    const firstCalledDefer = deferred<void>();
++    let callCount = 0;
++
++    const store: OpStore = {
++      async append() { return 'persisted'; },
++      loadByPage() {
++        callCount += 1;
++        if (callCount === 1) {
++          firstCalledDefer.resolve();
++          return defer1.promise;
++        }
++        return defer2.promise;
++      },
++    };
++
++    server = await createRelayServer({ port: 0, opStore: store });
++
++    const ws = new WebSocket(`ws://localhost:${server.port}`);
++    const receivedBatches: Array<{ type: string; ops: unknown[] }> = [];
++    let batchCount = 0;
++
++    // 두 번째 op-batch 수신 시 resolve되는 Promise
++    const secondBatchReceived = new Promise<{ type: string; ops: unknown[] }>((resolve, reject) => {
++      ws.on('open', () => ws.send(JSON.stringify({ type: 'join', pageId: PAGE })));
++      ws.on('message', (data) => {
++        const m = JSON.parse(data.toString());
++        if (m.type === 'op-batch') {
++          receivedBatches.push(m);
++          batchCount += 1;
++          if (batchCount >= 1) resolve(m); // 첫 op-batch 수신 시 즉시 resolve(두 번째 join의 결과여야 함)
++        }
++      });
++      ws.on('error', reject);
++    });
++
++    // 첫 loadByPage 호출 확인 후 동일 소켓으로 재join
++    await firstCalledDefer.promise;
++    ws.send(JSON.stringify({ type: 'join', pageId: PAGE }));
++
++    // 두 번째 join의 loadByPage(defer2)를 먼저 resolve → opB 담긴 op-batch가 와야 함
++    defer2.resolve([opB]);
++
++    const secondBatch = await Promise.race([
++      secondBatchReceived,
++      new Promise<never>((_, rej) => setTimeout(() => rej(new Error('두 번째 op-batch 수신 타임아웃')), 2000)),
++    ]);
++
++    // 두 번째 join 결과(opB)를 받았는지 확인
++    expect(secondBatch.ops).toHaveLength(1);
++    expect((secondBatch.ops[0] as { siteId: string }).siteId).toBe('site_fresh');
++
++    // 이제 defer1(stale)을 resolve → 80ms 대기 → stale op-batch 미수신 단언
++    defer1.resolve([opA]);
++    await new Promise((r) => setTimeout(r, STALE_GRACE_MS));
++
++    // stale op-batch(opA)는 수신되지 않아야 함 → receivedBatches에 opA가 없어야 함
++    const staleReceived = receivedBatches.some((b) =>
++      b.ops.some((op) => (op as { siteId: string }).siteId === 'site_stale'),
++    );
++    expect(staleReceived).toBe(false);
++
++    ws.close();
++  });
++
++  /**
++   * AC-6: AC-5와 동일 구조, defer1을 reject →
++   * 재join 후 defer1 reject → stale op-batch-error 미수신
++   */
++  it('AC-6: 동일 소켓 재join 후 첫 loadByPage reject → stale op-batch-error 미수신', async () => {
++    const opB = makeOpEnvelope('site_fresh', 2);
++
++    const defer1 = deferred<ReturnType<typeof makeOpEnvelope>[]>();
++    const defer2 = deferred<ReturnType<typeof makeOpEnvelope>[]>();
++
++    const firstCalledDefer = deferred<void>();
++    let callCount = 0;
++
++    const store: OpStore = {
++      async append() { return 'persisted'; },
++      loadByPage() {
++        callCount += 1;
++        if (callCount === 1) {
++          firstCalledDefer.resolve();
++          return defer1.promise;
++        }
++        return defer2.promise;
++      },
++    };
++
++    server = await createRelayServer({ port: 0, opStore: store });
++
++    const ws = new WebSocket(`ws://localhost:${server.port}`);
++    let staleBatchErrorReceived = false;
++    let secondBatchReceived = false;
++
++    const secondBatchPromise = new Promise<void>((resolve, reject) => {
++      ws.on('open', () => ws.send(JSON.stringify({ type: 'join', pageId: PAGE })));
++      ws.on('message', (data) => {
++        const m = JSON.parse(data.toString());
++        if (m.type === 'op-batch') {
++          secondBatchReceived = true;
++          resolve();
++        }
++        // op-batch-error: 두 번째 join 결과(op-batch) 수신 후 도착하면 stale → 선등록 리스너가 포착
++        if (m.type === 'op-batch-error') staleBatchErrorReceived = true;
++      });
++      ws.on('error', reject);
++    });
++
++    // 첫 loadByPage 호출 후 재join
++    await firstCalledDefer.promise;
++    ws.send(JSON.stringify({ type: 'join', pageId: PAGE }));
++
++    // 두 번째 join의 loadByPage(defer2) 먼저 resolve → op-batch 수신
++    defer2.resolve([opB]);
++
++    await Promise.race([
++      secondBatchPromise,
++      new Promise<never>((_, rej) => setTimeout(() => rej(new Error('두 번째 op-batch 수신 타임아웃')), 2000)),
++    ]);
++
++    expect(secondBatchReceived).toBe(true);
++
++    // defer1을 reject → 80ms 대기 → stale op-batch-error 미수신 단언
++    // (staleBatchErrorReceived 감시는 secondBatchPromise 리스너에서 이미 선등록됨)
++    defer1.reject(new Error('DB 오류'));
++    await new Promise((r) => setTimeout(r, STALE_GRACE_MS));
++
++    expect(staleBatchErrorReceived).toBe(false);
++
++    ws.close();
++  });
++});
++
+ // ─── WS-AUTH-04 정합: authSecret 설정 + membershipStore 미주입 조합에서
+ //     토큰 신원 확정 후 disconnectUser가 소켓을 강제종료해야 한다 (G1 RED)
+ //
