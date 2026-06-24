@@ -7,6 +7,9 @@ import { test, expect } from '@playwright/test';
 const PAGE_ID = process.env.E2E_PAGE_ID ?? 'REPLACE_WITH_VALID_PAGE_UUID';
 
 test('AC-11: 페이지 초기 로드가 2초 미만에 본문을 표시한다', async ({ page }) => {
+  // 유효한 E2E_PAGE_ID 없이 실행하면 로그인 리다이렉트로 10초 timeout 실패하므로 명시적으로 skip(gemini).
+  test.skip(PAGE_ID === 'REPLACE_WITH_VALID_PAGE_UUID', '유효한 E2E_PAGE_ID 환경 변수가 필요합니다.');
+
   // goto 시작 ~ 첫 블록 visible까지의 wall-clock(네트워크·SSR·하이드레이션 포함, 사용자 체감 로드).
   const start = Date.now();
   await page.goto(`/page/${PAGE_ID}`);
