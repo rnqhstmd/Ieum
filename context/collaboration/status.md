@@ -35,7 +35,7 @@
 | US-CRDT-01 | 편집이 상대방 화면에 즉시 반영 | 2인 이상 동시 편집 시 모든 클라이언트가 동일한 최종 텍스트로 수렴 | ✅ | P5 (PR #10) |
 | US-CRDT-01 | 편집이 상대방 화면에 즉시 반영 | op가 WebSocket relay로 전송되고 같은 페이지의 다른 클라이언트에 broadcast됨 | ✅ | P5 (PR #10) |
 | US-CRDT-01 | 편집이 상대방 화면에 즉시 반영 | 동일 위치 동시 삽입이 siteId 기준 결정론적 순서로 해소됨 | ✅ | P4 |
-| US-CRDT-02 | 재연결 후 편집 내용 유실 없음 | 신규 접속 클라이언트가 snapshot 또는 op 재생으로 초기화됨 | ✅ | P11 (PR #27) — relay join 시 `loadByPage`로 pageId 전체 op를 serverSeq ASC 조회→`op-batch` 송신, 클라 `applyDocOp` 순차 replay. 순수 op replay(Snapshot 연동 후속), 유실방지=선등록+crdt 인과버퍼·멱등 |
+| US-CRDT-02 | 재연결 후 편집 내용 유실 없음 | 신규 접속 클라이언트가 snapshot 또는 op 재생으로 초기화됨 | ✅ | P11 (PR #27) — relay join 시 `loadByPage`로 pageId 전체 op를 serverSeq ASC 조회→`op-batch` 송신, 클라 `applyDocOp` 순차 replay. 순수 op replay(Snapshot 연동 후속), 유실방지=선등록+crdt 인과버퍼·멱등. **하드닝 (PR #31)**: loadByPage 실패 시 빈배치 무음 대신 `op-batch-error` 전송→web `restoreError` 비차단 배너+재시도(ready 경유 join, 스팸 가드). 소켓별 join-epoch+`sendIfCurrent`로 재join 시 stale op-batch/error 조용히 폐기. 빈이력≠조회실패 구분. 복원 실패해도 편집 무중단. ※base=#28 스택 |
 | US-CRDT-02 | 재연결 후 편집 내용 유실 없음 | 모든 op가 CrdtOp 테이블에 append-only로 저장됨 | ✅ | P5 후반 (PR #14) |
 | US-CRDT-03 | op 로그로 편집 이력 추적 가능 | CrdtOp 테이블 append-only 보장, 감사 추적 가능 | ✅ | P5 후반 (PR #14) |
 | US-CRDT-03 | op 로그로 편집 이력 추적 가능 | wire 봉투: `{siteId, seq, opType, payload}` — payload는 아래 정본 구조 | ✅ | P4b (PR #9) |

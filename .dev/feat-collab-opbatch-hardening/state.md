@@ -1,6 +1,7 @@
 phase: complete
-status: in_progress
-current-step: "인수 ACCEPT → commit/PR"
+status: completed
+current-step: "완료 — PR #31 생성, collaboration status·architecture 동기화"
+pr: "https://github.com/rnqhstmd/Ieum/pull/31"
 acceptance: "ACCEPT — [Must] 13/13(AC-1~13) + [Should] FR-9·BR-4. 핵심가치 3종 검증."
 verify: "PASS(신선) — pnpm test 5 tasks(web 207+ws-relay 112+crdt) + pnpm build 3 tasks. 0 fail."
 review-result: "spec PASS(13/13) · quality PASS(Critical/Important 동작결함 0) · security CRITICAL 0·HIGH 2·MEDIUM 5(결함 아님, 하드닝 갭). 핵심수정+문서화: RGR(retry isRetrying 스팸가드+authError 배너억제) + refactor(console.warn 복원·retryRestore 주석·AC-6 리스너 선등록·STALE_GRACE_MS 상수·dead var). 나머지 MEDIUM(transport OPEN 이중join·pageId 빈문자·순서역전) 수용·문서화. relay 112+web 207, tsc 0."
@@ -27,7 +28,7 @@ phases:
   design: completed
   implement: completed
   review: completed
-  complete: in_progress
+  complete: completed
 rgr-T3: "RED ok(5 fail: AC-9/10/11/12/13) / GREEN ok(web 204, typecheck 0; useCrdtDocument restoreError+retryRestore(fetchAuth 경유)+onOpBatchError, EditorContainer restore-error 배너) / REFACTOR skip(authError 미러링)"
 implement-result: "ws-relay 112(server.test 29 신규 6) + web 204(신규 op-batch-error 파싱·라우팅·restoreError·retryRestore·배너) + typecheck 0. 6 소스 + 4 테스트 변경."
   review: pending
