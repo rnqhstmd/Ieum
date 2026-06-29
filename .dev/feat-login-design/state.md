@@ -1,5 +1,5 @@
-phase: setup
-status: in_progress
+phase: complete
+status: completed
 vcs-type: git
 branch: feat/login-design
 base: feat/landing-design
@@ -15,7 +15,11 @@ started: 2026-06-29
 phases:
   setup: completed
   implement: completed
-  complete: in_progress
+  complete: completed
+complete-steps:
+  - 커밋: completed (3cfddd8)
+  - PR: completed (rnqhstmd/Ieum#34, base feat/landing-design 스택)
+  - gh 계정 복원: completed (bs-koo)
 steps:
   setup:
     - 브랜치 생성: completed (feat/login-design from feat/landing-design, 스택)
