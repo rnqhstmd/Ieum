@@ -20,6 +20,7 @@ const config: Config = {
         body: 'var(--c-body)',
         dim: 'var(--c-dim)',
         faint: 'var(--c-faint)',
+        fainter: 'var(--c-fainter)',
         label: 'var(--c-label)',
         accent: 'var(--c-accent)',
         ok: 'var(--c-ok)',
