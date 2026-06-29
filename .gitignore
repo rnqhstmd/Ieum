@@ -39,3 +39,8 @@ Thumbs.db
 
 # Windows crash dumps
 *.stackdump
+.playwright-mcp/
+/landing-desktop.png
+/landing-v2.png
+/landing-1280.png
+/landing-mobile.png
