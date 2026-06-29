@@ -1,15 +1,16 @@
- .dev/feat-landing-design/diff.txt               |  35 +++++
- .dev/feat-landing-design/landing-design-spec.md |  85 ++++++++++++
- .dev/feat-landing-design/state.md               |  26 ++++
- .gitignore                                      |   1 +
- apps/web/app/page.tsx                           | 165 ++++++++++++++++++------
- apps/web/components/landing/Constellation.tsx   |  90 +++++++++++++
- 6 files changed, 365 insertions(+), 37 deletions(-)
+ .dev/feat-landing-design/diff.txt               | 300 ++++++++++++++++++++++++
+ .dev/feat-landing-design/landing-design-spec.md |  85 +++++++
+ .dev/feat-landing-design/self-check.md          |  19 ++
+ .dev/feat-landing-design/state.md               |  27 +++
+ .gitignore                                      |   5 +
+ apps/web/app/page.tsx                           | 178 +++++++++++---
+ apps/web/components/landing/Constellation.tsx   |  92 ++++++++
+ 7 files changed, 669 insertions(+), 37 deletions(-)
 diff --git a/apps/web/app/page.tsx b/apps/web/app/page.tsx
-index 470bd16..fa2e36d 100644
+index 470bd16..4be449c 100644
 --- a/apps/web/app/page.tsx
 +++ b/apps/web/app/page.tsx
-@@ -1,64 +1,155 @@
+@@ -1,64 +1,168 @@
  import Link from 'next/link';
  
 -const BANDS: ReadonlyArray<readonly [string, string]> = [
@@ -45,9 +46,12 @@ index 470bd16..fa2e36d 100644
 +          <ul className="ml-11 hidden items-center gap-7 sm:flex">
 +            {NAV_MENU.map((item) => (
 +              <li key={item}>
-+                <span className="text-[12px] font-semibold uppercase tracking-[1.4px] text-dim">
++                <button
++                  type="button"
++                  className="appearance-none border-0 bg-transparent p-0 text-[12px] font-semibold uppercase tracking-[1.4px] text-dim cursor-pointer"
++                >
 +                  {item}
-+                </span>
++                </button>
 +              </li>
 +            ))}
 +          </ul>
@@ -130,13 +134,16 @@ index 470bd16..fa2e36d 100644
 +
 +          {/* 에디터 미리보기 카드 */}
 +          <div className="relative w-full flex-none rounded-[8px] border border-hair bg-deep px-[28px] py-[26px] sm:w-[480px]">
-+            <div className="mb-4 h-[9px] w-[60%] rounded-[2px] bg-[var(--c-fill-a)]" />
-+            <div className="mb-3 h-[9px] w-[92%] rounded-[2px] bg-[var(--c-fill-b)]" />
-+            <div className="mb-3 h-[9px] w-[84%] rounded-[2px] bg-[var(--c-fill-b)]" />
-+            <div className="h-[9px] w-[70%] rounded-[2px] bg-[var(--c-fill-b)]" />
++            <div aria-hidden="true" className="mb-4 h-[9px] w-[60%] rounded-[2px] bg-[var(--c-fill-a)]" />
++            <div aria-hidden="true" className="mb-3 h-[9px] w-[92%] rounded-[2px] bg-[var(--c-fill-b)]" />
++            <div aria-hidden="true" className="mb-3 h-[9px] w-[84%] rounded-[2px] bg-[var(--c-fill-b)]" />
++            <div aria-hidden="true" className="h-[9px] w-[70%] rounded-[2px] bg-[var(--c-fill-b)]" />
 +
 +            {/* presence: 민지 */}
-+            <div className="absolute left-[150px] top-[34px] sm:left-[200px] sm:top-[40px]">
++            <div
++              aria-hidden="true"
++              className="absolute left-[150px] top-[34px] sm:left-[200px] sm:top-[40px]"
++            >
 +              <div className="relative h-[18px] w-[2px]" style={{ background: '#6fd6e8' }}>
 +                <span
 +                  className="absolute -top-4 left-0 whitespace-nowrap rounded-[3px] px-[6px] py-[3px] text-[9px] font-bold text-black"
@@ -148,7 +155,7 @@ index 470bd16..fa2e36d 100644
 +            </div>
 +
 +            {/* presence: 준 (데스크탑만) */}
-+            <div className="absolute left-[120px] top-[88px] hidden sm:block">
++            <div aria-hidden="true" className="absolute left-[120px] top-[88px] hidden sm:block">
 +              <div className="relative h-[18px] w-[2px]" style={{ background: '#e8c06f' }}>
 +                <span
 +                  className="absolute -top-4 left-0 whitespace-nowrap rounded-[3px] px-[6px] py-[3px] text-[9px] font-bold text-black"
@@ -184,7 +191,14 @@ index 470bd16..fa2e36d 100644
 +                </p>
 +                <ul className="text-[13px] leading-[2.1] text-body">
 +                  {col.items.map((item) => (
-+                    <li key={item}>{item}</li>
++                    <li key={item}>
++                      <button
++                        type="button"
++                        className="appearance-none border-0 bg-transparent p-0 leading-[2.1] text-body cursor-pointer"
++                      >
++                        {item}
++                      </button>
++                    </li>
 +                  ))}
 +                </ul>
 +              </div>
@@ -204,10 +218,12 @@ index 470bd16..fa2e36d 100644
    );
 diff --git a/apps/web/components/landing/Constellation.tsx b/apps/web/components/landing/Constellation.tsx
 new file mode 100644
-index 0000000..c6958ce
+index 0000000..b8b1a52
 --- /dev/null
 +++ b/apps/web/components/landing/Constellation.tsx
-@@ -0,0 +1,90 @@
+@@ -0,0 +1,92 @@
++import { memo } from 'react';
++
 +type Node = {
 +  x: number;
 +  y: number;
@@ -250,7 +266,7 @@ index 0000000..c6958ce
 +  opacity?: number;
 +};
 +
-+export function Constellation({ opacity = 0.55 }: ConstellationProps) {
++export const Constellation = memo(function Constellation({ opacity = 0.55 }: ConstellationProps) {
 +  return (
 +    <svg
 +      aria-hidden
@@ -259,14 +275,14 @@ index 0000000..c6958ce
 +      className="pointer-events-none absolute inset-0 h-full w-full"
 +      style={{ opacity }}
 +    >
-+      {EDGES.map(([a, b], i) => {
++      {EDGES.map(([a, b]) => {
 +        const from = NODES[a];
 +        const to = NODES[b];
 +        if (!from || !to) return null;
 +        const colored = from.color != null || to.color != null;
 +        return (
 +          <line
-+            key={`e-${i}`}
++            key={`${a}-${b}`}
 +            x1={from.x}
 +            y1={from.y}
 +            x2={to.x}
@@ -276,10 +292,10 @@ index 0000000..c6958ce
 +          />
 +        );
 +      })}
-+      {NODES.map((node, i) => {
++      {NODES.map((node) => {
 +        const r = node.r ?? 0.85;
 +        return (
-+          <g key={`n-${i}`}>
++          <g key={`${node.x}-${node.y}`}>
 +            {node.color != null && (
 +              <circle
 +                cx={node.x}
@@ -297,4 +313,4 @@ index 0000000..c6958ce
 +      })}
 +    </svg>
 +  );
-+}
++});
