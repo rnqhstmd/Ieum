@@ -68,7 +68,8 @@ export type BlockType =
   | 'heading1'
   | 'heading2'
   | 'heading3'
-  | 'bullet';
+  | 'bullet'
+  | 'code';
 
 export interface BlockMeta {
   type: BlockType;

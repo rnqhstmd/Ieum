@@ -2,8 +2,6 @@ package com.ieum.page;
 
 import jakarta.persistence.*;
 import lombok.*;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -45,11 +43,23 @@ public class Page {
     /** 아카이브된 경우 설정, null이면 활성 상태 */
     private Instant archivedAt;
 
-    @CreationTimestamp
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 
-    @UpdateTimestamp
     @Column(nullable = false)
     private Instant updatedAt;
+
+    // 타임스탬프는 JPA 생명주기 콜백으로 직접 채운다 — Hibernate VM @CreationTimestamp는
+    // flush(INSERT) 시점에 생성되어 save() 직후 반환 DTO의 createdAt이 null이 되는 문제가 있었다.
+    @PrePersist
+    void onCreate() {
+        Instant now = Instant.now();
+        if (createdAt == null) createdAt = now;
+        if (updatedAt == null) updatedAt = now;
+    }
+
+    @PreUpdate
+    void onUpdate() {
+        updatedAt = Instant.now();
+    }
 }

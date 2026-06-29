@@ -10,9 +10,10 @@ import type { FormEvent, KeyboardEvent } from 'react';
 interface TitleEditorProps {
   title: string;
   onChange: (title: string) => void;
+  onEnter?: () => void; // 제목에서 Enter → 본문 첫 블록으로 포커스 이동(노션식)
 }
 
-export default function TitleEditor({ title, onChange }: TitleEditorProps) {
+export default function TitleEditor({ title, onChange, onEnter }: TitleEditorProps) {
   const ref = useRef<HTMLHeadingElement | null>(null);
 
   // 모델 → DOM 단방향 반영(캐럿 점프 방지).
@@ -30,7 +31,10 @@ export default function TitleEditor({ title, onChange }: TitleEditorProps) {
       suppressContentEditableWarning
       onInput={(e: FormEvent<HTMLHeadingElement>) => onChange(e.currentTarget.textContent ?? '')}
       onKeyDown={(e: KeyboardEvent<HTMLHeadingElement>) => {
-        if (e.key === 'Enter') e.preventDefault(); // 제목은 한 줄
+        if (e.key === 'Enter') {
+          e.preventDefault(); // 제목은 한 줄 — 본문 첫 블록으로 포커스 이동
+          onEnter?.();
+        }
       }}
       className="mb-6 text-3xl font-bold text-ink outline-none empty:before:text-faint empty:before:content-['제목_없음']"
     />

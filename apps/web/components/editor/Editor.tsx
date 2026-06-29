@@ -6,12 +6,13 @@
 // P6 커서: caret 이동을 50ms debounce 후 onCursorMove(blockId, offset)로 올리고(상위가
 // anchorId 변환·전송), 원격 협업자 커서를 블록 안 절대 위치 오버레이로 렌더한다.
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
 import { idKey, idEquals } from '@ieum/crdt';
 import type { BlockType, EditorBlockView, RgaId } from '@ieum/crdt';
 import type { CursorInfo, PresenceInfo } from '@/src/lib/realtime/protocol';
 import { detectBlockTypeShortcut } from '@/src/lib/editor/crdtDocument';
+import BlockTypeMenu, { BLOCK_TYPE_ITEMS } from '@/components/editor/BlockTypeMenu';
 
 // data-block-id 셀렉터 단일 출처. 화살표 탐색·selectionchange 양쪽에서 재사용.
 const blockSelector = (key: string): string => `[data-block-id="${key}"]`;
@@ -52,6 +53,27 @@ function placeCaret(el: HTMLElement, atEnd: boolean): void {
   }
 }
 
+/** 블록 내 특정 offset에 caret 배치(Backspace 병합 지점 복원용). */
+function placeCaretAt(el: HTMLElement, offset: number): void {
+  try {
+    const sel = window.getSelection();
+    if (!sel) return;
+    const range = document.createRange();
+    const node = el.firstChild;
+    if (node && node.nodeType === Node.TEXT_NODE) {
+      range.setStart(node, Math.min(offset, node.textContent?.length ?? 0));
+      range.collapse(true);
+    } else {
+      range.selectNodeContents(el);
+      range.collapse(offset === 0);
+    }
+    sel.removeAllRanges();
+    sel.addRange(range);
+  } catch {
+    /* jsdom 등 selection 미지원 */
+  }
+}
+
 /** 현재 선택 영역의 블록 내 캐럿 offset. 미지원(jsdom) 시 fallback. */
 function getCaretOffset(el: HTMLElement, fallback: number): number {
   try {
@@ -78,12 +100,15 @@ function getCaretOffset(el: HTMLElement, fallback: number): number {
   return fallback;
 }
 
+// 빈 블록에 타입별 희미한 라벨(empty:before placeholder) — 변환 후 블록 타입/커서 위치를 알기 쉽게.
+const PH = 'empty:before:text-faint empty:before:pointer-events-none';
 const BLOCK_CLASS: Record<EditorBlockView['type'], string> = {
   paragraph: 'text-[15px] leading-7 text-body whitespace-pre-wrap',
-  heading1: 'text-3xl font-bold text-ink mt-4 whitespace-pre-wrap',
-  heading2: 'text-2xl font-semibold text-ink mt-3 whitespace-pre-wrap',
-  heading3: 'text-xl font-semibold text-ink mt-2 whitespace-pre-wrap',
-  bullet: 'text-[15px] leading-7 text-body whitespace-pre-wrap',
+  heading1: `text-3xl font-bold text-ink mt-4 whitespace-pre-wrap ${PH} empty:before:content-['제목_1']`,
+  heading2: `text-2xl font-semibold text-ink mt-3 whitespace-pre-wrap ${PH} empty:before:content-['제목_2']`,
+  heading3: `text-xl font-semibold text-ink mt-2 whitespace-pre-wrap ${PH} empty:before:content-['제목_3']`,
+  bullet: `text-[15px] leading-7 text-body whitespace-pre-wrap ${PH} empty:before:content-['리스트']`,
+  code: `text-[14px] leading-7 font-mono text-ink bg-hover/60 rounded px-2 py-1 whitespace-pre-wrap ${PH} empty:before:content-['코드']`,
 };
 
 interface BlockViewProps {
@@ -95,6 +120,8 @@ interface BlockViewProps {
   onCaret: (el: HTMLElement) => void; // P6: caret 이동 캡처(keyUp/click)
   onFocus: () => void;
   onBlur: () => void;
+  onBeforeEnter: (el: HTMLElement) => void; // beforeinput insertParagraph(IME 안전 Enter 분할)
+  menuNode: ReactNode; // 블록 타입 드롭다운(열린 블록에만 전달)
   overlays: ReactNode; // P6: 원격 커서 오버레이(contentEditable 형제로 렌더 — 편집 대상 아님)
 }
 
@@ -107,9 +134,13 @@ function BlockView({
   onCaret,
   onFocus,
   onBlur,
+  onBeforeEnter,
+  menuNode,
   overlays,
 }: BlockViewProps) {
   const ref = useRef<HTMLElement | null>(null);
+  const beforeEnterRef = useRef(onBeforeEnter);
+  beforeEnterRef.current = onBeforeEnter;
   const setRef = (el: HTMLElement | null) => {
     ref.current = el;
   };
@@ -119,6 +150,21 @@ function BlockView({
     const el = ref.current;
     if (el && el.textContent !== block.text) el.textContent = block.text;
   }, [block.text]);
+
+  // ⚠️ IME 안전 Enter: 한글 조합 중 keydown은 key='Process'(keyCode 229)라 'Enter'로 잡히지 않는다.
+  // beforeinput의 insertParagraph는 조합 확정 후 발생하므로 한·영 무관하게 Enter를 포착한다.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const handler = (e: Event) => {
+      if ((e as InputEvent).inputType === 'insertParagraph') {
+        e.preventDefault();
+        beforeEnterRef.current(el);
+      }
+    };
+    el.addEventListener('beforeinput', handler);
+    return () => el.removeEventListener('beforeinput', handler);
+  }, []);
 
   const common = {
     'data-block-id': idKey(block.id),
@@ -154,6 +200,7 @@ function BlockView({
   return (
     <div className="relative">
       {editable}
+      {menuNode}
       {overlays}
     </div>
   );
@@ -175,31 +222,77 @@ export default function Editor({
   const composing = useRef(false);
   const cursorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const focusedBlock = useRef<string | null>(null);
+  const pendingSplitFocus = useRef<string | null>(null); // Enter 분할 후 포커스 이동 대상(원본 blockId)
+  const pendingMergeFocus = useRef<{ key: string; offset: number } | null>(null); // Backspace 병합 후 이전 블록 caret
+  const [menu, setMenu] = useState<{ blockKey: string; index: number } | null>(null);
+
+  // 메뉴에서 타입 선택 → 타입 적용 + 트리거 문자('#'/'/') 제거 + 메뉴 닫기 + caret 유지.
+  const selectType = (blockId: RgaId, type: BlockType) => {
+    onSetType?.(blockId, type);
+    onBlockInput(blockId, '');
+    setMenu(null);
+    const el = document.querySelector<HTMLElement>(blockSelector(idKey(blockId)));
+    if (el) {
+      el.focus();
+      placeCaret(el, false);
+    }
+  };
 
   const handleInput = (blockId: RgaId, e: FormEvent<HTMLElement>) => {
     if (composing.current) return;
     const newText = e.currentTarget.textContent ?? '';
+    // 빈 블록 트리거: '/' 또는 '#' 단독 입력 → 블록 타입 드롭다운
+    if (newText === '/' || newText === '#') {
+      setMenu({ blockKey: idKey(blockId), index: 0 });
+      onBlockInput(blockId, newText);
+      return;
+    }
     const shortcut = detectBlockTypeShortcut(newText);
     if (shortcut) {
+      setMenu(null);
       onBlockInput(blockId, newText.slice(shortcut.consumed));
       onSetType?.(blockId, shortcut.type);
       return;
     }
+    if (menu) setMenu(null); // 트리거 외 입력 시 메뉴 닫기
     onBlockInput(blockId, newText);
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLElement>, block: EditorBlockView) => {
-    if (composing.current) return;
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      const offset = getCaretOffset(e.currentTarget, block.text.length);
-      onEnter?.(block.id, offset);
-      return;
+    // 블록 타입 메뉴가 열려 있으면 키를 가로챈다(↑↓ 이동, Enter 선택, Esc 닫기).
+    if (menu && menu.blockKey === idKey(block.id)) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setMenu((m) => (m ? { ...m, index: (m.index + 1) % BLOCK_TYPE_ITEMS.length } : m));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setMenu((m) => (m ? { ...m, index: (m.index - 1 + BLOCK_TYPE_ITEMS.length) % BLOCK_TYPE_ITEMS.length } : m));
+        return;
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const item = BLOCK_TYPE_ITEMS[menu.index];
+        if (item) selectType(block.id, item.type);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setMenu(null);
+        return;
+      }
     }
+    // Enter는 여기서 처리하지 않는다 — 한글 조합 중 keydown은 key='Process'(keyCode 229)라 'Enter'로
+    // 잡히지 않는다. 대신 BlockView의 beforeinput(insertParagraph)에서 IME 무관하게 분할한다.
+    if (composing.current) return; // Backspace·화살표는 조합 중 IME가 처리하도록 무시한다
     if (e.key === 'Backspace') {
       const offset = getCaretOffset(e.currentTarget, block.text.length);
       if (offset === 0) {
         e.preventDefault();
+        const idx = blocks.findIndex((bl) => idEquals(bl.id, block.id));
+        const prev = blocks[idx - 1];
+        if (prev) pendingMergeFocus.current = { key: idKey(prev.id), offset: prev.text.length };
         onBackspace?.(block.id);
       }
     }
@@ -289,6 +382,33 @@ export default function Editor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blocks, onCursorMove]);
 
+  // 구조 편집(Enter 분할 / Backspace 병합) 후 caret 이동 — 이게 없으면 커서가 원래 자리에 남는다.
+  useEffect(() => {
+    // Enter 분할 → 새(다음) 블록 맨앞. splitBlock은 원본 블록 바로 다음에 새 블록을 넣는다.
+    const splitFrom = pendingSplitFocus.current;
+    if (splitFrom) {
+      pendingSplitFocus.current = null;
+      const idx = blocks.findIndex((bl) => idKey(bl.id) === splitFrom);
+      const next = blocks[idx + 1];
+      const el = next ? document.querySelector<HTMLElement>(blockSelector(idKey(next.id))) : null;
+      if (el) {
+        el.focus();
+        placeCaret(el, false); // 새 블록 맨 앞
+      }
+      return;
+    }
+    // Backspace 병합 → 이전 블록의 병합 지점(원래 끝)으로 caret 이동.
+    const merge = pendingMergeFocus.current;
+    if (merge) {
+      pendingMergeFocus.current = null;
+      const el = document.querySelector<HTMLElement>(blockSelector(merge.key));
+      if (el) {
+        el.focus();
+        placeCaretAt(el, merge.offset);
+      }
+    }
+  }, [blocks]);
+
   return (
     <div role="group" aria-label="페이지 본문" className="space-y-1">
       {blocks.map((b) => (
@@ -304,6 +424,19 @@ export default function Editor({
             onBlockInput(b.id, e.currentTarget.textContent ?? '');
           }}
           onKeyDown={(e) => handleKeyDown(e, b)}
+          onBeforeEnter={(el) => {
+            pendingSplitFocus.current = idKey(b.id);
+            onEnter?.(b.id, getCaretOffset(el, b.text.length));
+          }}
+          menuNode={
+            menu && menu.blockKey === idKey(b.id) ? (
+              <BlockTypeMenu
+                activeIndex={menu.index}
+                onSelect={(t) => selectType(b.id, t)}
+                onHover={(i) => setMenu((m) => (m ? { ...m, index: i } : m))}
+              />
+            ) : null
+          }
           onCaret={(el) => scheduleCursor(b, el)}
           onFocus={() => {
             focusedBlock.current = idKey(b.id);

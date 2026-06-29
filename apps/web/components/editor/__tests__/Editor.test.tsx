@@ -61,10 +61,13 @@ describe('Editor — CRDT 블록 에디터 (P5)', () => {
     expect(spy).toHaveBeenCalledWith(id(1), '각');
   });
 
-  it('구조 편집 비활성: Enter는 분할하지 않고 기본 동작을 막는다', () => {
+  it('구조 편집 비활성: Enter(beforeinput)는 분할하지 않고 기본 동작을 막는다', () => {
     const spy = vi.fn();
     const { container } = render(<Editor blocks={[block(1, 'paragraph', 'ab')]} onBlockInput={spy} />);
-    const prevented = !fireEvent.keyDown(el(container, id(1)), { key: 'Enter' });
+    const prevented = !fireEvent(
+      el(container, id(1)),
+      new InputEvent('beforeinput', { inputType: 'insertParagraph', bubbles: true, cancelable: true }),
+    );
     expect(prevented).toBe(true);
     expect(spy).not.toHaveBeenCalled();
   });
@@ -92,7 +95,10 @@ describe('Editor — 구조 편집 콜백 배선 (P9)', () => {
       />,
     );
     const node = el(container, id(1));
-    const prevented = !fireEvent.keyDown(node, { key: 'Enter' });
+    const prevented = !fireEvent(
+      node,
+      new InputEvent('beforeinput', { inputType: 'insertParagraph', bubbles: true, cancelable: true }),
+    );
     expect(prevented).toBe(true);
     expect(onEnter).toHaveBeenCalledTimes(1);
     // 첫 번째 인자는 blockId(RgaId 객체), 두 번째는 offset(number)
@@ -162,8 +168,8 @@ describe('Editor — 구조 편집 콜백 배선 (P9)', () => {
 
 // W1 — IME 조합 중 구조 편집 콜백 가드
 describe('Editor — IME 조합 가드 (W1)', () => {
-  // W1-a: compositionstart 후 compositionend 전 Enter → onEnter 미호출
-  it('W1-a: IME 조합 중 Enter → onEnter가 호출되지 않는다', () => {
+  // W1-a: 조합 중 Enter는 즉시 분할하지 않고, compositionend(조합 확정) 후 분할한다(한글 "안녕"+Enter).
+  it('W1-a: 조합 중 keydown Enter는 분할하지 않는다(한글은 key=Process, beforeinput에서만 분할)', () => {
     const onEnter = vi.fn();
     const { container } = render(
       <Editor
@@ -174,8 +180,7 @@ describe('Editor — IME 조합 가드 (W1)', () => {
     );
     const node = el(container, id(1));
     fireEvent.compositionStart(node);
-    // 조합 중 Enter 키 — onEnter 콜백이 불려서는 안 된다
-    fireEvent.keyDown(node, { key: 'Enter' });
+    fireEvent.keyDown(node, { key: 'Enter' }); // keydown 경로로는 분할되지 않는다
     expect(onEnter).not.toHaveBeenCalled();
   });
 
@@ -195,8 +200,8 @@ describe('Editor — IME 조합 가드 (W1)', () => {
     expect(onBackspace).not.toHaveBeenCalled();
   });
 
-  // W1-c: compositionend 후 Enter → onEnter 정상 호출 (회귀 방지)
-  it('W1-c: compositionend 후 Enter → onEnter가 정상 호출된다', () => {
+  // W1-c: 조합 확정 후 beforeinput(insertParagraph) → onEnter 정상 호출 (IME 안전 분할 회귀 방지)
+  it('W1-c: 조합 확정 후 beforeinput(insertParagraph) → onEnter가 정상 호출된다', () => {
     const onEnter = vi.fn();
     const { container } = render(
       <Editor
@@ -208,7 +213,10 @@ describe('Editor — IME 조합 가드 (W1)', () => {
     const node = el(container, id(1));
     fireEvent.compositionStart(node);
     fireEvent.compositionEnd(node);
-    fireEvent.keyDown(node, { key: 'Enter' });
+    fireEvent(
+      node,
+      new InputEvent('beforeinput', { inputType: 'insertParagraph', bubbles: true, cancelable: true }),
+    );
     expect(onEnter).toHaveBeenCalledTimes(1);
   });
 });

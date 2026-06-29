@@ -122,18 +122,25 @@ class PageServiceTest {
         verify(pageRepository, never()).save(any());
     }
 
-    // ── AC-13: 빈 제목 거부 ────────────────────────────────────────────
+    // ── AC-13: 빈 제목 허용(노션식 placeholder) ─────────────────────────
     @Test
-    @DisplayName("AC-13: createPage — 제목이 공백뿐이면 IllegalArgumentException(400), 저장 안 함")
-    void createPage_blankTitle_throws() {
+    @DisplayName("AC-13: createPage — 미입력(null) 제목은 빈 문자열로 저장(거부하지 않음)")
+    void createPage_blankTitle_savesEmpty() {
         UUID userId = UUID.randomUUID();
         UUID wsId = UUID.randomUUID();
+        when(pageRepository.save(any(Page.class))).thenAnswer(inv -> {
+            Page p = inv.getArgument(0);
+            if (p.getId() == null) p.setId(UUID.randomUUID());
+            return p;
+        });
 
-        assertThatThrownBy(() -> pageService.createPage(userId, wsId,
-                new CreatePageRequest(null, "   ", null, 0)))
-                .isInstanceOf(IllegalArgumentException.class);
+        PageDto result = pageService.createPage(userId, wsId,
+                new CreatePageRequest(null, null, null, 0));
 
-        verify(pageRepository, never()).save(any());
+        ArgumentCaptor<Page> captor = ArgumentCaptor.forClass(Page.class);
+        verify(pageRepository).save(captor.capture());
+        assertThat(captor.getValue().getTitle()).isEmpty();
+        assertThat(result.title()).isEmpty();
     }
 
     // ── AC-5: 트리 조립 (부모-자식) ────────────────────────────────────
@@ -265,18 +272,18 @@ class PageServiceTest {
     }
 
     @Test
-    @DisplayName("AC-B3: updatePage — 제목이 공백뿐이면 IllegalArgumentException, 저장 안 함")
-    void updatePage_blankTitle_throws() {
+    @DisplayName("AC-B3: updatePage — 빈 제목도 반영한다(거부하지 않음)")
+    void updatePage_blankTitle_savesEmpty() {
         UUID userId = UUID.randomUUID();
         UUID wsId = UUID.randomUUID();
         UUID pageId = UUID.randomUUID();
         Page page = Page.builder().id(pageId).workspaceId(wsId).title("T").position(0).createdById(userId).build();
         when(pageRepository.findById(pageId)).thenReturn(Optional.of(page));
+        when(pageRepository.save(any(Page.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        assertThatThrownBy(() -> pageService.updatePage(userId, wsId, pageId, new UpdatePageRequest("   ", null)))
-                .isInstanceOf(IllegalArgumentException.class);
+        PageDto result = pageService.updatePage(userId, wsId, pageId, new UpdatePageRequest("", null));
 
-        verify(pageRepository, never()).save(any());
+        assertThat(result.title()).isEmpty();
     }
 
     @Test

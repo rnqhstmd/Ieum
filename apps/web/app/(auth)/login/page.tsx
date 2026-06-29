@@ -2,6 +2,7 @@
 // 버튼 클릭 시 백엔드(Spring Boot)의 OAuth2 인가 엔드포인트로 이동.
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080';
+const DEV_LOGIN = process.env.NEXT_PUBLIC_DEV_LOGIN === '1';
 
 export default function LoginPage() {
   return (
@@ -27,6 +28,28 @@ export default function LoginPage() {
         </svg>
         Google로 로그인
       </a>
+
+      {DEV_LOGIN && (
+        <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-faint px-6 py-4">
+          <p className="text-[11px] font-bold uppercase tracking-[1.5px] text-faint">
+            ⚠ DEV 전용 로그인 (OAuth 우회)
+          </p>
+          <div className="flex gap-3">
+            <a
+              href={`${API_URL}/api/dev/login?email=alice@dev.local`}
+              className="rounded-full border border-ink px-5 py-2.5 text-xs font-bold text-ink transition hover:bg-hover"
+            >
+              alice 로그인
+            </a>
+            <a
+              href={`${API_URL}/api/dev/login?email=bob@dev.local`}
+              className="rounded-full border border-ink px-5 py-2.5 text-xs font-bold text-ink transition hover:bg-hover"
+            >
+              bob 로그인
+            </a>
+          </div>
+        </div>
+      )}
 
       <p className="absolute bottom-8 max-w-xs text-[11px] leading-relaxed text-faint">
         계속 진행하면 서비스 약관 및 개인정보 처리방침에 동의하는 것으로 간주됩니다.

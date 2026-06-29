@@ -84,5 +84,6 @@ export function detectBlockTypeShortcut(
   if (text.startsWith('## ')) return { type: 'heading2', consumed: 3 };
   if (text.startsWith('# ')) return { type: 'heading1', consumed: 2 };
   if (text.startsWith('- ')) return { type: 'bullet', consumed: 2 };
+  if (text.startsWith('```')) return { type: 'code', consumed: 3 };
   return null;
 }
