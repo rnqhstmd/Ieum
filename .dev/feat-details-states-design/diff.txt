@@ -1,0 +1,977 @@
+diff --git a/apps/web/app/showcase/overlays/page.tsx b/apps/web/app/showcase/overlays/page.tsx
+new file mode 100644
+index 0000000..16cce74
+--- /dev/null
++++ b/apps/web/app/showcase/overlays/page.tsx
+@@ -0,0 +1,106 @@
++'use client';
++
++// Details(오버레이) 쇼케이스 — 각 오버레이를 라벨 붙은 relative 프레임에 "열린 상태"로 렌더.
++// 백드롭은 프레임 내 absolute로 스코프. 샘플 prop 주입, 콜백 no-op.
++import type { ReactNode } from 'react';
++
++import AccountMenu from '@/components/overlays/AccountMenu';
++import CommandPalette from '@/components/overlays/CommandPalette';
++import ConfirmDialog from '@/components/overlays/ConfirmDialog';
++import IconPicker from '@/components/overlays/IconPicker';
++import MobileActionSheet from '@/components/overlays/MobileActionSheet';
++
++const noop = () => {};
++
++function Frame({ label, height, children }: { label: string; height: string; children: ReactNode }) {
++  return (
++    <section className="flex flex-col gap-2">
++      <div className="text-[10px] font-semibold uppercase tracking-[1.6px] text-label">{label}</div>
++      <div className={`relative overflow-hidden rounded-xl border border-hair bg-surface ${height}`}>
++        {children}
++      </div>
++    </section>
++  );
++}
++
++export default function OverlaysShowcasePage() {
++  return (
++    <main className="min-h-screen bg-deep px-6 py-10 text-ink">
++      <div className="mx-auto max-w-[920px]">
++        <h1 className="text-2xl font-semibold">Details · 오버레이</h1>
++        <p className="mt-2 text-sm text-dim">재사용 프레젠테이션 컴포넌트 갤러리. 모든 액션은 스텁(no-op).</p>
++
++        <div className="mt-8 flex flex-col gap-8">
++          <Frame label="Command Palette" height="h-[420px]">
++            <CommandPalette
++              onClose={noop}
++              groups={[
++                {
++                  label: '빠른 이동',
++                  items: [
++                    { icon: '📄', title: '제품 로드맵', meta: '최근 편집', onSelect: noop },
++                    { icon: '📝', title: '주간 회의록', meta: '어제', onSelect: noop },
++                    { icon: '📁', title: '디자인 시스템', meta: '3일 전', onSelect: noop },
++                  ],
++                },
++                {
++                  label: '액션',
++                  items: [
++                    { icon: '＋', title: '새 페이지 만들기', kbd: '⏎', onSelect: noop },
++                    { icon: '✉', title: '멤버 초대', kbd: '⏎', onSelect: noop },
++                  ],
++                },
++              ]}
++            />
++          </Frame>
++
++          <Frame label="Icon Picker" height="h-[360px]">
++            <div className="flex h-full items-center justify-center">
++              <IconPicker onSelect={noop} onRandom={noop} onRemove={noop} />
++            </div>
++          </Frame>
++
++          <Frame label="Confirm Dialog (파괴적)" height="h-[300px]">
++            <ConfirmDialog
++              title="페이지를 아카이브할까요?"
++              message="아카이브하면 사이드바에서 숨겨지며, 언제든 보관함에서 복원할 수 있습니다."
++              confirmLabel="아카이브"
++              cancelLabel="취소"
++              destructive
++              onConfirm={noop}
++              onCancel={noop}
++            />
++          </Frame>
++
++          <Frame label="Account Menu" height="h-[360px]">
++            <div className="flex h-full items-start justify-center pt-8">
++              <AccountMenu
++                name="김이음"
++                email="ieum@example.com"
++                theme="다크"
++                onSettings={noop}
++                onToggleTheme={noop}
++                onHelp={noop}
++                onLogout={noop}
++              />
++            </div>
++          </Frame>
++
++          <Frame label="Mobile Action Sheet" height="h-[420px]">
++            <MobileActionSheet
++              title="주간 회의록"
++              icon="📝"
++              actions={[
++                { icon: <span>✏️</span>, label: '이름 변경', onClick: noop },
++                { icon: <span>🔗</span>, label: '링크 복사', onClick: noop },
++                { icon: <span>📋</span>, label: '복제', onClick: noop },
++                { icon: <span>🗑️</span>, label: '삭제', destructive: true, onClick: noop },
++              ]}
++              onClose={noop}
++            />
++          </Frame>
++        </div>
++      </div>
++    </main>
++  );
++}
+diff --git a/apps/web/app/showcase/states/page.tsx b/apps/web/app/showcase/states/page.tsx
+new file mode 100644
+index 0000000..5f2a474
+--- /dev/null
++++ b/apps/web/app/showcase/states/page.tsx
+@@ -0,0 +1,114 @@
++'use client';
++
++import type { ReactNode } from 'react';
++import EmptyState from '@/components/states/EmptyState';
++import LoadingSkeleton from '@/components/states/LoadingSkeleton';
++import Forbidden403 from '@/components/states/Forbidden403';
++import ConnectionBanner from '@/components/states/ConnectionBanner';
++import ErrorToast from '@/components/states/ErrorToast';
++import ContextMenu from '@/components/states/ContextMenu';
++
++const noop = () => {};
++
++function Frame({
++  label,
++  className = '',
++  children,
++}: {
++  label: string;
++  className?: string;
++  children: ReactNode;
++}) {
++  return (
++    <section className="flex flex-col gap-3">
++      <h2 className="text-[10px] font-semibold uppercase tracking-[1.6px] text-label">{label}</h2>
++      <div className={`relative flex items-center justify-center rounded-xl border border-hair bg-surface p-10 ${className}`}>
++        {children}
++      </div>
++    </section>
++  );
++}
++
++function RenameIcon() {
++  return (
++    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
++      <path d="M12 20h9" />
++      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
++    </svg>
++  );
++}
++
++function ImageIcon() {
++  return (
++    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
++      <rect x="3" y="3" width="18" height="18" rx="2" />
++      <circle cx="8.5" cy="8.5" r="1.5" />
++      <path d="m21 15-5-5L5 21" />
++    </svg>
++  );
++}
++
++function AddChildIcon() {
++  return (
++    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
++      <path d="M4 6h10M4 12h6M14 12h6M17 9v6" />
++    </svg>
++  );
++}
++
++function ArchiveIcon() {
++  return (
++    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
++      <rect x="3" y="4" width="18" height="4" rx="1" />
++      <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4" />
++    </svg>
++  );
++}
++
++const contextMenuItems = [
++  { icon: <RenameIcon />, label: '이름 변경', onClick: noop },
++  { icon: <ImageIcon />, label: '아이콘 변경', onClick: noop },
++  { icon: <AddChildIcon />, label: '하위 페이지 추가', onClick: noop },
++  { icon: <ArchiveIcon />, label: '아카이브', destructive: true, onClick: noop },
++];
++
++export default function StatesShowcasePage() {
++  return (
++    <main className="min-h-screen bg-deep px-6 py-12 text-ink">
++      <div className="mx-auto flex max-w-3xl flex-col gap-10">
++        <header>
++          <h1 className="text-2xl font-bold">States 쇼케이스</h1>
++          <p className="mt-2 text-sm text-dim">상태·엣지 프레젠테이션 컴포넌트 갤러리</p>
++        </header>
++
++        <Frame label="Empty State" className="py-16">
++          <EmptyState onCreate={noop} />
++        </Frame>
++
++        <Frame label="Loading Skeleton" className="h-[280px] overflow-hidden p-0">
++          <LoadingSkeleton />
++        </Frame>
++
++        <Frame label="403 Forbidden" className="py-16">
++          <Forbidden403 onRequestAccess={noop} />
++        </Frame>
++
++        <Frame label="Connection Banner — Offline" className="items-stretch p-0">
++          <ConnectionBanner status="offline" />
++        </Frame>
++
++        <Frame label="Connection Banner — Reconnected">
++          <ConnectionBanner status="reconnected" />
++        </Frame>
++
++        <Frame label="Error Toast">
++          <ErrorToast onRetry={noop} onDismiss={noop} />
++        </Frame>
++
++        <Frame label="Context Menu">
++          <ContextMenu items={contextMenuItems} onClose={noop} />
++        </Frame>
++      </div>
++    </main>
++  );
++}
+diff --git a/apps/web/components/overlays/AccountMenu.tsx b/apps/web/components/overlays/AccountMenu.tsx
+new file mode 100644
+index 0000000..e8a1ba3
+--- /dev/null
++++ b/apps/web/components/overlays/AccountMenu.tsx
+@@ -0,0 +1,102 @@
++'use client';
++
++// 계정 메뉴 패널 — prop 주도 재사용형. 트리거(계정 행)는 AccountArea가 별도, 여기선 메뉴 패널만.
++
++interface Props {
++  name?: string;
++  email?: string;
++  theme?: '다크' | '라이트';
++  onSettings?: () => void;
++  onToggleTheme?: () => void;
++  onHelp?: () => void;
++  onLogout?: () => void;
++}
++
++const rowClass = 'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] hover:bg-hover';
++
++export default function AccountMenu({
++  name,
++  email,
++  theme = '다크',
++  onSettings,
++  onToggleTheme,
++  onHelp,
++  onLogout,
++}: Props) {
++  return (
++    <div role="menu" aria-label="계정 메뉴" className="w-[332px] rounded-[12px] border border-hair bg-deep p-1.5">
++      {(name || email) && (
++        <div role="none" className="border-b border-hair-3 px-3 pb-2.5 pt-1.5">
++          {name && <div className="truncate text-[13px] font-semibold text-ink">{name}</div>}
++          {email && <div className="truncate text-[11px] text-faint">{email}</div>}
++        </div>
++      )}
++
++      <div className="pt-1">
++        <button type="button" role="menuitem" onClick={onSettings} className={`${rowClass} text-body`}>
++          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden className="flex-none text-faint">
++            <circle cx="8" cy="8" r="2.2" stroke="currentColor" strokeWidth="1.3" />
++            <path
++              d="M8 1.6v1.8M8 12.6v1.8M14.4 8h-1.8M3.4 8H1.6M12.5 3.5l-1.3 1.3M4.8 11.2l-1.3 1.3M12.5 12.5l-1.3-1.3M4.8 4.8L3.5 3.5"
++              stroke="currentColor"
++              strokeWidth="1.3"
++              strokeLinecap="round"
++            />
++          </svg>
++          <span className="flex-1">설정</span>
++        </button>
++
++        <button type="button" role="menuitem" onClick={onToggleTheme} className={`${rowClass} text-body`}>
++          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden className="flex-none text-faint">
++            <path
++              d="M13 9.2A5.2 5.2 0 0 1 6.8 3a5.2 5.2 0 1 0 6.2 6.2Z"
++              stroke="currentColor"
++              strokeWidth="1.3"
++              strokeLinejoin="round"
++            />
++          </svg>
++          <span className="flex-1">테마</span>
++          <span className="flex-none rounded-full border border-hair-2 px-2 py-0.5 text-[11px] text-faint">
++            {theme}
++          </span>
++        </button>
++
++        <button type="button" role="menuitem" onClick={onHelp} className={`${rowClass} text-body`}>
++          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden className="flex-none text-faint">
++            <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.3" />
++            <path
++              d="M6.3 6.2a1.8 1.8 0 1 1 2.3 1.8c-.5.2-.8.6-.8 1.1v.3"
++              stroke="currentColor"
++              strokeWidth="1.3"
++              strokeLinecap="round"
++            />
++            <circle cx="8" cy="11.4" r="0.7" fill="currentColor" />
++          </svg>
++          <span className="flex-1">도움말</span>
++        </button>
++
++        <div className="my-1 border-t border-hair-3" />
++
++        <button type="button" role="menuitem" onClick={onLogout} className={`${rowClass} text-danger`}>
++          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden className="flex-none">
++            <path
++              d="M6.2 2.5H3.6A1.5 1.5 0 0 0 2.1 4v8a1.5 1.5 0 0 0 1.5 1.5h2.6"
++              stroke="currentColor"
++              strokeWidth="1.3"
++              strokeLinecap="round"
++              strokeLinejoin="round"
++            />
++            <path
++              d="M10 11l3-3-3-3M13 8H6.2"
++              stroke="currentColor"
++              strokeWidth="1.3"
++              strokeLinecap="round"
++              strokeLinejoin="round"
++            />
++          </svg>
++          <span className="flex-1">로그아웃</span>
++        </button>
++      </div>
++    </div>
++  );
++}
+diff --git a/apps/web/components/overlays/CommandPalette.tsx b/apps/web/components/overlays/CommandPalette.tsx
+new file mode 100644
+index 0000000..46102a0
+--- /dev/null
++++ b/apps/web/components/overlays/CommandPalette.tsx
+@@ -0,0 +1,100 @@
++'use client';
++
++// ⌘K 커맨드 팔레트 — prop 주도 재사용형. 백드롭은 부모(absolute inset-0) 기준 스코프.
++import { useEffect } from 'react';
++
++interface CommandItem {
++  icon?: string;
++  title: string;
++  meta?: string;
++  kbd?: string;
++  onSelect?: () => void;
++}
++
++interface CommandGroup {
++  label: string;
++  items: CommandItem[];
++}
++
++interface Props {
++  onClose?: () => void;
++  groups?: CommandGroup[];
++}
++
++export default function CommandPalette({ onClose, groups = [] }: Props) {
++  useEffect(() => {
++    const onKey = (e: KeyboardEvent) => {
++      if (e.key === 'Escape') onClose?.();
++    };
++    document.addEventListener('keydown', onKey);
++    return () => document.removeEventListener('keydown', onKey);
++  }, [onClose]);
++
++  let itemIndex = 0;
++
++  return (
++    <div
++      className="absolute inset-0 flex justify-center bg-black/55 pt-16"
++      onClick={onClose}
++    >
++      <div
++        role="dialog"
++        aria-modal="true"
++        aria-label="명령 팔레트"
++        onClick={(e) => e.stopPropagation()}
++        className="h-fit w-[600px] max-w-[calc(100%-32px)] overflow-hidden rounded-[14px] border border-hair bg-deep"
++      >
++        <div className="flex items-center gap-3 border-b border-hair-3 px-4 py-3.5">
++          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden className="flex-none text-faint">
++            <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.4" />
++            <path d="M11 11l3.5 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
++          </svg>
++          <input
++            type="text"
++            aria-label="명령 검색"
++            placeholder="페이지 이동, 사람 찾기, 명령 실행…"
++            className="flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-dim"
++          />
++          <kbd className="flex-none rounded border border-hair-2 px-1.5 py-0.5 text-[10px] text-faint">ESC</kbd>
++        </div>
++
++        <div className="max-h-[360px] overflow-y-auto p-2">
++          {groups.map((group) => (
++            <div key={group.label} className="mb-1 last:mb-0">
++              <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[1.4px] text-label">
++                {group.label}
++              </div>
++              {group.items.map((item) => {
++                const selected = itemIndex === 0;
++                itemIndex += 1;
++                return (
++                  <button
++                    key={item.title}
++                    type="button"
++                    onClick={item.onSelect}
++                    className={`flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left ${
++                      selected ? 'bg-hover' : 'hover:bg-hover'
++                    }`}
++                  >
++                    {item.icon && (
++                      <span aria-hidden className="w-5 flex-none text-center text-[15px]">
++                        {item.icon}
++                      </span>
++                    )}
++                    <span className="min-w-0 flex-1 truncate text-sm text-ink">{item.title}</span>
++                    {item.meta && <span className="flex-none text-xs text-faint">{item.meta}</span>}
++                    {item.kbd && (
++                      <kbd className="flex-none rounded border border-hair-2 px-1.5 py-0.5 text-[10px] text-faint">
++                        {item.kbd}
++                      </kbd>
++                    )}
++                  </button>
++                );
++              })}
++            </div>
++          ))}
++        </div>
++      </div>
++    </div>
++  );
++}
+diff --git a/apps/web/components/overlays/ConfirmDialog.tsx b/apps/web/components/overlays/ConfirmDialog.tsx
+new file mode 100644
+index 0000000..c815aca
+--- /dev/null
++++ b/apps/web/components/overlays/ConfirmDialog.tsx
+@@ -0,0 +1,69 @@
++'use client';
++
++// 파괴적/일반 액션 확인 모달 — 재사용형. onConfirm/onCancel 호출(쇼케이스에선 no-op).
++import { useEffect, useId } from 'react';
++
++interface Props {
++  title: string;
++  message?: string;
++  confirmLabel?: string;
++  cancelLabel?: string;
++  destructive?: boolean;
++  onConfirm?: () => void;
++  onCancel?: () => void;
++}
++
++export default function ConfirmDialog({
++  title,
++  message,
++  confirmLabel = '확인',
++  cancelLabel = '취소',
++  destructive = false,
++  onConfirm,
++  onCancel,
++}: Props) {
++  const titleId = useId();
++
++  useEffect(() => {
++    const onKey = (e: KeyboardEvent) => {
++      if (e.key === 'Escape') onCancel?.();
++    };
++    document.addEventListener('keydown', onKey);
++    return () => document.removeEventListener('keydown', onKey);
++  }, [onCancel]);
++
++  return (
++    <div className="absolute inset-0 flex items-center justify-center bg-black/55" onClick={onCancel}>
++      <div
++        role="dialog"
++        aria-modal="true"
++        aria-labelledby={titleId}
++        onClick={(e) => e.stopPropagation()}
++        className="w-[400px] max-w-[calc(100%-32px)] rounded-[14px] border border-hair bg-deep p-7"
++      >
++        <h2 id={titleId} className="text-[19px] font-bold text-ink">
++          {title}
++        </h2>
++        {message && <p className="mt-3 text-sm text-dim">{message}</p>}
++        <div className="mt-6 flex justify-end gap-2.5">
++          <button
++            type="button"
++            onClick={onCancel}
++            className="rounded-full border border-hair px-4 py-2 text-[13px] font-medium text-body hover:bg-hover"
++          >
++            {cancelLabel}
++          </button>
++          <button
++            type="button"
++            onClick={onConfirm}
++            className={`rounded-full border px-4 py-2 text-[13px] font-medium hover:bg-hover ${
++              destructive ? 'border-danger text-danger' : 'border-ink text-ink'
++            }`}
++          >
++            {confirmLabel}
++          </button>
++        </div>
++      </div>
++    </div>
++  );
++}
+diff --git a/apps/web/components/overlays/IconPicker.tsx b/apps/web/components/overlays/IconPicker.tsx
+new file mode 100644
+index 0000000..e2cf0bc
+--- /dev/null
++++ b/apps/web/components/overlays/IconPicker.tsx
+@@ -0,0 +1,72 @@
++'use client';
++
++// 이모지 피커 그리드 — prop 주도 재사용형. 기본 이모지 셋 제공, 콜백 스텁.
++
++const DEFAULT_EMOJIS = [
++  '📄', '📝', '📌', '📁', '⭐', '🔥', '💡', '✅',
++  '🎯', '🚀', '📊', '📈', '🗂️', '🔖', '🧩', '🎨',
++  '🛠️', '📅', '🔔', '💬', '🧠', '🌱', '⚡', '🌟',
++  '🎉', '📦', '🔍', '✏️', '📚', '🗒️', '🧭', '🏷️',
++];
++
++interface Props {
++  emojis?: string[];
++  selected?: string;
++  onSelect?: (emoji: string) => void;
++  onRandom?: () => void;
++  onRemove?: () => void;
++}
++
++export default function IconPicker({
++  emojis = DEFAULT_EMOJIS,
++  selected,
++  onSelect,
++  onRandom,
++  onRemove,
++}: Props) {
++  return (
++    <div className="w-[340px] rounded-[12px] border border-hair bg-deep p-3">
++      <div className="mb-2 flex items-center gap-2 rounded-lg border border-hair-2 px-2.5 py-2">
++        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden className="flex-none text-faint">
++          <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.4" />
++          <path d="M11 11l3.5 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
++        </svg>
++        <input
++          type="text"
++          aria-label="이모지 검색"
++          placeholder="이모지 검색"
++          className="flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-dim"
++        />
++      </div>
++
++      <div className="grid grid-cols-8 gap-0.5">
++        {emojis.map((emoji, i) => {
++          const isSelected = selected ? emoji === selected : i === 0;
++          return (
++            <button
++              key={`${emoji}-${i}`}
++              type="button"
++              aria-label={emoji}
++              aria-pressed={isSelected}
++              onClick={() => onSelect?.(emoji)}
++              className={`flex aspect-square items-center justify-center rounded-md text-[19px] ${
++                isSelected ? 'bg-hover' : 'hover:bg-hover'
++              }`}
++            >
++              {emoji}
++            </button>
++          );
++        })}
++      </div>
++
++      <div className="mt-2 flex items-center justify-between border-t border-hair-3 pt-2">
++        <button type="button" onClick={onRandom} className="text-[12px] text-faint hover:text-body">
++          랜덤
++        </button>
++        <button type="button" onClick={onRemove} className="text-[12px] text-faint hover:text-body">
++          제거
++        </button>
++      </div>
++    </div>
++  );
++}
+diff --git a/apps/web/components/overlays/MobileActionSheet.tsx b/apps/web/components/overlays/MobileActionSheet.tsx
+new file mode 100644
+index 0000000..63f582d
+--- /dev/null
++++ b/apps/web/components/overlays/MobileActionSheet.tsx
+@@ -0,0 +1,81 @@
++'use client';
++
++// 모바일 페이지 액션 시트 — prop 주도 재사용형. 백드롭은 부모(absolute inset-0) 기준 스코프.
++import { useEffect, type ReactNode } from 'react';
++
++interface SheetAction {
++  icon?: ReactNode;
++  label: string;
++  destructive?: boolean;
++  onClick?: () => void;
++}
++
++interface Props {
++  title?: string;
++  icon?: string;
++  actions: SheetAction[];
++  onClose?: () => void;
++}
++
++export default function MobileActionSheet({ title, icon, actions, onClose }: Props) {
++  useEffect(() => {
++    const onKey = (e: KeyboardEvent) => {
++      if (e.key === 'Escape') onClose?.();
++    };
++    document.addEventListener('keydown', onKey);
++    return () => document.removeEventListener('keydown', onKey);
++  }, [onClose]);
++
++  return (
++    <div className="absolute inset-0 flex items-end bg-black/55" onClick={onClose}>
++      <div
++        role="dialog"
++        aria-modal="true"
++        aria-label={title ?? '페이지 액션'}
++        onClick={(e) => e.stopPropagation()}
++        className="w-full rounded-t-[18px] border-t border-hair bg-deep p-[12px_14px_20px]"
++      >
++        <div aria-hidden className="mx-auto mb-3 h-1 w-[38px] rounded-full bg-fill-a" />
++
++        {(title || icon) && (
++          <div className="flex items-center gap-2 border-b border-hair-3 pb-3">
++            {icon && (
++              <span aria-hidden className="text-[17px]">
++                {icon}
++              </span>
++            )}
++            <span className="text-[15px] font-semibold text-ink">{title}</span>
++          </div>
++        )}
++
++        <div className="flex flex-col py-2">
++          {actions.map((action) => (
++            <button
++              key={action.label}
++              type="button"
++              onClick={action.onClick}
++              className={`flex items-center gap-3 rounded-lg px-2 py-3 text-left text-[15px] font-medium hover:bg-hover ${
++                action.destructive ? 'text-danger' : 'text-body'
++              }`}
++            >
++              {action.icon && (
++                <span aria-hidden className="flex w-5 flex-none justify-center text-faint">
++                  {action.icon}
++                </span>
++              )}
++              <span>{action.label}</span>
++            </button>
++          ))}
++        </div>
++
++        <button
++          type="button"
++          onClick={onClose}
++          className="mt-1 w-full rounded-full border border-hair py-2.5 text-[14px] font-medium text-body hover:bg-hover"
++        >
++          닫기
++        </button>
++      </div>
++    </div>
++  );
++}
+diff --git a/apps/web/components/states/ConnectionBanner.tsx b/apps/web/components/states/ConnectionBanner.tsx
+new file mode 100644
+index 0000000..81b5a88
+--- /dev/null
++++ b/apps/web/components/states/ConnectionBanner.tsx
+@@ -0,0 +1,28 @@
++interface ConnectionBannerProps {
++  status: 'offline' | 'reconnected';
++}
++
++export default function ConnectionBanner({ status }: ConnectionBannerProps) {
++  if (status === 'offline') {
++    return (
++      <div
++        role="status"
++        className="flex w-full items-center gap-2.5 border-b border-hair bg-deep px-4 py-2.5 text-[13px]"
++      >
++        <span aria-hidden className="h-[7px] w-[7px] flex-none rounded-full bg-warn" />
++        <span className="text-warn">오프라인 — 변경사항을 저장하지 못했습니다.</span>
++        <span className="ml-auto text-dim underline">재연결 중…</span>
++      </div>
++    );
++  }
++
++  return (
++    <div
++      role="status"
++      className="inline-flex items-center gap-2.5 rounded-[10px] border border-hair-2 bg-deep px-4 py-2.5 text-[13px]"
++    >
++      <span aria-hidden className="h-[7px] w-[7px] flex-none rounded-full bg-ok" />
++      <span className="text-ok">다시 연결됨 · 모든 변경사항 저장됨</span>
++    </div>
++  );
++}
+diff --git a/apps/web/components/states/ContextMenu.tsx b/apps/web/components/states/ContextMenu.tsx
+new file mode 100644
+index 0000000..6a3e97d
+--- /dev/null
++++ b/apps/web/components/states/ContextMenu.tsx
+@@ -0,0 +1,54 @@
++'use client';
++
++import { Fragment } from 'react';
++import type { CSSProperties, ReactNode } from 'react';
++
++interface ContextMenuItem {
++  icon?: ReactNode;
++  label: string;
++  destructive?: boolean;
++  onClick?: () => void;
++}
++
++interface ContextMenuProps {
++  items: ContextMenuItem[];
++  onClose?: () => void;
++  style?: CSSProperties;
++}
++
++export default function ContextMenu({ items, onClose, style }: ContextMenuProps) {
++  return (
++    <div
++      role="menu"
++      style={style}
++      className="w-max min-w-[180px] rounded-[12px] border border-hair bg-deep p-1.5"
++    >
++      {items.map((item, i) => {
++        const showDivider = Boolean(item.destructive) && i > 0 && !items[i - 1]?.destructive;
++        return (
++          <Fragment key={`${item.label}-${i}`}>
++            {showDivider && <div aria-hidden className="my-1.5 h-px bg-fill-b" />}
++            <button
++              type="button"
++              role="menuitem"
++              onClick={() => {
++                item.onClick?.();
++                onClose?.();
++              }}
++              className={`flex w-full items-center gap-2.5 rounded-[7px] px-3 py-[9px] text-left text-[13px] font-medium transition hover:bg-hover ${
++                item.destructive ? 'text-danger' : 'text-body'
++              }`}
++            >
++              {item.icon && (
++                <span aria-hidden className={`flex-none ${item.destructive ? '' : 'text-faint'}`}>
++                  {item.icon}
++                </span>
++              )}
++              <span className="flex-1">{item.label}</span>
++            </button>
++          </Fragment>
++        );
++      })}
++    </div>
++  );
++}
+diff --git a/apps/web/components/states/EmptyState.tsx b/apps/web/components/states/EmptyState.tsx
+new file mode 100644
+index 0000000..3c216be
+--- /dev/null
++++ b/apps/web/components/states/EmptyState.tsx
+@@ -0,0 +1,57 @@
++'use client';
++
++interface EmptyStateProps {
++  title?: string;
++  description?: string;
++  ctaLabel?: string;
++  onCreate?: () => void;
++}
++
++export default function EmptyState({
++  title = '첫 페이지를 만들어 보세요',
++  description = '문서, 위키, 회의록 — 무엇이든 빈 페이지에서 시작합니다.',
++  ctaLabel = '첫 페이지 만들기',
++  onCreate,
++}: EmptyStateProps) {
++  return (
++    <div className="flex flex-col items-center text-center">
++      <div
++        aria-hidden
++        className="flex h-[58px] w-[58px] items-center justify-center rounded-[14px] border border-dashed border-hair text-fainter"
++      >
++        <svg
++          width="22"
++          height="22"
++          viewBox="0 0 24 24"
++          fill="none"
++          stroke="currentColor"
++          strokeWidth="1.5"
++          strokeLinecap="round"
++        >
++          <path d="M12 5v14M5 12h14" />
++        </svg>
++      </div>
++      <h2 className="mt-5 text-[22px] font-bold text-ink">{title}</h2>
++      <p className="mt-2 max-w-[320px] text-sm text-dim">{description}</p>
++      <button
++        type="button"
++        onClick={onCreate}
++        className="mt-6 inline-flex items-center gap-2 rounded-full border border-ink px-5 py-2.5 text-[13px] font-semibold text-ink transition hover:bg-hover"
++      >
++        <svg
++          width="14"
++          height="14"
++          viewBox="0 0 24 24"
++          fill="none"
++          stroke="currentColor"
++          strokeWidth="2"
++          strokeLinecap="round"
++          aria-hidden
++        >
++          <path d="M12 5v14M5 12h14" />
++        </svg>
++        {ctaLabel}
++      </button>
++    </div>
++  );
++}
+diff --git a/apps/web/components/states/ErrorToast.tsx b/apps/web/components/states/ErrorToast.tsx
+new file mode 100644
+index 0000000..889dac9
+--- /dev/null
++++ b/apps/web/components/states/ErrorToast.tsx
+@@ -0,0 +1,40 @@
++'use client';
++
++interface ErrorToastProps {
++  message?: string;
++  onRetry?: () => void;
++  onDismiss?: () => void;
++}
++
++export default function ErrorToast({
++  message = '변경사항을 저장하지 못했습니다.',
++  onRetry,
++  onDismiss,
++}: ErrorToastProps) {
++  return (
++    <div
++      role="alert"
++      className="flex w-[320px] items-center gap-3 rounded-[12px] border border-hair bg-deep px-4 py-3.5"
++    >
++      <span aria-hidden className="h-[7px] w-[7px] flex-none rounded-full bg-danger" />
++      <span className="flex-1 text-[13px] text-ink">{message}</span>
++      <button
++        type="button"
++        onClick={onRetry}
++        className="flex-none text-xs font-bold text-danger transition hover:opacity-80"
++      >
++        다시 시도
++      </button>
++      <button
++        type="button"
++        onClick={onDismiss}
++        aria-label="닫기"
++        className="flex-none text-faint transition hover:text-body"
++      >
++        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
++          <path d="M6 6l12 12M18 6L6 18" />
++        </svg>
++      </button>
++    </div>
++  );
++}
+diff --git a/apps/web/components/states/Forbidden403.tsx b/apps/web/components/states/Forbidden403.tsx
+new file mode 100644
+index 0000000..a01c246
+--- /dev/null
++++ b/apps/web/components/states/Forbidden403.tsx
+@@ -0,0 +1,33 @@
++'use client';
++
++interface Forbidden403Props {
++  onRequestAccess?: () => void;
++}
++
++export default function Forbidden403({ onRequestAccess }: Forbidden403Props) {
++  return (
++    <div className="flex flex-col items-center text-center">
++      <div className="text-[13px] font-bold uppercase tracking-[3px] text-fainter">403</div>
++      <div
++        aria-hidden
++        className="mt-4 flex h-[54px] w-[54px] items-center justify-center rounded-full border border-hair text-dim"
++      >
++        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
++          <circle cx="12" cy="12" r="8.5" />
++          <path d="M6.5 6.5l11 11" />
++        </svg>
++      </div>
++      <h2 className="mt-4 text-[21px] font-bold text-ink">접근 권한이 없습니다</h2>
++      <p className="mt-2 max-w-[320px] text-sm text-dim">
++        이 페이지를 볼 수 있는 권한이 없습니다. 소유자에게 접근을 요청하세요.
++      </p>
++      <button
++        type="button"
++        onClick={onRequestAccess}
++        className="mt-6 inline-flex items-center rounded-full border border-hair px-5 py-2.5 text-[13px] font-semibold text-body transition hover:bg-hover"
++      >
++        접근 요청
++      </button>
++    </div>
++  );
++}
+diff --git a/apps/web/components/states/LoadingSkeleton.tsx b/apps/web/components/states/LoadingSkeleton.tsx
+new file mode 100644
+index 0000000..6d3c8df
+--- /dev/null
++++ b/apps/web/components/states/LoadingSkeleton.tsx
+@@ -0,0 +1,22 @@
++export default function LoadingSkeleton() {
++  return (
++    <div aria-hidden className="flex h-full w-full animate-pulse overflow-hidden">
++      <aside className="flex w-[200px] flex-none flex-col gap-3 border-r border-hair-2 bg-deep p-4">
++        <div className="h-4 w-28 rounded bg-fill-b" />
++        <div className="mt-2 h-3 w-20 rounded bg-fill-b" />
++        <div className="h-3 w-32 rounded bg-fill-b" />
++        <div className="h-3 w-24 rounded bg-fill-b" />
++        <div className="h-3 w-28 rounded bg-fill-b" />
++        <div className="h-3 w-16 rounded bg-fill-b" />
++      </aside>
++      <div className="flex flex-1 flex-col gap-4 p-8">
++        <div className="h-12 w-12 rounded-lg bg-fill-b" />
++        <div className="mt-2 h-7 w-2/3 rounded bg-hover" />
++        <div className="h-3.5 w-full rounded bg-fill-b" />
++        <div className="h-3.5 w-11/12 rounded bg-fill-b" />
++        <div className="h-3.5 w-4/5 rounded bg-fill-b" />
++        <div className="h-3.5 w-3/4 rounded bg-fill-b" />
++      </div>
++    </div>
++  );
++}
+diff --git a/apps/web/tailwind.config.ts b/apps/web/tailwind.config.ts
+index 672b85b..0e9d485 100644
+--- a/apps/web/tailwind.config.ts
++++ b/apps/web/tailwind.config.ts
+@@ -20,11 +20,16 @@ const config: Config = {
+         body: 'var(--c-body)',
+         dim: 'var(--c-dim)',
+         faint: 'var(--c-faint)',
++        fainter: 'var(--c-fainter)',
+         label: 'var(--c-label)',
+         accent: 'var(--c-accent)',
+         ok: 'var(--c-ok)',
+         warn: 'var(--c-warn)',
+         danger: 'var(--c-error)',
++        fill: {
++          a: 'var(--c-fill-a)',
++          b: 'var(--c-fill-b)',
++        },
+       },
+       fontFamily: {
+         sans: ['Pretendard', 'ui-sans-serif', 'system-ui', 'sans-serif'],
