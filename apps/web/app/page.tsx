@@ -64,7 +64,7 @@ export default function LandingPage() {
             href="/login"
             className="mx-auto flex w-full max-w-[260px] items-center justify-center gap-[9px] rounded-[32px] border border-ink px-[28px] py-[18px] text-[13px] font-bold tracking-[0.4px] text-ink transition hover:bg-hover sm:inline-flex sm:w-auto sm:max-w-none"
           >
-            Google로 시작 →
+            Google로 시작 <span aria-hidden="true">→</span>
           </Link>
         </div>
       </section>
