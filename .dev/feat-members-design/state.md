@@ -1,5 +1,5 @@
 phase: complete
-status: in_progress
+status: completed
 vcs-type: git
 branch: feat/members-design
 base: main
@@ -30,7 +30,10 @@ steps:
     - 정크 gitignore 보강: completed
   complete:
     - next build 보상검증: completed (전 라우트 + 신규 /workspace/[wsId]/members)
-current-step: "커밋/PR"
+    - 커밋: completed (c551435)
+    - PR: completed (rnqhstmd/Ieum#36, base main 독립)
+    - gh 계정 복원: completed (bs-koo)
+current-step: "완료"
 execution-log:
   - phase: setup
     result: "백엔드 멤버·초대 완비 확인 → 범위 'UI+조회 배선' 확정(변경 액션 클라이언트만, 핸들러 스텁). main 독립 + 전용 라우트 마운트."
