@@ -1,0 +1,282 @@
+diff --git a/apps/web/app/(auth)/invite/invite-content.tsx b/apps/web/app/(auth)/invite/invite-content.tsx
+index 6ce7f0a..a7b708e 100644
+--- a/apps/web/app/(auth)/invite/invite-content.tsx
++++ b/apps/web/app/(auth)/invite/invite-content.tsx
+@@ -3,7 +3,10 @@
+ // 초대 수락 클라이언트 로직 — useSearchParams로 token/state를 읽어 상태를 결정한다.
+ // (page.tsx 서버 컴포넌트가 이 컴포넌트를 <Suspense>로 감싼다 — Next 15 경계 요건.)
+ 
+-import { useSearchParams } from 'next/navigation';
++import { useState } from 'react';
++import { useRouter, useSearchParams } from 'next/navigation';
++import { ApiError } from '@/src/lib/api';
++import { acceptInvitation } from '@/src/lib/invitations';
+ import InviteCard, { type InviteState } from '@/components/invite/InviteCard';
+ 
+ const PREVIEW_STATES: readonly InviteState[] = ['valid', 'expired', 'already', 'invalid'];
+@@ -20,22 +23,32 @@ function resolveState(stateParam: string | null, token: string | null): InviteSt
+ }
+ 
+ export default function InviteContent() {
++  const router = useRouter();
+   const params = useSearchParams();
+   const token = params.get('token');
+-  const state = resolveState(params.get('state'), token);
+-
+-  // 수락 스텁 — 동작 없음(no-op).
+-  // TODO(후속 배선): POST /api/invitations/accept { token } 호출,
+-  //   에러 404→'invalid' / 410→'expired' / 409→'already' / 403→대상 아님,
+-  //   2xx→/dashboard 이동(멱등 이미멤버 포함).
+-  const handleAccept = () => {
+-    /* TODO: accept 배선 */
++  // 상태를 로컬화해 수락 실패 시 카드 상태를 전환한다(초기값 = 기존 결정 로직).
++  const [state, setState] = useState<InviteState>(() => resolveState(params.get('state'), token));
++  const [submitting, setSubmitting] = useState(false);
++
++  // 수락 — POST /api/invitations/accept { token }.
++  // 2xx→/dashboard, ApiError 상태 매핑: 410→expired / 409→already / 404·403·그 외→invalid.
++  const handleAccept = async () => {
++    if (!token || submitting) return;
++    setSubmitting(true);
++    try {
++      await acceptInvitation(token);
++      router.push('/dashboard');
++    } catch (e) {
++      if (e instanceof ApiError && e.status === 410) setState('expired');
++      else if (e instanceof ApiError && e.status === 409) setState('already');
++      else setState('invalid');
++      setSubmitting(false);
++    }
+   };
+ 
+-  // 거절 스텁 — 동작 없음(no-op).
+-  // TODO(후속 배선): 초대 거절 처리 후 안내 화면 전환.
++  // 거절 — 백엔드 거절 엔드포인트가 없어 홈으로 이동한다.
+   const handleReject = () => {
+-    /* TODO: reject 배선 */
++    router.push('/');
+   };
+ 
+   return <InviteCard state={state} onAccept={handleAccept} onReject={handleReject} />;
+diff --git a/apps/web/components/members/MembersModal.tsx b/apps/web/components/members/MembersModal.tsx
+index c120ea1..da34934 100644
+--- a/apps/web/components/members/MembersModal.tsx
++++ b/apps/web/components/members/MembersModal.tsx
+@@ -2,16 +2,16 @@
+ 
+ // ─── 멤버 관리 모달 (변형 A) ─────────────────────────────────────
+ // 데스크탑 중앙 모달 / 모바일 바텀시트. 마운트 시 me + members(+OWNER면 invitations)를
+-// 조회해 OWNER/MEMBER 뷰를 분기한다. 변경 액션(초대/역할/내보내기/취소)은 이번 범위에서
+-// 미배선 — 핸들러는 스텁이며 대응 클라이언트 함수는 TODO 주석으로 명시한다.
++// 조회해 OWNER/MEMBER 뷰를 분기한다. 변경 액션(초대/역할/내보내기/취소)은 실제 백엔드에
++// 배선되어 있으며(실제 mutation/이메일 발송), 성공 시 목록을 재조회해 즉시 반영한다.
+ 
+ import { useEffect, useState } from 'react';
+ import { useRouter } from 'next/navigation';
+ import { ApiError } from '@/src/lib/api';
+ import { getCurrentUser } from '@/src/lib/users';
+-import { listMembers } from '@/src/lib/members';
+-import { listInvitations } from '@/src/lib/invitations';
+-import type { CurrentUser, Invitation, Membership } from '@/src/lib/types';
++import { listMembers, updateMemberRole, removeMember } from '@/src/lib/members';
++import { listInvitations, createInvitation, revokeInvitation } from '@/src/lib/invitations';
++import type { CurrentUser, Invitation, MemberRole, Membership } from '@/src/lib/types';
+ import InviteRow from './InviteRow';
+ import MemberRow from './MemberRow';
+ import PendingInviteRow from './PendingInviteRow';
+@@ -37,27 +37,44 @@ export default function MembersModal({ workspaceId, workspaceName, onClose }: Pr
+   const canManage = myRole === 'OWNER';
+   const pendingInvites = invitations.filter((inv) => inv.status === 'PENDING');
+ 
+-  // ── 마운트 시 조회 (GET만 배선) ──
++  // ── 멤버/초대 재조회 로직 (마운트·변경 액션 공용) ──
++  // OWNER만 초대 목록 조회 권한이 있으므로 user 역할로 분기한다. getCurrentUser는 마운트 1회면 충분.
++  const fetchLists = async (user: CurrentUser) => {
++    const memberList = await listMembers(workspaceId);
++    const owner = memberList.find((m) => m.userId === user.id)?.role === 'OWNER';
++    const inviteList = owner ? await listInvitations(workspaceId) : [];
++    return { memberList, inviteList };
++  };
++
++  /** 변경 액션 후 목록을 다시 불러와 UI를 갱신한다(me 확정 이후 호출). */
++  const reload = async () => {
++    if (!me) return;
++    const { memberList, inviteList } = await fetchLists(me);
++    setMembers(memberList);
++    setInvitations(inviteList);
++  };
++
++  /** 변경 액션 실패 처리 — 401이면 로그인 유도, 그 외 간단 알림. */
++  const handleActionError = (e: unknown) => {
++    if (e instanceof ApiError && e.status === 401) {
++      router.push('/login');
++      return;
++    }
++    alert('작업을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.');
++  };
++
++  // ── 마운트 시 조회 ──
+   useEffect(() => {
+     let active = true;
+     (async () => {
+       try {
+-        const [user, memberList] = await Promise.all([
+-          getCurrentUser(),
+-          listMembers(workspaceId),
+-        ]);
++        const user = await getCurrentUser();
+         if (!active) return;
+         setMe(user);
+-        setMembers(memberList);
+-
+-        // OWNER만 초대 목록 조회 권한이 있다.
+-        const owner = memberList.find((m) => m.userId === user.id)?.role === 'OWNER';
+-        if (owner) {
+-          const inviteList = await listInvitations(workspaceId);
+-          if (!active) return;
+-          setInvitations(inviteList);
+-        }
++        const { memberList, inviteList } = await fetchLists(user);
+         if (!active) return;
++        setMembers(memberList);
++        setInvitations(inviteList);
+         setStatus('ready');
+       } catch (e) {
+         if (!active) return;
+@@ -94,23 +111,54 @@ export default function MembersModal({ workspaceId, workspaceName, onClose }: Pr
+     return () => document.removeEventListener('mousedown', onPointerDown);
+   }, [openMenuUserId]);
+ 
+-  // ── 변경 액션: 스텁 (이번 범위 미배선, 실제 mutation/이메일 발송 없음) ──
++  // ── 변경 액션: 실제 백엔드 배선 (OWNER 전용, 실제 mutation/이메일 발송) ──
+   const closeMenu = () => setOpenMenuUserId(null);
+-  // TODO: createInvitation(workspaceId, { email, role }) 연결 (OWNER, 실제 이메일 발송)
+-  const handleInvite = () => {
+-    /* no-op: 초대 발송 미배선 */
++
++  /** 초대 발송 — createInvitation 후 초대 목록 재조회 (실제 이메일 발송). */
++  const handleInvite = async (email: string, role: MemberRole) => {
++    if (!me) return;
++    try {
++      await createInvitation(workspaceId, { email, role });
++      await reload();
++    } catch (e) {
++      handleActionError(e);
++    }
+   };
+-  // TODO: updateMemberRole(workspaceId, userId, nextRole) 연결 (OWNER)
+-  const handleChangeRole = () => {
++
++  /** 역할 토글 — OWNER↔MEMBER 변경 후 멤버 목록 재조회. */
++  const handleChangeRole = async (member: Membership) => {
++    if (!me) return;
+     closeMenu();
++    try {
++      await updateMemberRole(workspaceId, member.userId, member.role === 'OWNER' ? 'MEMBER' : 'OWNER');
++      await reload();
++    } catch (e) {
++      handleActionError(e);
++    }
+   };
+-  // TODO: removeMember(workspaceId, userId) 연결 (OWNER)
+-  const handleRemove = () => {
++
++  /** 멤버 내보내기 — 확인 후 removeMember(파괴적), 성공 시 재조회. */
++  const handleRemove = async (member: Membership) => {
++    if (!me) return;
+     closeMenu();
++    if (!window.confirm('이 멤버를 내보낼까요?')) return;
++    try {
++      await removeMember(workspaceId, member.userId);
++      await reload();
++    } catch (e) {
++      handleActionError(e);
++    }
+   };
+-  // TODO: revokeInvitation(workspaceId, invitationId) 연결 (OWNER, PENDING)
+-  const handleRevoke = () => {
+-    /* no-op: 초대 취소 미배선 */
++
++  /** 초대 취소 — revokeInvitation 후 초대 목록 재조회. */
++  const handleRevoke = async (invitation: Invitation) => {
++    if (!me) return;
++    try {
++      await revokeInvitation(workspaceId, invitation.id);
++      await reload();
++    } catch (e) {
++      handleActionError(e);
++    }
+   };
+ 
+   const subtitle =
+@@ -192,8 +240,8 @@ export default function MembersModal({ workspaceId, workspaceName, onClose }: Pr
+                         cur === member.userId ? null : member.userId,
+                       )
+                     }
+-                    onChangeRole={handleChangeRole}
+-                    onRemove={handleRemove}
++                    onChangeRole={() => handleChangeRole(member)}
++                    onRemove={() => handleRemove(member)}
+                   />
+                 ))}
+               </div>
+@@ -205,7 +253,7 @@ export default function MembersModal({ workspaceId, workspaceName, onClose }: Pr
+                     보류 중 초대 · {pendingInvites.length}
+                   </div>
+                   {pendingInvites.map((inv) => (
+-                    <PendingInviteRow key={inv.id} invitation={inv} onRevoke={handleRevoke} />
++                    <PendingInviteRow key={inv.id} invitation={inv} onRevoke={() => handleRevoke(inv)} />
+                   ))}
+                 </div>
+               )}
+diff --git a/apps/web/components/sidebar/Sidebar.tsx b/apps/web/components/sidebar/Sidebar.tsx
+index f108ba1..f87cbee 100644
+--- a/apps/web/components/sidebar/Sidebar.tsx
++++ b/apps/web/components/sidebar/Sidebar.tsx
+@@ -205,6 +205,33 @@ export default function Sidebar({ onNavigate }: Props = {}) {
+       </div>
+ 
+       <div className="mt-2 flex flex-col gap-2">
++        {/* 멤버 진입 — 공유(SHARED) 워크스페이스에서만 노출(개인은 멤버 관리 무의미) */}
++        {currentWs?.type === 'SHARED' && selectedWsId && (
++          <button
++            type="button"
++            onClick={() => {
++              onNavigate?.();
++              router.push(`/workspace/${selectedWsId}/members`);
++            }}
++            className="flex items-center gap-2 rounded-[7px] px-2.5 py-2 text-[13px] text-faint hover:bg-hover hover:text-body"
++          >
++            <svg
++              viewBox="0 0 24 24"
++              fill="none"
++              stroke="currentColor"
++              strokeWidth="2"
++              strokeLinecap="round"
++              strokeLinejoin="round"
++              className="h-4 w-4 flex-none"
++            >
++              <path d="M16 19v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
++              <circle cx="9" cy="7" r="4" />
++              <path d="M22 19v-2a4 4 0 0 0-3-3.87" />
++              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
++            </svg>
++            <span>멤버</span>
++          </button>
++        )}
+         <NewPageButton onCreate={() => handleCreate(null)} />
+         {/* 새 워크스페이스 — 시각 전용 텍스트 버튼(생성 모달 미배선, no-op) */}
+         <button
+diff --git a/apps/web/src/lib/invitations.ts b/apps/web/src/lib/invitations.ts
+index f4e14f9..acc3a3b 100644
+--- a/apps/web/src/lib/invitations.ts
++++ b/apps/web/src/lib/invitations.ts
+@@ -21,3 +21,8 @@ export async function createInvitation(
+ export async function revokeInvitation(wsId: string, invitationId: string): Promise<void> {
+   await apiDelete<void>(`/api/workspaces/${wsId}/invitations/${invitationId}`);
+ }
++
++/** 초대 수락 — POST /api/invitations/accept { token } (204 No Content, 본문 없음 → void) */
++export async function acceptInvitation(token: string): Promise<void> {
++  await apiPost<void>('/api/invitations/accept', { token });
++}

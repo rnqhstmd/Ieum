@@ -2,16 +2,16 @@
 
 // ─── 멤버 관리 모달 (변형 A) ─────────────────────────────────────
 // 데스크탑 중앙 모달 / 모바일 바텀시트. 마운트 시 me + members(+OWNER면 invitations)를
-// 조회해 OWNER/MEMBER 뷰를 분기한다. 변경 액션(초대/역할/내보내기/취소)은 이번 범위에서
-// 미배선 — 핸들러는 스텁이며 대응 클라이언트 함수는 TODO 주석으로 명시한다.
+// 조회해 OWNER/MEMBER 뷰를 분기한다. 변경 액션(초대/역할/내보내기/취소)은 실제 백엔드에
+// 배선되어 있으며(실제 mutation/이메일 발송), 성공 시 목록을 재조회해 즉시 반영한다.
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ApiError } from '@/src/lib/api';
 import { getCurrentUser } from '@/src/lib/users';
-import { listMembers } from '@/src/lib/members';
-import { listInvitations } from '@/src/lib/invitations';
-import type { CurrentUser, Invitation, Membership } from '@/src/lib/types';
+import { listMembers, updateMemberRole, removeMember } from '@/src/lib/members';
+import { listInvitations, createInvitation, revokeInvitation } from '@/src/lib/invitations';
+import type { CurrentUser, Invitation, MemberRole, Membership } from '@/src/lib/types';
 import InviteRow from './InviteRow';
 import MemberRow from './MemberRow';
 import PendingInviteRow from './PendingInviteRow';
@@ -32,32 +32,51 @@ export default function MembersModal({ workspaceId, workspaceName, onClose }: Pr
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   /** 컨텍스트 메뉴가 열린 멤버의 userId (없으면 null) */
   const [openMenuUserId, setOpenMenuUserId] = useState<string | null>(null);
+  /** 초대 발송 중 — 중복 제출 방지 */
+  const [inviting, setInviting] = useState(false);
 
   const myRole = me ? members.find((m) => m.userId === me.id)?.role : undefined;
   const canManage = myRole === 'OWNER';
   const pendingInvites = invitations.filter((inv) => inv.status === 'PENDING');
 
-  // ── 마운트 시 조회 (GET만 배선) ──
+  // ── 멤버/초대 재조회 로직 (마운트·변경 액션 공용) ──
+  // OWNER만 초대 목록 조회 권한이 있으므로 user 역할로 분기한다. getCurrentUser는 마운트 1회면 충분.
+  const fetchLists = async (user: CurrentUser) => {
+    const memberList = await listMembers(workspaceId);
+    const owner = memberList.find((m) => m.userId === user.id)?.role === 'OWNER';
+    const inviteList = owner ? await listInvitations(workspaceId) : [];
+    return { memberList, inviteList };
+  };
+
+  /** 변경 액션 후 목록을 다시 불러와 UI를 갱신한다(me 확정 이후 호출). */
+  const reload = async () => {
+    if (!me) return;
+    const { memberList, inviteList } = await fetchLists(me);
+    setMembers(memberList);
+    setInvitations(inviteList);
+  };
+
+  /** 변경 액션 실패 처리 — 401이면 로그인 유도, 그 외 간단 알림. */
+  const handleActionError = (e: unknown) => {
+    if (e instanceof ApiError && e.status === 401) {
+      router.push('/login');
+      return;
+    }
+    alert('작업을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+  };
+
+  // ── 마운트 시 조회 ──
   useEffect(() => {
     let active = true;
     (async () => {
       try {
-        const [user, memberList] = await Promise.all([
-          getCurrentUser(),
-          listMembers(workspaceId),
-        ]);
+        const user = await getCurrentUser();
         if (!active) return;
         setMe(user);
-        setMembers(memberList);
-
-        // OWNER만 초대 목록 조회 권한이 있다.
-        const owner = memberList.find((m) => m.userId === user.id)?.role === 'OWNER';
-        if (owner) {
-          const inviteList = await listInvitations(workspaceId);
-          if (!active) return;
-          setInvitations(inviteList);
-        }
+        const { memberList, inviteList } = await fetchLists(user);
         if (!active) return;
+        setMembers(memberList);
+        setInvitations(inviteList);
         setStatus('ready');
       } catch (e) {
         if (!active) return;
@@ -94,23 +113,80 @@ export default function MembersModal({ workspaceId, workspaceName, onClose }: Pr
     return () => document.removeEventListener('mousedown', onPointerDown);
   }, [openMenuUserId]);
 
-  // ── 변경 액션: 스텁 (이번 범위 미배선, 실제 mutation/이메일 발송 없음) ──
+  // ── 변경 액션: 실제 백엔드 배선 (OWNER 전용, 실제 mutation/이메일 발송) ──
+  // mutation과 reload를 분리: mutation 실패만 에러로 알리고, 성공 후 reload 실패는
+  // 액션이 이미 완료됐으므로 조용히 무시한다(다음 진입 시 최신화). 오해/중복 방지.
   const closeMenu = () => setOpenMenuUserId(null);
-  // TODO: createInvitation(workspaceId, { email, role }) 연결 (OWNER, 실제 이메일 발송)
-  const handleInvite = () => {
-    /* no-op: 초대 발송 미배선 */
+
+  /** 초대 발송 — createInvitation 후 초대 목록 재조회 (실제 이메일 발송). 중복 제출 방지. */
+  const handleInvite = async (email: string, role: MemberRole) => {
+    if (!me || inviting) return;
+    setInviting(true);
+    try {
+      await createInvitation(workspaceId, { email, role });
+    } catch (e) {
+      handleActionError(e);
+      setInviting(false);
+      return;
+    }
+    try {
+      await reload();
+    } catch {
+      /* 목록 갱신만 실패 — 초대는 완료됨 */
+    } finally {
+      setInviting(false);
+    }
   };
-  // TODO: updateMemberRole(workspaceId, userId, nextRole) 연결 (OWNER)
-  const handleChangeRole = () => {
+
+  /** 역할 토글 — OWNER↔MEMBER 변경 후 멤버 목록 재조회. (본인 제외) */
+  const handleChangeRole = async (member: Membership) => {
+    if (!me || member.userId === me.id) return;
     closeMenu();
+    try {
+      await updateMemberRole(workspaceId, member.userId, member.role === 'OWNER' ? 'MEMBER' : 'OWNER');
+    } catch (e) {
+      handleActionError(e);
+      return;
+    }
+    try {
+      await reload();
+    } catch {
+      /* 목록 갱신만 실패 — 변경은 완료됨 */
+    }
   };
-  // TODO: removeMember(workspaceId, userId) 연결 (OWNER)
-  const handleRemove = () => {
+
+  /** 멤버 내보내기 — 확인 후 removeMember(파괴적), 성공 시 재조회. (본인 제외) */
+  const handleRemove = async (member: Membership) => {
+    if (!me || member.userId === me.id) return;
     closeMenu();
+    if (!window.confirm('이 멤버를 내보낼까요?')) return;
+    try {
+      await removeMember(workspaceId, member.userId);
+    } catch (e) {
+      handleActionError(e);
+      return;
+    }
+    try {
+      await reload();
+    } catch {
+      /* 목록 갱신만 실패 — 제거는 완료됨 */
+    }
   };
-  // TODO: revokeInvitation(workspaceId, invitationId) 연결 (OWNER, PENDING)
-  const handleRevoke = () => {
-    /* no-op: 초대 취소 미배선 */
+
+  /** 초대 취소 — revokeInvitation 후 초대 목록 재조회. */
+  const handleRevoke = async (invitation: Invitation) => {
+    if (!me) return;
+    try {
+      await revokeInvitation(workspaceId, invitation.id);
+    } catch (e) {
+      handleActionError(e);
+      return;
+    }
+    try {
+      await reload();
+    } catch {
+      /* 목록 갱신만 실패 — 취소는 완료됨 */
+    }
   };
 
   const subtitle =
@@ -176,7 +252,7 @@ export default function MembersModal({ workspaceId, workspaceName, onClose }: Pr
           {status === 'ready' && (
             <>
               {/* 초대 행 — OWNER만 */}
-              {canManage && <InviteRow onInvite={handleInvite} />}
+              {canManage && <InviteRow onInvite={handleInvite} disabled={inviting} />}
 
               {/* 멤버 목록 */}
               <div className="px-7 pb-2 pt-3.5">
@@ -192,8 +268,8 @@ export default function MembersModal({ workspaceId, workspaceName, onClose }: Pr
                         cur === member.userId ? null : member.userId,
                       )
                     }
-                    onChangeRole={handleChangeRole}
-                    onRemove={handleRemove}
+                    onChangeRole={() => handleChangeRole(member)}
+                    onRemove={() => handleRemove(member)}
                   />
                 ))}
               </div>
@@ -205,7 +281,7 @@ export default function MembersModal({ workspaceId, workspaceName, onClose }: Pr
                     보류 중 초대 · {pendingInvites.length}
                   </div>
                   {pendingInvites.map((inv) => (
-                    <PendingInviteRow key={inv.id} invitation={inv} onRevoke={handleRevoke} />
+                    <PendingInviteRow key={inv.id} invitation={inv} onRevoke={() => handleRevoke(inv)} />
                   ))}
                 </div>
               )}

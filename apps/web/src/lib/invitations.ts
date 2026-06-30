@@ -21,3 +21,8 @@ export async function createInvitation(
 export async function revokeInvitation(wsId: string, invitationId: string): Promise<void> {
   await apiDelete<void>(`/api/workspaces/${wsId}/invitations/${invitationId}`);
 }
+
+/** 초대 수락 — POST /api/invitations/accept { token } (204 No Content, 본문 없음 → void) */
+export async function acceptInvitation(token: string): Promise<void> {
+  await apiPost<void>('/api/invitations/accept', { token });
+}
