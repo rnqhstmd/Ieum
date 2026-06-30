@@ -4,8 +4,8 @@
 export default function DashboardPage() {
   return (
     <div className="p-8">
-      <h1 className="text-2xl font-semibold text-gray-900">대시보드</h1>
-      <p className="mt-2 text-sm text-gray-500">
+      <h1 className="text-2xl font-semibold text-ink">대시보드</h1>
+      <p className="mt-2 text-sm text-dim">
         워크스페이스와 페이지 목록이 여기에 표시됩니다.
         {/* TODO [Phase 1]: 실제 데이터 렌더링 */}
       </p>

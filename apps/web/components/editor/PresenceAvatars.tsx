@@ -17,8 +17,8 @@ function initialOf(displayName: string): string {
 
 export default function PresenceAvatars({ presences }: { presences: PresenceInfo[] }) {
   return (
-    <div role="list" aria-label="접속자" data-testid="presence-avatars" className="mb-2 flex gap-1">
-      {presences.map((p) => (
+    <div role="list" aria-label="접속자" data-testid="presence-avatars" className="flex items-center">
+      {presences.map((p, i) => (
         <div
           key={p.clientId}
           role="listitem"
@@ -26,7 +26,9 @@ export default function PresenceAvatars({ presences }: { presences: PresenceInfo
           title={p.displayName}
           data-color={p.color}
           style={{ backgroundColor: p.color }}
-          className="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-medium text-white"
+          className={`flex h-[26px] w-[26px] items-center justify-center rounded-full border-2 border-surface text-xs font-bold text-black sm:h-[30px] sm:w-[30px]${
+            i > 0 ? ' -ml-[10px]' : ''
+          }`}
         >
           {initialOf(p.displayName)}
         </div>

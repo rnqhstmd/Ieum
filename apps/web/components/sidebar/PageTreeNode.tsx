@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import { usePathname } from 'next/navigation';
 import type { Page } from '@/src/lib/types';
 
 interface Props {
@@ -23,6 +24,8 @@ export default function PageTreeNode({
   onArchive,
 }: Props) {
   const hasChildren = !!page.children && page.children.length > 0;
+  const pathname = usePathname();
+  const active = pathname === `/page/${page.id}`;
   const [expanded, setExpanded] = useState(true);
   const [editing, setEditing] = useState<'none' | 'title' | 'icon'>('none');
   // Enter/Escape 처리 후 언마운트로 인해 onBlur가 한 번 더 트리거되어도
@@ -60,7 +63,10 @@ export default function PageTreeNode({
       <div
         role="treeitem"
         aria-expanded={hasChildren ? expanded : undefined}
-        className="group flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13.5px] text-body hover:bg-hover"
+        aria-current={active ? 'page' : undefined}
+        className={`group flex items-center gap-[7px] rounded-lg px-2.5 py-[7px] text-[13.5px] ${
+          active ? 'bg-hover text-ink' : 'text-body hover:bg-hover'
+        }`}
         style={{ marginLeft: depth * 16 }}
       >
         {hasChildren ? (
@@ -69,9 +75,20 @@ export default function PageTreeNode({
             aria-label={expanded ? '접기' : '펼치기'}
             aria-expanded={expanded}
             onClick={() => setExpanded((v) => !v)}
-            className="flex h-3 w-3 flex-none items-center justify-center text-[10px] text-faint"
+            className="flex h-3 w-3 flex-none items-center justify-center text-faint hover:text-ink"
           >
-            <span aria-hidden>{expanded ? '▾' : '▸'}</span>
+            <svg
+              aria-hidden
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-2.5 w-2.5"
+            >
+              <path d={expanded ? 'M6 9l6 6 6-6' : 'M9 6l6 6-6 6'} />
+            </svg>
           </button>
         ) : (
           <span className="inline-block w-3 flex-none" aria-hidden />

@@ -148,14 +148,44 @@ export default function Sidebar({ onNavigate }: Props = {}) {
     }
   };
 
+  const currentWs = workspaces.find((w) => w.id === selectedWsId) ?? null;
+
   return (
     <aside
       aria-label="사이드바"
-      className="flex h-full w-[300px] flex-none flex-col gap-4 bg-deep px-3.5 py-4 text-body"
+      className="flex h-full w-[300px] flex-none flex-col border-r border-hair-2 bg-deep px-3.5 pb-3.5 pt-[18px] text-body"
     >
       <WorkspaceSwitcher workspaces={workspaces} currentId={selectedWsId} onSelect={handleSelect} />
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      {/* 검색창 — 시각 전용 플레이스홀더(검색 미배선, 비기능) */}
+      <div
+        aria-hidden
+        className="mt-1.5 flex items-center gap-[9px] rounded-[7px] border border-hair-2 px-2.5 py-2 text-fainter"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="h-3.5 w-3.5 flex-none"
+        >
+          <circle cx="11" cy="11" r="7" />
+          <path d="M21 21l-4.3-4.3" />
+        </svg>
+        <span className="flex-1 text-[13px]">검색</span>
+        <kbd className="rounded-[4px] border border-hair-2 px-[5px] py-[3px] font-sans text-[10px] leading-none">
+          ⌘K
+        </kbd>
+      </div>
+
+      <div className="mt-3 min-h-0 flex-1 overflow-auto">
+        {currentWs && (
+          <div className="px-2.5 pb-1.5 text-[10px] font-semibold uppercase tracking-[1.6px] text-label">
+            {currentWs.type === 'PERSONAL' ? '개인' : `공유 · ${currentWs.name}`}
+          </div>
+        )}
         {status === 'loading' && <p className="px-2.5 py-2 text-[13px] text-faint">불러오는 중…</p>}
         {status === 'error' && (
           <p role="alert" className="px-2.5 py-2 text-[13px] text-danger">
@@ -174,10 +204,18 @@ export default function Sidebar({ onNavigate }: Props = {}) {
         )}
       </div>
 
-      <div className="flex flex-col gap-2">
+      <div className="mt-2 flex flex-col gap-2">
         <NewPageButton onCreate={() => handleCreate(null)} />
-        <AccountArea />
+        {/* 새 워크스페이스 — 시각 전용 텍스트 버튼(생성 모달 미배선, no-op) */}
+        <button
+          type="button"
+          aria-disabled="true"
+          className="px-1 py-1 text-center text-[12px] font-medium text-faint hover:text-body"
+        >
+          새 워크스페이스
+        </button>
       </div>
+      <AccountArea />
     </aside>
   );
 }
