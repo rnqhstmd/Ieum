@@ -32,7 +32,7 @@ export default function TitleEditor({ title, onChange }: TitleEditorProps) {
       onKeyDown={(e: KeyboardEvent<HTMLHeadingElement>) => {
         if (e.key === 'Enter') e.preventDefault(); // 제목은 한 줄
       }}
-      className="mb-6 text-3xl font-bold text-ink outline-none empty:before:text-faint empty:before:content-['제목_없음']"
+      className="mb-1 text-[30px] font-bold tracking-[-1px] text-ink outline-none empty:before:text-faint empty:before:content-['제목_없음'] sm:text-[40px]"
     />
   );
 }

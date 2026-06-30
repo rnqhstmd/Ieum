@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }), usePathname: () => '/' }));
 vi.mock('@/src/lib/workspaces', () => ({ listWorkspaces: vi.fn() }));
 vi.mock('@/src/lib/pages', () => ({ getPageTree: vi.fn(), createPage: vi.fn() }));
 
