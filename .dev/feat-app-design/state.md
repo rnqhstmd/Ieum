@@ -1,5 +1,5 @@
 phase: complete
-status: in_progress
+status: completed
 vcs-type: git
 branch: feat/app-design
 base: main
@@ -29,7 +29,12 @@ steps:
     - 자기점검 (qa-manager): completed (Critical 0, Warning 3)
     - Warning 반영: completed (self 제외 집계 W1·단일WS aria W3·모바일 아바타 Info)
     - 정크 gitignore 보강: completed (.playwright-mcp/·landing-*.png)
-current-step: "커밋/PR"
+  complete:
+    - next build 보상검증: completed (전 6라우트 통과)
+    - 커밋: completed (a27bd8d)
+    - PR: completed (rnqhstmd/Ieum#35, base main 독립)
+    - gh 계정 복원: completed (bs-koo)
+current-step: "완료"
 execution-log:
   - phase: setup
     result: "셸 중심 범위 + main 독립 브랜치 확정(editor-ux 충돌 회피 위해 Editor.tsx 미변경). 더미데이터→실데이터 원칙."
