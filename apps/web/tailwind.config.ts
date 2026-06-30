@@ -26,6 +26,10 @@ const config: Config = {
         ok: 'var(--c-ok)',
         warn: 'var(--c-warn)',
         danger: 'var(--c-error)',
+        fill: {
+          a: 'var(--c-fill-a)',
+          b: 'var(--c-fill-b)',
+        },
       },
       fontFamily: {
         sans: ['Pretendard', 'ui-sans-serif', 'system-ui', 'sans-serif'],
