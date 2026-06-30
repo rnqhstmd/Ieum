@@ -1,5 +1,5 @@
 phase: complete
-status: in_progress
+status: completed
 vcs-type: git
 branch: feat/invite-design
 base: main
@@ -29,7 +29,10 @@ steps:
     - 정크 gitignore 보강: completed
   complete:
     - 클린 tsc + next build: completed (/invite 라우트)
-current-step: "커밋/PR"
+    - 커밋: completed (941453a)
+    - PR: completed (rnqhstmd/Ieum#37, base main 독립)
+    - gh 계정 복원: completed (bs-koo)
+current-step: "완료"
 execution-log:
   - phase: setup
     result: "토큰 미리보기 GET 부재 확인 → 범위 'UI 4상태+수락 스텁' 확정(VALID 제네릭, 수락 스텁). main 독립 /invite 라우트."
