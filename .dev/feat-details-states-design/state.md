@@ -1,5 +1,5 @@
 phase: complete
-status: in_progress
+status: completed
 vcs-type: git
 branch: feat/details-states-design
 base: main
@@ -30,7 +30,10 @@ steps:
     - 정크 gitignore 보강: completed
   complete:
     - 클린 tsc + next build: completed (/showcase/overlays·/showcase/states)
-current-step: "커밋/PR"
+    - 커밋: completed (72c965b)
+    - PR: completed (rnqhstmd/Ieum#38, base main 독립)
+    - gh 계정 복원: completed (bs-koo)
+current-step: "완료"
 execution-log:
   - phase: setup
     result: "Details/States는 마이크로인터랙션·상태 카탈로그 → 재사용 컴포넌트+쇼케이스로 구현, 라이브 미수정. 중복(스위처 드롭다운·슬래시 메뉴) 스킵."
