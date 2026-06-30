@@ -1,0 +1,38 @@
+diff --git a/apps/web/components/members/InviteRow.tsx b/apps/web/components/members/InviteRow.tsx
+index ab3a3e0..787d0ff 100644
+--- a/apps/web/components/members/InviteRow.tsx
++++ b/apps/web/components/members/InviteRow.tsx
+@@ -35,6 +35,8 @@ export default function InviteRow({ onInvite }: Props) {
+           placeholder="name@company.com"
+           className="min-w-0 flex-1 rounded-lg border border-hair bg-deep px-3.5 py-3 text-sm text-ink placeholder:text-fainter focus:outline-none"
+         />
++        {/* 모바일에선 역할 셀렉트를 숨겨 MEMBER로 고정한다.
++            TODO: createInvitation 연결 시 모바일에도 역할 선택 수단(compact select 등)을 제공할 것. */}
+         <select
+           aria-label="역할"
+           value={role}
+diff --git a/apps/web/components/members/MembersModal.tsx b/apps/web/components/members/MembersModal.tsx
+index ee90f94..c120ea1 100644
+--- a/apps/web/components/members/MembersModal.tsx
++++ b/apps/web/components/members/MembersModal.tsx
+@@ -128,7 +128,7 @@ export default function MembersModal({ workspaceId, workspaceName, onClose }: Pr
+         role="dialog"
+         aria-modal="true"
+         aria-label="멤버 관리"
+-        className="relative z-10 flex max-h-[85vh] w-full flex-col overflow-hidden rounded-t-[18px] border border-hair bg-surface sm:w-[580px] sm:rounded-[14px]"
++        className="relative z-10 flex max-h-[85vh] w-full flex-col overflow-hidden rounded-t-[18px] border-t border-hair bg-surface sm:w-[580px] sm:rounded-[14px] sm:border"
+       >
+         {/* 모바일 그랩 핸들 */}
+         <div aria-hidden className="flex justify-center pt-2.5 sm:hidden">
+diff --git a/apps/web/components/members/PendingInviteRow.tsx b/apps/web/components/members/PendingInviteRow.tsx
+index 3c26163..c0faa0c 100644
+--- a/apps/web/components/members/PendingInviteRow.tsx
++++ b/apps/web/components/members/PendingInviteRow.tsx
+@@ -38,6 +38,7 @@ export default function PendingInviteRow({ invitation, onRevoke }: Props) {
+ 
+       <button
+         type="button"
++        aria-label={`${invitation.email} 초대 취소`}
+         onClick={onRevoke}
+         className="flex-none text-[13px] text-faint underline underline-offset-[3px] hover:text-body"
+       >
