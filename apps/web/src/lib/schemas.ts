@@ -27,3 +27,35 @@ export const pageSchema: z.ZodType<Page, z.ZodTypeDef, unknown> = z.lazy(() =>
   }),
 );
 export const pageListSchema = z.array(pageSchema);
+
+/** 현재 인증 사용자 응답 검증 — GET /api/users/me */
+export const meSchema = z.object({
+  id: z.string(),
+  email: z.string(),
+  name: z.string(),
+  token: z.string(),
+});
+
+/** 멤버십 응답 검증 — MembershipDto */
+export const membershipSchema = z.object({
+  membershipId: z.string(),
+  userId: z.string(),
+  userEmail: z.string(),
+  userName: z.string(),
+  role: z.enum(['OWNER', 'MEMBER']),
+  joinedAt: z.string(),
+});
+export const membershipListSchema = z.array(membershipSchema);
+
+/** 초대 응답 검증 — InvitationDto */
+export const invitationSchema = z.object({
+  id: z.string(),
+  workspaceId: z.string(),
+  email: z.string(),
+  invitedById: z.string(),
+  role: z.enum(['OWNER', 'MEMBER']),
+  status: z.enum(['PENDING', 'ACCEPTED', 'REVOKED', 'EXPIRED']),
+  expiresAt: z.string(),
+  createdAt: z.string(),
+});
+export const invitationListSchema = z.array(invitationSchema);
