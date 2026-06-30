@@ -93,17 +93,26 @@ describe('PageTree', () => {
     expect(screen.queryByRole('textbox', { name: '페이지 이름' })).not.toBeInTheDocument();
   });
 
-  it('AC-F5: 아이콘 설정 — "아이콘 변경" 클릭 → 이모지 입력 → Enter → onSetIcon(id, value)', async () => {
+  it('AC-F5: 아이콘 설정 — 아이콘 버튼 클릭 → IconPicker에서 이모지 선택 → onSetIcon(id, value)', async () => {
     const user = userEvent.setup();
     const onSetIcon = vi.fn();
     render(<PageTree pages={[node({ id: 'a', title: 'A' })]} onNavigate={vi.fn()} onSetIcon={onSetIcon} />);
 
     await user.click(screen.getByRole('button', { name: 'A 아이콘 변경' }));
-    const input = screen.getByRole('textbox', { name: '페이지 아이콘' });
-    fireEvent.change(input, { target: { value: '🔥' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
+    await user.click(screen.getByRole('button', { name: '🔥' }));
 
     expect(onSetIcon).toHaveBeenCalledWith('a', '🔥');
+  });
+
+  it('AC-F5b: IconPicker 제거 시 onSetIcon(id, "") 호출(아이콘 제거)', async () => {
+    const user = userEvent.setup();
+    const onSetIcon = vi.fn();
+    render(<PageTree pages={[node({ id: 'a', title: 'A', icon: '🔥' })]} onNavigate={vi.fn()} onSetIcon={onSetIcon} />);
+
+    await user.click(screen.getByRole('button', { name: 'A 아이콘 변경' }));
+    await user.click(screen.getByRole('button', { name: '제거' }));
+
+    expect(onSetIcon).toHaveBeenCalledWith('a', '');
   });
 
   it('AC-F6: 아카이브 — "아카이브" 클릭 → onArchive(id)', async () => {
@@ -113,6 +122,43 @@ describe('PageTree', () => {
 
     await user.click(screen.getByRole('button', { name: 'A 아카이브' }));
     expect(onArchive).toHaveBeenCalledWith('a');
+  });
+
+  it('A-1: 행 우클릭 시 ContextMenu가 열리고 "아카이브" 항목이 onArchive를 호출한다', async () => {
+    const user = userEvent.setup();
+    const onArchive = vi.fn();
+    render(
+      <PageTree
+        pages={[node({ id: 'a', title: 'A' })]}
+        onNavigate={vi.fn()}
+        onRename={vi.fn()}
+        onSetIcon={vi.fn()}
+        onCreateChild={vi.fn()}
+        onArchive={onArchive}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByRole('treeitem'));
+    await user.click(screen.getByRole('menuitem', { name: '아카이브' }));
+    expect(onArchive).toHaveBeenCalledWith('a');
+  });
+
+  it('A-1: ContextMenu "이름 변경" 항목은 인라인 이름 입력을 연다', async () => {
+    const user = userEvent.setup();
+    render(
+      <PageTree
+        pages={[node({ id: 'a', title: 'A' })]}
+        onNavigate={vi.fn()}
+        onRename={vi.fn()}
+        onSetIcon={vi.fn()}
+        onCreateChild={vi.fn()}
+        onArchive={vi.fn()}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByRole('treeitem'));
+    await user.click(screen.getByRole('menuitem', { name: '이름 변경' }));
+    expect(screen.getByRole('textbox', { name: '페이지 이름' })).toBeInTheDocument();
   });
 
   it('PR리뷰#3: 편집 중에는 행 액션 버튼(아카이브·하위 추가)이 숨겨진다', async () => {

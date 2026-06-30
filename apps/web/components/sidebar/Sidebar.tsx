@@ -1,11 +1,13 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { listWorkspaces } from '@/src/lib/workspaces';
 import { getPageTree, createPage, updatePage, archivePage } from '@/src/lib/pages';
 import { ApiError } from '@/src/lib/api';
 import type { Page, Workspace } from '@/src/lib/types';
+import ConfirmDialog from '@/components/overlays/ConfirmDialog';
 import WorkspaceSwitcher from './WorkspaceSwitcher';
 import PageTree from './PageTree';
 import NewPageButton from './NewPageButton';
@@ -36,6 +38,8 @@ export default function Sidebar({ onNavigate }: Props = {}) {
   const [selectedWsId, setSelectedWsId] = useState<string | null>(null);
   const [pages, setPages] = useState<Page[]>([]);
   const [status, setStatus] = useState<Status>('loading');
+  // 아카이브 확인 대상 페이지 ID(파괴적). null이면 확인 다이얼로그 닫힘.
+  const [confirmArchiveId, setConfirmArchiveId] = useState<string | null>(null);
   // 진행 중 트리 조회의 워크스페이스 ID — 빠른 전환/언마운트 시 stale 응답 무시용
   const activeWsIdRef = useRef<string | null>(null);
 
@@ -136,10 +140,16 @@ export default function Sidebar({ onNavigate }: Props = {}) {
     }
   };
 
-  /** 페이지 아카이브(재귀 soft delete) — 파괴적이므로 확인 후 실행 */
-  const handleArchive = async (id: string) => {
-    if (!selectedWsId) return;
-    if (!window.confirm('이 페이지와 하위 페이지를 모두 아카이브할까요?')) return;
+  /** 페이지 아카이브 요청 — 파괴적이므로 ConfirmDialog로 확인을 받는다. */
+  const handleArchive = (id: string) => {
+    setConfirmArchiveId(id);
+  };
+
+  /** 아카이브 확인 → archivePage(재귀 soft delete) 후 트리 재조회. */
+  const handleConfirmArchive = async () => {
+    const id = confirmArchiveId;
+    setConfirmArchiveId(null);
+    if (!selectedWsId || !id) return;
     try {
       await archivePage(selectedWsId, id);
       await loadTree(selectedWsId);
@@ -243,6 +253,23 @@ export default function Sidebar({ onNavigate }: Props = {}) {
         </button>
       </div>
       <AccountArea />
+
+      {/* 아카이브 확인 — 사이드바 래퍼의 transform 컨테이닝 블록을 벗어나 전체화면을 덮도록
+          document.body로 포털한다. confirmArchiveId가 초기 null이라 SSR/하이드레이션엔 렌더되지 않음. */}
+      {confirmArchiveId &&
+        createPortal(
+          <div className="fixed inset-0 z-50">
+            <ConfirmDialog
+              title="페이지를 아카이브할까요?"
+              message="이 페이지와 모든 하위 페이지가 함께 아카이브됩니다."
+              confirmLabel="아카이브"
+              destructive
+              onConfirm={handleConfirmArchive}
+              onCancel={() => setConfirmArchiveId(null)}
+            />
+          </div>,
+          document.body,
+        )}
     </aside>
   );
 }

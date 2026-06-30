@@ -12,6 +12,7 @@ import { getCurrentUser } from '@/src/lib/users';
 import { listMembers, updateMemberRole, removeMember } from '@/src/lib/members';
 import { listInvitations, createInvitation, revokeInvitation } from '@/src/lib/invitations';
 import type { CurrentUser, Invitation, MemberRole, Membership } from '@/src/lib/types';
+import ConfirmDialog from '@/components/overlays/ConfirmDialog';
 import InviteRow from './InviteRow';
 import MemberRow from './MemberRow';
 import PendingInviteRow from './PendingInviteRow';
@@ -32,6 +33,8 @@ export default function MembersModal({ workspaceId, workspaceName, onClose }: Pr
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   /** 컨텍스트 메뉴가 열린 멤버의 userId (없으면 null) */
   const [openMenuUserId, setOpenMenuUserId] = useState<string | null>(null);
+  /** 내보내기 확인 대상 멤버(파괴적). null이면 확인 다이얼로그 닫힘. */
+  const [removeTarget, setRemoveTarget] = useState<Membership | null>(null);
   /** 초대 발송 중 — 중복 제출 방지 */
   const [inviting, setInviting] = useState(false);
 
@@ -155,11 +158,18 @@ export default function MembersModal({ workspaceId, workspaceName, onClose }: Pr
     }
   };
 
-  /** 멤버 내보내기 — 확인 후 removeMember(파괴적), 성공 시 재조회. (본인 제외) */
-  const handleRemove = async (member: Membership) => {
+  /** 멤버 내보내기 요청 — 파괴적이므로 ConfirmDialog로 확인을 받는다. (본인 제외) */
+  const handleRemove = (member: Membership) => {
     if (!me || member.userId === me.id) return;
     closeMenu();
-    if (!window.confirm('이 멤버를 내보낼까요?')) return;
+    setRemoveTarget(member);
+  };
+
+  /** 내보내기 확인 → removeMember(파괴적), 성공 시 재조회. mutation/reload 분리 유지. */
+  const handleConfirmRemove = async () => {
+    const member = removeTarget;
+    setRemoveTarget(null);
+    if (!me || !member) return;
     try {
       await removeMember(workspaceId, member.userId);
     } catch (e) {
@@ -298,6 +308,17 @@ export default function MembersModal({ workspaceId, workspaceName, onClose }: Pr
           )}
         </div>
       </div>
+
+      {removeTarget && (
+        <ConfirmDialog
+          title="멤버를 내보낼까요?"
+          message={`${removeTarget.userName} 님이 이 워크스페이스에서 제거됩니다.`}
+          confirmLabel="내보내기"
+          destructive
+          onConfirm={handleConfirmRemove}
+          onCancel={() => setRemoveTarget(null)}
+        />
+      )}
     </div>
   );
 }
