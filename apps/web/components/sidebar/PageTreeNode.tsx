@@ -1,8 +1,11 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import type { Page } from '@/src/lib/types';
+import ContextMenu from '@/components/states/ContextMenu';
+import IconPicker from '@/components/overlays/IconPicker';
 
 interface Props {
   page: Page;
@@ -13,6 +16,13 @@ interface Props {
   onSetIcon?: (id: string, icon: string) => void;
   onArchive?: (id: string) => void;
 }
+
+/** 랜덤 아이콘용 기본 이모지 셋 (IconPicker 그리드와 동일 계열) */
+const RANDOM_EMOJIS = [
+  '📄', '📝', '📌', '📁', '⭐', '🔥', '💡', '✅',
+  '🎯', '🚀', '📊', '📈', '🔖', '🧩', '🎨', '📅',
+  '🔔', '💬', '🧠', '🌱', '⚡', '🌟', '🎉', '📦',
+];
 
 export default function PageTreeNode({
   page,
@@ -28,9 +38,13 @@ export default function PageTreeNode({
   const active = pathname === `/page/${page.id}`;
   const [expanded, setExpanded] = useState(true);
   const [editing, setEditing] = useState<'none' | 'title' | 'icon'>('none');
+  // 우클릭 컨텍스트 메뉴 위치(커서 좌표). null이면 닫힘.
+  const [menu, setMenu] = useState<{ top: number; left: number } | null>(null);
   // Enter/Escape 처리 후 언마운트로 인해 onBlur가 한 번 더 트리거되어도
   // 커밋이 중복/취소무시되지 않도록 가드한다(실브라우저 blur-on-unmount 대응).
   const finalizedRef = useRef(false);
+  const iconRootRef = useRef<HTMLDivElement>(null);
+  const menuRootRef = useRef<HTMLDivElement>(null);
 
   const startEdit = (mode: 'title' | 'icon') => {
     finalizedRef.current = false;
@@ -48,15 +62,66 @@ export default function PageTreeNode({
     setEditing('none');
   };
 
-  const finishIcon = (value: string, commit: boolean) => {
-    if (finalizedRef.current) return;
-    finalizedRef.current = true;
-    if (commit) {
-      const v = value.trim();
-      if (v && v !== (page.icon ?? '')) onSetIcon?.(page.id, v);
-    }
-    setEditing('none');
+  const closeIcon = () => setEditing('none');
+
+  /** IconPicker onSelect → 아이콘 설정 + 닫기 */
+  const selectIcon = (emoji: string) => {
+    onSetIcon?.(page.id, emoji);
+    closeIcon();
   };
+
+  /** IconPicker onRemove → 아이콘 제거(빈값) + 닫기 */
+  const removeIcon = () => {
+    onSetIcon?.(page.id, '');
+    closeIcon();
+  };
+
+  /** IconPicker onRandom → 기본 이모지 셋에서 랜덤 선택 후 onSelect 동일 처리 */
+  const randomIcon = () => {
+    const emoji = RANDOM_EMOJIS[Math.floor(Math.random() * RANDOM_EMOJIS.length)] ?? '📄';
+    selectIcon(emoji);
+  };
+
+  /** 우클릭 → 커서 위치에 컨텍스트 메뉴 오픈(편집/아이콘 팝오버는 닫는다). */
+  const openMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setEditing('none');
+    setMenu({ top: e.clientY, left: e.clientX });
+  };
+
+  // ── 아이콘 팝오버 외부 클릭 닫기 ──
+  useEffect(() => {
+    if (editing !== 'icon') return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (iconRootRef.current && !iconRootRef.current.contains(e.target as Node)) closeIcon();
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [editing]);
+
+  // ── 컨텍스트 메뉴 외부 클릭 / Escape 닫기 ──
+  useEffect(() => {
+    if (!menu) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (menuRootRef.current && !menuRootRef.current.contains(e.target as Node)) setMenu(null);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenu(null);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [menu]);
+
+  // 우클릭 메뉴 항목 — 기존 핸들러 재사용. 제공된 핸들러만 노출.
+  const menuItems: { icon?: ReactNode; label: string; destructive?: boolean; onClick?: () => void }[] = [];
+  if (onRename) menuItems.push({ icon: <span aria-hidden>✎</span>, label: '이름 변경', onClick: () => startEdit('title') });
+  if (onSetIcon) menuItems.push({ icon: <span aria-hidden>☺</span>, label: '아이콘 변경', onClick: () => startEdit('icon') });
+  if (onCreateChild) menuItems.push({ icon: <span aria-hidden>＋</span>, label: '하위 페이지 추가', onClick: () => onCreateChild(page.id) });
+  if (onArchive) menuItems.push({ icon: <span aria-hidden>🗑</span>, label: '아카이브', destructive: true, onClick: () => onArchive(page.id) });
 
   return (
     <li role="none">
@@ -64,6 +129,7 @@ export default function PageTreeNode({
         role="treeitem"
         aria-expanded={hasChildren ? expanded : undefined}
         aria-current={active ? 'page' : undefined}
+        onContextMenu={menuItems.length ? openMenu : undefined}
         className={`group flex items-center gap-[7px] rounded-lg px-2.5 py-[7px] text-[13.5px] ${
           active ? 'bg-hover text-ink' : 'text-body hover:bg-hover'
         }`}
@@ -94,29 +160,29 @@ export default function PageTreeNode({
           <span className="inline-block w-3 flex-none" aria-hidden />
         )}
 
-        {/* 아이콘 — onSetIcon 제공 시 클릭하여 이모지 직접 입력 */}
-        {editing === 'icon' ? (
-          <input
-            aria-label="페이지 아이콘"
-            defaultValue={page.icon ?? ''}
-            autoFocus
-            maxLength={8}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') finishIcon(e.currentTarget.value, true);
-              else if (e.key === 'Escape') finishIcon('', false);
-            }}
-            onBlur={(e) => finishIcon(e.currentTarget.value, true)}
-            className="w-9 flex-none rounded bg-hover px-1 text-[14px] text-ink outline-none"
-          />
-        ) : onSetIcon ? (
-          <button
-            type="button"
-            aria-label={`${page.title} 아이콘 변경`}
-            onClick={() => startEdit('icon')}
-            className="flex-none text-[14px]"
-          >
-            <span aria-hidden>{page.icon ?? '📄'}</span>
-          </button>
+        {/* 아이콘 — onSetIcon 제공 시 클릭하여 IconPicker 팝오버로 편집 */}
+        {onSetIcon ? (
+          <div ref={iconRootRef} className="relative flex-none">
+            <button
+              type="button"
+              aria-label={`${page.title} 아이콘 변경`}
+              aria-expanded={editing === 'icon'}
+              onClick={() => (editing === 'icon' ? closeIcon() : startEdit('icon'))}
+              className="text-[14px]"
+            >
+              <span aria-hidden>{page.icon || '📄'}</span>
+            </button>
+            {editing === 'icon' && (
+              <div className="absolute left-0 top-full z-50 mt-1">
+                <IconPicker
+                  selected={page.icon || undefined}
+                  onSelect={selectIcon}
+                  onRemove={removeIcon}
+                  onRandom={randomIcon}
+                />
+              </div>
+            )}
+          </div>
         ) : (
           <span aria-hidden className="flex-none text-[14px]">
             {page.icon ?? '📄'}
@@ -182,6 +248,17 @@ export default function PageTreeNode({
           </div>
         )}
       </div>
+
+      {/* 우클릭 컨텍스트 메뉴 — 커서 고정 위치, 외부클릭/Escape 닫기 */}
+      {menu && (
+        <div ref={menuRootRef}>
+          <ContextMenu
+            items={menuItems}
+            onClose={() => setMenu(null)}
+            style={{ position: 'fixed', top: menu.top, left: menu.left, zIndex: 50 }}
+          />
+        </div>
+      )}
 
       {hasChildren && expanded && (
         <ul role="group">

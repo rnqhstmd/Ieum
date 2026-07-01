@@ -129,20 +129,22 @@ describe('Sidebar', () => {
     await waitFor(() => expect(getPageTree).toHaveBeenCalledTimes(2)); // 초기 + 재조회
   });
 
-  it('AC-F8: 아카이브는 confirm 승인 시에만 archivePage 호출 + 재조회한다', async () => {
+  it('AC-F8: 아카이브는 ConfirmDialog 확인 시에만 archivePage 호출 + 재조회한다', async () => {
     const user = userEvent.setup();
     vi.mocked(listWorkspaces).mockResolvedValue([ws({ id: 'w1', name: '내 워크스페이스', type: 'PERSONAL' })]);
     vi.mocked(getPageTree).mockResolvedValue([page({ id: 'a', title: 'A' })]);
     vi.mocked(archivePage).mockResolvedValue(undefined);
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
     render(<Sidebar />);
     await screen.findByText('A');
 
+    // 취소 시: ConfirmDialog 열린 뒤 '취소' → archivePage 미호출
     await user.click(screen.getByRole('button', { name: 'A 아카이브' }));
-    expect(archivePage).not.toHaveBeenCalled(); // confirm 취소
+    await user.click(screen.getByRole('button', { name: '취소' }));
+    expect(archivePage).not.toHaveBeenCalled();
 
-    confirmSpy.mockReturnValue(true);
+    // 확인 시: '아카이브' 확인 버튼 → archivePage 호출 + 재조회
     await user.click(screen.getByRole('button', { name: 'A 아카이브' }));
+    await user.click(screen.getByRole('button', { name: '아카이브' }));
     await waitFor(() => expect(archivePage).toHaveBeenCalledWith('w1', 'a'));
     await waitFor(() => expect(getPageTree).toHaveBeenCalledTimes(2));
   });
