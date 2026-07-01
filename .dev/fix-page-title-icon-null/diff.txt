@@ -1,0 +1,388 @@
+ .dev/fix-page-title-icon-null/codemap.md           |  15 ++
+ .dev/fix-page-title-icon-null/diff.txt             | 183 +++++++++++++++++++++
+ .dev/fix-page-title-icon-null/prd.md               |  43 +++++
+ .dev/fix-page-title-icon-null/state.md             |  37 +++++
+ .dev/fix-page-title-icon-null/trust-ledger.md      |   8 +
+ .../src/lib/editor/__tests__/usePageTitle.test.ts  |  34 +++-
+ apps/web/src/lib/editor/usePageTitle.ts            |   4 +-
+ 7 files changed, 320 insertions(+), 4 deletions(-)
+diff --git a/.dev/fix-page-title-icon-null/codemap.md b/.dev/fix-page-title-icon-null/codemap.md
+new file mode 100644
+index 0000000..0c88cca
+--- /dev/null
++++ b/.dev/fix-page-title-icon-null/codemap.md
+@@ -0,0 +1,15 @@
++## 코드 맵: usePageTitle 아이콘 null 덮어쓰기 버그 수정
++
++### 핵심 파일
++- apps/web/src/lib/editor/usePageTitle.ts:52 → saveTitle이 PATCH 본문에 `icon: null` 하드코딩(버그 지점). 제목 자동저장 save-port.
++- apps/web/src/lib/editor/__tests__/usePageTitle.test.ts:33 → 현재 `icon: null` 전송을 단언(버그를 인코딩한 테스트 — RED에서 교정 대상).
++
++### 참조 파일
++- backend/src/main/java/com/ieum/page/PageService.java:117-126 → updatePage 부분갱신 계약(null=변경안함, ''=제거). 백엔드는 정상 → 수정 불필요.
++- backend/src/main/java/com/ieum/page/dto/UpdatePageRequest.java → record(title, icon) 둘 다 nullable. 누락 필드는 Jackson이 null로 역직렬화.
++- apps/web/components/editor/EditorContainer.tsx:32,98 → usePageTitle 사용처. 헤더 icon 미배선(📄 하드코딩) — 이 버그가 실배선 차단.
++- apps/web/components/sidebar/PageTreeNode.tsx:75 → IconPicker 제거는 `onSetIcon(id, '')`(빈문자열) — null 아님. null/'' 의미 분리 확인.
++- apps/web/src/lib/pages.ts:17-25 → updatePage(부분 input 그대로 PATCH).
++
++### 설정
++- .claude/config.json → node projectType: build=`npm run build`, test=`npm test`. 실제 러너는 pnpm workspace + vitest.
+diff --git a/.dev/fix-page-title-icon-null/diff.txt b/.dev/fix-page-title-icon-null/diff.txt
+new file mode 100644
+index 0000000..e705fea
+--- /dev/null
++++ b/.dev/fix-page-title-icon-null/diff.txt
+@@ -0,0 +1,183 @@
++ .dev/fix-page-title-icon-null/codemap.md           | 15 ++++++++
++ .dev/fix-page-title-icon-null/prd.md               | 43 ++++++++++++++++++++++
++ .dev/fix-page-title-icon-null/state.md             | 37 +++++++++++++++++++
++ .../src/lib/editor/__tests__/usePageTitle.test.ts  | 34 +++++++++++++++--
++ apps/web/src/lib/editor/usePageTitle.ts            |  4 +-
++ 5 files changed, 129 insertions(+), 4 deletions(-)
++diff --git a/.dev/fix-page-title-icon-null/codemap.md b/.dev/fix-page-title-icon-null/codemap.md
++new file mode 100644
++index 0000000..0c88cca
++--- /dev/null
+++++ b/.dev/fix-page-title-icon-null/codemap.md
++@@ -0,0 +1,15 @@
+++## 코드 맵: usePageTitle 아이콘 null 덮어쓰기 버그 수정
+++
+++### 핵심 파일
+++- apps/web/src/lib/editor/usePageTitle.ts:52 → saveTitle이 PATCH 본문에 `icon: null` 하드코딩(버그 지점). 제목 자동저장 save-port.
+++- apps/web/src/lib/editor/__tests__/usePageTitle.test.ts:33 → 현재 `icon: null` 전송을 단언(버그를 인코딩한 테스트 — RED에서 교정 대상).
+++
+++### 참조 파일
+++- backend/src/main/java/com/ieum/page/PageService.java:117-126 → updatePage 부분갱신 계약(null=변경안함, ''=제거). 백엔드는 정상 → 수정 불필요.
+++- backend/src/main/java/com/ieum/page/dto/UpdatePageRequest.java → record(title, icon) 둘 다 nullable. 누락 필드는 Jackson이 null로 역직렬화.
+++- apps/web/components/editor/EditorContainer.tsx:32,98 → usePageTitle 사용처. 헤더 icon 미배선(📄 하드코딩) — 이 버그가 실배선 차단.
+++- apps/web/components/sidebar/PageTreeNode.tsx:75 → IconPicker 제거는 `onSetIcon(id, '')`(빈문자열) — null 아님. null/'' 의미 분리 확인.
+++- apps/web/src/lib/pages.ts:17-25 → updatePage(부분 input 그대로 PATCH).
+++
+++### 설정
+++- .claude/config.json → node projectType: build=`npm run build`, test=`npm test`. 실제 러너는 pnpm workspace + vitest.
++diff --git a/.dev/fix-page-title-icon-null/prd.md b/.dev/fix-page-title-icon-null/prd.md
++new file mode 100644
++index 0000000..c2343aa
++--- /dev/null
+++++ b/.dev/fix-page-title-icon-null/prd.md
++@@ -0,0 +1,43 @@
+++# PRD: usePageTitle 아이콘 null 덮어쓰기 버그 수정 (hotfix)
+++
+++## 배경
+++이음(IEUM) 에디터의 제목 자동저장 훅 `usePageTitle`의 save-port `saveTitle`이 제목을 영속할 때 PATCH 본문에 `{ title, icon: null }`로 **icon 필드를 하드코딩**하여 함께 전송한다. 이 훅은 제목(pages.title)만 책임지는 save-port인데, 자신의 범위 밖인 icon을 매 저장마다 명시적으로 전송한다.
+++
+++현재 백엔드 `PageService.updatePage`는 부분 갱신 계약(`icon: null` = "변경 안 함", `icon: ''` = "아이콘 제거")을 따르므로 **당장의 라이브 데이터 손실은 발생하지 않는다**. 그러나 이 하드코딩은 세 가지 문제를 만든다.
+++1. **의미적 결합 오류**: 제목 저장 포트가 icon 도메인에 결합되어 "제목만 저장"이라는 단일 책임을 위반.
+++2. **잠재 데이터 손실 landmine**: 백엔드 null-skip 동작에 암묵 의존. 향후 `null = 아이콘 제거`로 계약이 바뀌거나 다른 PATCH 소비자가 생기면 제목을 칠 때마다(디바운스) 아이콘 소실.
+++3. **에디터 헤더 이모지 실배선 차단**: 헤더 아이콘 편집/표시를 하려면 이 save-port가 icon을 건드리지 않아야 함.
+++
+++## 요구사항
+++### [Must]
+++- **M1**: `saveTitle`은 제목 저장 시 PATCH 본문에 `title`만 포함하고 `icon` 필드를 전송하지 않는다.
+++- **M2**: 기존 아이콘 값은 제목 저장 후에도 보존된다(회귀 방지).
+++- **M3**: 백엔드(`PageService`, `UpdatePageRequest`)는 변경하지 않는다. 수정 범위는 프론트엔드 훅과 그 테스트로 한정.
+++
+++### [Should]
+++- **S1**: 버그를 인코딩한 기존 테스트(`usePageTitle.test.ts`의 `icon: null` 단언)를 올바른 계약(title-only)으로 교정.
+++
+++### [Could]
+++- **C1**: 제목 저장 포트가 icon을 전송하지 않음을 문서화하는 주석을 남긴다(향후 회귀 방지).
+++
+++## 수용 기준
+++
+++### AC-1: saveTitle은 title만 포함하는 PATCH 본문을 전송한다
+++- **Given**: `usePageTitle('p-1', '')` 훅이 마운트되고, 초기 GET이 `{ id:'p-1', title:'기존제목', icon:'📄', workspaceId:'ws-1' }`으로 완료되어 workspaceId가 확보된 상태
+++- **When**: `saveTitle('새 제목')`을 호출한다
+++- **Then**: `apiPatch`가 `/api/workspaces/ws-1/pages/p-1` 경로로 1회 호출되고, 전송된 본문 객체는 `{ title: '새 제목' }`과 정확히 일치한다(`'icon' in body === false`)
+++
+++### AC-2: 저장 본문에 icon 키가 없어 기존 아이콘이 백엔드에서 보존된다(회귀 방지)
+++- **Given**: `usePageTitle('p-1', '')` 훅이 마운트되고, 초기 GET이 `icon:'📌'`을 가진 페이지로 완료된 상태
+++- **When**: `saveTitle('제목만 변경')`을 호출한다
+++- **Then**: `apiPatch` 호출 인자의 본문에서 `Object.prototype.hasOwnProperty.call(body, 'icon') === false`이다(icon 키 자체가 없으므로 백엔드 부분 갱신 계약상 아이콘 미변경)
+++
+++### AC-3: workspaceId 미확보 시(GET 미완료) 저장을 건너뛴다(기존 동작 보존)
+++- **Given**: `usePageTitle('p-1', '')` 훅이 마운트되었으나 초기 GET이 아직 완료되지 않아 workspaceId가 null인 상태
+++- **When**: `saveTitle('x')`을 호출한다
+++- **Then**: `apiPatch`가 호출되지 않는다(mock 호출 횟수 0)
+++
+++## 제외 범위
+++- 백엔드 `PageService.updatePage` 부분 갱신 계약 변경.
+++- 사이드바 IconPicker 아이콘 설정/제거 기능 변경.
+++- 에디터 헤더 이모지 직접 편집 신규 기능(향후 별도 작업).
++diff --git a/.dev/fix-page-title-icon-null/state.md b/.dev/fix-page-title-icon-null/state.md
++new file mode 100644
++index 0000000..fc26fde
++--- /dev/null
+++++ b/.dev/fix-page-title-icon-null/state.md
++@@ -0,0 +1,37 @@
+++phase: implement
+++status: in_progress
+++vcs-type: git
+++branch: fix/page-title-icon-null
+++base: main
+++project-type: [node, java-spring]
+++project-root: ./
+++args: "usePageTitle 아이콘 null 덮어쓰기 버그 수정"
+++mode: hotfix
+++intent-source: user-selection
+++flags: --hotfix
+++started: 2026-07-01
+++last-known-head: (setup에서 갱신)
+++auto-stashed: false
+++config-setup-attempts: 0
+++current-step: "phase-setup 완료"
+++phases:
+++  setup: completed
+++  requirements: completed
+++  implement: in_progress
+++  complete: pending
+++steps:
+++  requirements:
+++    - 경량 PRD (G-W-T): pending
+++  implement:
+++    - "RGR T1 (icon null 미전송)":
+++        red: pending
+++        green: pending
+++        refactor: pending
+++    - 긴급 보안감사 (H1~H4): pending
+++    - 변경사항 수집: pending
+++  complete:
+++    - verify-gate: pending
+++    - 인수검증: pending
+++execution-log:
+++  - phase: setup
+++    result: "근본원인 확정 — usePageTitle.saveTitle이 icon:null 하드코딩. 백엔드 null-skip(부분갱신)이라 현재 라이브 손실은 없으나 잠재 데이터 손실+결합 버그. 수정: title-only PATCH. 백엔드 무변경."
++diff --git a/apps/web/src/lib/editor/__tests__/usePageTitle.test.ts b/apps/web/src/lib/editor/__tests__/usePageTitle.test.ts
++index c84f8de..ac328ca 100644
++--- a/apps/web/src/lib/editor/__tests__/usePageTitle.test.ts
+++++ b/apps/web/src/lib/editor/__tests__/usePageTitle.test.ts
++@@ -30,10 +30,38 @@ describe('usePageTitle', () => {
++     await act(async () => {
++       await result.current.saveTitle('새 제목');
++     });
++-    expect(apiPatch).toHaveBeenCalledWith(`/api/workspaces/${WS}/pages/${PAGE}`, {
++-      title: '새 제목',
++-      icon: null,
+++    expect(apiPatch).toHaveBeenCalledTimes(1);
+++    const [calledPath, body] = vi.mocked(apiPatch).mock.calls[0];
+++    expect(calledPath).toBe(`/api/workspaces/${WS}/pages/${PAGE}`);
+++    // 본문은 title만 포함해야 하며 icon 키 자체가 없어야 한다(icon:null 전송은 버그).
+++    expect(body).toEqual({ title: '새 제목' });
+++    expect('icon' in (body as object)).toBe(false);
+++  });
+++
+++  it('AC-1: saveTitle은 title만 포함하는 PATCH 본문을 전송한다', async () => {
+++    vi.mocked(apiGet).mockResolvedValue({ id: PAGE, title: '기존제목', icon: '📄', workspaceId: WS });
+++    vi.mocked(apiPatch).mockResolvedValue({});
+++    const { result } = renderHook(() => usePageTitle(PAGE, ''));
+++    await waitFor(() => expect(result.current.title).toBe('기존제목'));
+++    await act(async () => {
+++      await result.current.saveTitle('새 제목');
+++    });
+++    expect(apiPatch).toHaveBeenCalledTimes(1);
+++    const body = vi.mocked(apiPatch).mock.calls[0][1];
+++    expect(body).toEqual({ title: '새 제목' });
+++    expect('icon' in (body as object)).toBe(false);
+++  });
+++
+++  it('AC-2(회귀 방지): 저장 본문에 icon 키가 없어 기존 아이콘이 보존된다', async () => {
+++    vi.mocked(apiGet).mockResolvedValue({ id: PAGE, title: '기존제목', icon: '📌', workspaceId: WS });
+++    vi.mocked(apiPatch).mockResolvedValue({});
+++    const { result } = renderHook(() => usePageTitle(PAGE, ''));
+++    await waitFor(() => expect(result.current.title).toBe('기존제목'));
+++    await act(async () => {
+++      await result.current.saveTitle('제목만 변경');
++     });
+++    const body = vi.mocked(apiPatch).mock.calls[0][1];
+++    expect(Object.prototype.hasOwnProperty.call(body, 'icon')).toBe(false);
++   });
++ 
++   it('AC-4(보호): GET 완료 전(wsId 없음) saveTitle은 PATCH하지 않는다', async () => {
++diff --git a/apps/web/src/lib/editor/usePageTitle.ts b/apps/web/src/lib/editor/usePageTitle.ts
++index 5f5c738..dc188d1 100644
++--- a/apps/web/src/lib/editor/usePageTitle.ts
+++++ b/apps/web/src/lib/editor/usePageTitle.ts
++@@ -46,10 +46,12 @@ export function usePageTitle(pageId: string, initialTitle: string) {
++   }, [pageId]);
++ 
++   // save-port: 제목을 wsId-scoped PATCH로 영속(AC-4). GET 완료 전(wsId 없음)이면 스킵.
+++  // 본문에 title만 담는다 — icon은 전송하지 않는다. 백엔드 updatePage는 부분 갱신(icon 누락=변경 안 함)
+++  // 이라 제목 저장이 아이콘을 건드리지 않는다. icon 변경/제거는 IconPicker 경로가 전담한다(결합 방지).
++   const saveTitle = useCallback(
++     async (next: string) => {
++       if (!workspaceId) return;
++-      await apiPatch(`/api/workspaces/${workspaceId}/pages/${pageId}`, { title: next, icon: null });
+++      await apiPatch(`/api/workspaces/${workspaceId}/pages/${pageId}`, { title: next });
++     },
++     [pageId, workspaceId],
++   );
+diff --git a/.dev/fix-page-title-icon-null/prd.md b/.dev/fix-page-title-icon-null/prd.md
+new file mode 100644
+index 0000000..c2343aa
+--- /dev/null
++++ b/.dev/fix-page-title-icon-null/prd.md
+@@ -0,0 +1,43 @@
++# PRD: usePageTitle 아이콘 null 덮어쓰기 버그 수정 (hotfix)
++
++## 배경
++이음(IEUM) 에디터의 제목 자동저장 훅 `usePageTitle`의 save-port `saveTitle`이 제목을 영속할 때 PATCH 본문에 `{ title, icon: null }`로 **icon 필드를 하드코딩**하여 함께 전송한다. 이 훅은 제목(pages.title)만 책임지는 save-port인데, 자신의 범위 밖인 icon을 매 저장마다 명시적으로 전송한다.
++
++현재 백엔드 `PageService.updatePage`는 부분 갱신 계약(`icon: null` = "변경 안 함", `icon: ''` = "아이콘 제거")을 따르므로 **당장의 라이브 데이터 손실은 발생하지 않는다**. 그러나 이 하드코딩은 세 가지 문제를 만든다.
++1. **의미적 결합 오류**: 제목 저장 포트가 icon 도메인에 결합되어 "제목만 저장"이라는 단일 책임을 위반.
++2. **잠재 데이터 손실 landmine**: 백엔드 null-skip 동작에 암묵 의존. 향후 `null = 아이콘 제거`로 계약이 바뀌거나 다른 PATCH 소비자가 생기면 제목을 칠 때마다(디바운스) 아이콘 소실.
++3. **에디터 헤더 이모지 실배선 차단**: 헤더 아이콘 편집/표시를 하려면 이 save-port가 icon을 건드리지 않아야 함.
++
++## 요구사항
++### [Must]
++- **M1**: `saveTitle`은 제목 저장 시 PATCH 본문에 `title`만 포함하고 `icon` 필드를 전송하지 않는다.
++- **M2**: 기존 아이콘 값은 제목 저장 후에도 보존된다(회귀 방지).
++- **M3**: 백엔드(`PageService`, `UpdatePageRequest`)는 변경하지 않는다. 수정 범위는 프론트엔드 훅과 그 테스트로 한정.
++
++### [Should]
++- **S1**: 버그를 인코딩한 기존 테스트(`usePageTitle.test.ts`의 `icon: null` 단언)를 올바른 계약(title-only)으로 교정.
++
++### [Could]
++- **C1**: 제목 저장 포트가 icon을 전송하지 않음을 문서화하는 주석을 남긴다(향후 회귀 방지).
++
++## 수용 기준
++
++### AC-1: saveTitle은 title만 포함하는 PATCH 본문을 전송한다
++- **Given**: `usePageTitle('p-1', '')` 훅이 마운트되고, 초기 GET이 `{ id:'p-1', title:'기존제목', icon:'📄', workspaceId:'ws-1' }`으로 완료되어 workspaceId가 확보된 상태
++- **When**: `saveTitle('새 제목')`을 호출한다
++- **Then**: `apiPatch`가 `/api/workspaces/ws-1/pages/p-1` 경로로 1회 호출되고, 전송된 본문 객체는 `{ title: '새 제목' }`과 정확히 일치한다(`'icon' in body === false`)
++
++### AC-2: 저장 본문에 icon 키가 없어 기존 아이콘이 백엔드에서 보존된다(회귀 방지)
++- **Given**: `usePageTitle('p-1', '')` 훅이 마운트되고, 초기 GET이 `icon:'📌'`을 가진 페이지로 완료된 상태
++- **When**: `saveTitle('제목만 변경')`을 호출한다
++- **Then**: `apiPatch` 호출 인자의 본문에서 `Object.prototype.hasOwnProperty.call(body, 'icon') === false`이다(icon 키 자체가 없으므로 백엔드 부분 갱신 계약상 아이콘 미변경)
++
++### AC-3: workspaceId 미확보 시(GET 미완료) 저장을 건너뛴다(기존 동작 보존)
++- **Given**: `usePageTitle('p-1', '')` 훅이 마운트되었으나 초기 GET이 아직 완료되지 않아 workspaceId가 null인 상태
++- **When**: `saveTitle('x')`을 호출한다
++- **Then**: `apiPatch`가 호출되지 않는다(mock 호출 횟수 0)
++
++## 제외 범위
++- 백엔드 `PageService.updatePage` 부분 갱신 계약 변경.
++- 사이드바 IconPicker 아이콘 설정/제거 기능 변경.
++- 에디터 헤더 이모지 직접 편집 신규 기능(향후 별도 작업).
+diff --git a/.dev/fix-page-title-icon-null/state.md b/.dev/fix-page-title-icon-null/state.md
+new file mode 100644
+index 0000000..1171d93
+--- /dev/null
++++ b/.dev/fix-page-title-icon-null/state.md
+@@ -0,0 +1,37 @@
++phase: complete
++status: in_progress
++vcs-type: git
++branch: fix/page-title-icon-null
++base: main
++project-type: [node, java-spring]
++project-root: ./
++args: "usePageTitle 아이콘 null 덮어쓰기 버그 수정"
++mode: hotfix
++intent-source: user-selection
++flags: --hotfix
++started: 2026-07-01
++last-known-head: (setup에서 갱신)
++auto-stashed: false
++config-setup-attempts: 0
++current-step: "hotfix 긴급 보안감사"
++phases:
++  setup: completed
++  requirements: completed
++  implement: completed
++  complete: in_progress
++steps:
++  requirements:
++    - 경량 PRD (G-W-T): pending
++  implement:
++    - "RGR T1 (icon null 미전송)":
++        red: completed
++        green: completed
++        refactor: skipped (대상 없음)
++    - 변경사항 수집: completed
++    - 긴급 보안감사 (H1~H4): completed (CRITICAL/HIGH 0건)
++  complete:
++    - verify-gate: pending
++    - 인수검증: pending
++execution-log:
++  - phase: setup
++    result: "근본원인 확정 — usePageTitle.saveTitle이 icon:null 하드코딩. 백엔드 null-skip(부분갱신)이라 현재 라이브 손실은 없으나 잠재 데이터 손실+결합 버그. 수정: title-only PATCH. 백엔드 무변경."
+diff --git a/.dev/fix-page-title-icon-null/trust-ledger.md b/.dev/fix-page-title-icon-null/trust-ledger.md
+new file mode 100644
+index 0000000..a6145bd
+--- /dev/null
++++ b/.dev/fix-page-title-icon-null/trust-ledger.md
+@@ -0,0 +1,8 @@
++## Trust Ledger
++
++### Hotfix 긴급 감사 (security-auditor, CRITICAL/HIGH만)
++- **결과: CRITICAL 0 / HIGH 0 — 감사 통과, 배포 가능**
++- 인증/인가 우회: 없음. `PageController.updatePage`·`PageService.updatePage`의 인가(`accessGuard.requireWorkspaceMember`)는 경로변수 `wsId` 기반이라 body 축소(icon 제거)와 무관. `apiPatch`는 `credentials:'include'`로 세션 쿠키 유지.
++- 부분 갱신 계약: `if (request.icon() != null) page.setIcon(...)` — icon 키 누락 시 Jackson이 null 역직렬화 → 분기 스킵 → 아이콘 보존. PRD 주장과 코드 일치.
++- 타 필드 영향: `UpdatePageRequest` record는 title/icon 2개 필드뿐(position 등 없음). body 축소가 영향 줄 필드 자체가 없음.
++- 부수효과: 기존 landmine(향후 null=clear 계약 변경 시 사일런트 손실) 제거 방향. 새 위험 미추가.
+diff --git a/apps/web/src/lib/editor/__tests__/usePageTitle.test.ts b/apps/web/src/lib/editor/__tests__/usePageTitle.test.ts
+index c84f8de..ac328ca 100644
+--- a/apps/web/src/lib/editor/__tests__/usePageTitle.test.ts
++++ b/apps/web/src/lib/editor/__tests__/usePageTitle.test.ts
+@@ -30,10 +30,38 @@ describe('usePageTitle', () => {
+     await act(async () => {
+       await result.current.saveTitle('새 제목');
+     });
+-    expect(apiPatch).toHaveBeenCalledWith(`/api/workspaces/${WS}/pages/${PAGE}`, {
+-      title: '새 제목',
+-      icon: null,
++    expect(apiPatch).toHaveBeenCalledTimes(1);
++    const [calledPath, body] = vi.mocked(apiPatch).mock.calls[0];
++    expect(calledPath).toBe(`/api/workspaces/${WS}/pages/${PAGE}`);
++    // 본문은 title만 포함해야 하며 icon 키 자체가 없어야 한다(icon:null 전송은 버그).
++    expect(body).toEqual({ title: '새 제목' });
++    expect('icon' in (body as object)).toBe(false);
++  });
++
++  it('AC-1: saveTitle은 title만 포함하는 PATCH 본문을 전송한다', async () => {
++    vi.mocked(apiGet).mockResolvedValue({ id: PAGE, title: '기존제목', icon: '📄', workspaceId: WS });
++    vi.mocked(apiPatch).mockResolvedValue({});
++    const { result } = renderHook(() => usePageTitle(PAGE, ''));
++    await waitFor(() => expect(result.current.title).toBe('기존제목'));
++    await act(async () => {
++      await result.current.saveTitle('새 제목');
++    });
++    expect(apiPatch).toHaveBeenCalledTimes(1);
++    const body = vi.mocked(apiPatch).mock.calls[0][1];
++    expect(body).toEqual({ title: '새 제목' });
++    expect('icon' in (body as object)).toBe(false);
++  });
++
++  it('AC-2(회귀 방지): 저장 본문에 icon 키가 없어 기존 아이콘이 보존된다', async () => {
++    vi.mocked(apiGet).mockResolvedValue({ id: PAGE, title: '기존제목', icon: '📌', workspaceId: WS });
++    vi.mocked(apiPatch).mockResolvedValue({});
++    const { result } = renderHook(() => usePageTitle(PAGE, ''));
++    await waitFor(() => expect(result.current.title).toBe('기존제목'));
++    await act(async () => {
++      await result.current.saveTitle('제목만 변경');
+     });
++    const body = vi.mocked(apiPatch).mock.calls[0][1];
++    expect(Object.prototype.hasOwnProperty.call(body, 'icon')).toBe(false);
+   });
+ 
+   it('AC-4(보호): GET 완료 전(wsId 없음) saveTitle은 PATCH하지 않는다', async () => {
+diff --git a/apps/web/src/lib/editor/usePageTitle.ts b/apps/web/src/lib/editor/usePageTitle.ts
+index 5f5c738..dc188d1 100644
+--- a/apps/web/src/lib/editor/usePageTitle.ts
++++ b/apps/web/src/lib/editor/usePageTitle.ts
+@@ -46,10 +46,12 @@ export function usePageTitle(pageId: string, initialTitle: string) {
+   }, [pageId]);
+ 
+   // save-port: 제목을 wsId-scoped PATCH로 영속(AC-4). GET 완료 전(wsId 없음)이면 스킵.
++  // 본문에 title만 담는다 — icon은 전송하지 않는다. 백엔드 updatePage는 부분 갱신(icon 누락=변경 안 함)
++  // 이라 제목 저장이 아이콘을 건드리지 않는다. icon 변경/제거는 IconPicker 경로가 전담한다(결합 방지).
+   const saveTitle = useCallback(
+     async (next: string) => {
+       if (!workspaceId) return;
+-      await apiPatch(`/api/workspaces/${workspaceId}/pages/${pageId}`, { title: next, icon: null });
++      await apiPatch(`/api/workspaces/${workspaceId}/pages/${pageId}`, { title: next });
+     },
+     [pageId, workspaceId],
+   );

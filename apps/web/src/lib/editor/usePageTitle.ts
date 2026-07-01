@@ -46,10 +46,12 @@ export function usePageTitle(pageId: string, initialTitle: string) {
   }, [pageId]);
 
   // save-port: 제목을 wsId-scoped PATCH로 영속(AC-4). GET 완료 전(wsId 없음)이면 스킵.
+  // 본문에 title만 담는다 — icon은 전송하지 않는다. 백엔드 updatePage는 부분 갱신(icon 누락=변경 안 함)
+  // 이라 제목 저장이 아이콘을 건드리지 않는다. icon 변경/제거는 IconPicker 경로가 전담한다(결합 방지).
   const saveTitle = useCallback(
     async (next: string) => {
       if (!workspaceId) return;
-      await apiPatch(`/api/workspaces/${workspaceId}/pages/${pageId}`, { title: next, icon: null });
+      await apiPatch(`/api/workspaces/${workspaceId}/pages/${pageId}`, { title: next });
     },
     [pageId, workspaceId],
   );
