@@ -2,9 +2,9 @@
 
 // ─── P5 에디터 컨테이너 — CRDT 진실 원천 + relay 연결 ─────────────
 // 본문 블록은 @ieum/crdt DocState(useCrdtDocument)를 진실 원천으로 사용한다.
-// 제목은 CRDT 범위 밖이므로 로컬 상태로 유지한다. autosave 스텁은 유지하며
-// (저장 no-op) 영속화 슬라이스에서 CRDT op 영속화로 교체한다.
+// 제목은 CRDT 범위 밖이므로 단일 페이지 GET 로드 + PATCH save-port(usePageTitle)로 영속한다.
 
+import { useRef } from 'react';
 import Editor from '@/components/editor/Editor';
 import TitleEditor from '@/components/editor/TitleEditor';
 import PresenceAvatars from '@/components/editor/PresenceAvatars';
@@ -42,8 +42,24 @@ export default function EditorContainer({ pageId, initialTitle = '' }: EditorCon
     notifyChange(next);
   };
 
+  // 제목에서 Enter → 본문 첫 블록으로 포커스 이동(노션식). 첫 [data-block-id]에 캐럿 배치.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const focusFirstBlock = () => {
+    const el = rootRef.current?.querySelector<HTMLElement>('[data-block-id]');
+    if (!el) return;
+    el.focus();
+    const sel = window.getSelection();
+    if (sel) {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  };
+
   return (
-    <div data-page-id={pageId} className="flex h-full min-w-0 flex-col">
+    <div data-page-id={pageId} ref={rootRef} className="flex h-full min-w-0 flex-col">
       {/* ① 에디터 탑바 — 풀폭(border-b hair-3). 모바일에선 AppShell 햄버거 상단바 아래
           본문 영역 내에 위치하며 브레드크럼·공유 pill·인원수는 sm 이상에서만 노출한다. */}
       <header className="flex items-center border-b border-hair-3 px-8 py-5">
@@ -96,7 +112,7 @@ export default function EditorContainer({ pageId, initialTitle = '' }: EditorCon
           )}
           {/* 페이지 헤더: 이모지(페이지 icon 미배선 → 기본 📄) + 제목. 편집 메타는 데이터 없어 생략. */}
           <span aria-hidden className="mb-2 block text-[44px] leading-none sm:text-[56px]">📄</span>
-          <TitleEditor title={title} onChange={handleTitleChange} />
+          <TitleEditor title={title} onChange={handleTitleChange} onEnter={focusFirstBlock} />
           <Editor
             blocks={blocks}
             onBlockInput={onBlockInput}

@@ -208,7 +208,7 @@ export default function PageTreeNode({
             onClick={() => onNavigate(page.id)}
             className="min-w-0 flex-1 truncate text-left"
           >
-            {page.title}
+            {page.title || <span className="text-faint">제목 없음</span>}
           </button>
         )}
 

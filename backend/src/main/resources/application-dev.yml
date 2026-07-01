@@ -1,0 +1,25 @@
+# ⚠️ 개발 전용 프로파일 (SPRING_PROFILES_ACTIVE=dev)
+# 실제 Google OAuth credential 없이 로컬에서 전 기능을 수동 테스트하기 위한 설정.
+# - 더미 OAuth client: 빈 client-id면 ClientRegistrationRepository 미생성으로 기동이 실패하므로
+#   더미값을 넣어 기동만 가능하게 한다(실제 Google 로그인은 동작하지 않음; DevAuthController로 우회).
+# - app.auth.secret: ws-relay의 AUTH_SECRET과 반드시 동일해야 WS HMAC 토큰 검증이 통과한다.
+# datasource는 application.yml 기본값(jdbc:postgresql://localhost:5432/ieum, postgres/postgres)을 사용한다.
+# TNSLSNR(Oracle)가 8080을 점유하므로 dev backend는 8081로 띄운다.
+
+server:
+  port: 8081
+
+spring:
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: dev-client-id
+            client-secret: dev-client-secret
+
+app:
+  auth:
+    secret: dev-local-ieum-auth-secret-change-me-please-0123456789
+  ws-relay:
+    admin-url: http://127.0.0.1:3002

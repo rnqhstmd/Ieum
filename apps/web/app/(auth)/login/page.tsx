@@ -4,6 +4,7 @@
 import { Constellation } from '@/components/landing/Constellation';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080';
+const DEV_LOGIN = process.env.NEXT_PUBLIC_DEV_LOGIN === '1';
 
 export default function LoginPage() {
   return (
@@ -48,6 +49,28 @@ export default function LoginPage() {
           <span className="text-dim underline underline-offset-[3px]">개인정보 처리방침</span>에 동의하게 됩니다.
         </p>
       </div>
+      {/* ⚠ DEV 전용 로그인 — NEXT_PUBLIC_DEV_LOGIN=1 + 백엔드 dev 프로파일에서만 노출/동작 */}
+      {DEV_LOGIN && (
+        <div className="relative z-10 mt-6 flex flex-col items-center gap-3 rounded-2xl border border-dashed border-faint px-6 py-4">
+          <p className="text-[11px] font-bold uppercase tracking-[1.5px] text-faint">
+            ⚠ DEV 전용 로그인 (OAuth 우회)
+          </p>
+          <div className="flex gap-3">
+            <a
+              href={`${API_URL}/api/dev/login?email=alice@dev.local`}
+              className="rounded-full border border-ink px-5 py-2.5 text-xs font-bold text-ink transition hover:bg-hover"
+            >
+              alice 로그인
+            </a>
+            <a
+              href={`${API_URL}/api/dev/login?email=bob@dev.local`}
+              className="rounded-full border border-ink px-5 py-2.5 text-xs font-bold text-ink transition hover:bg-hover"
+            >
+              bob 로그인
+            </a>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

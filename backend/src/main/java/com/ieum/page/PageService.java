@@ -74,9 +74,8 @@ public class PageService {
     public PageDto createPage(UUID currentUserId, UUID workspaceId, CreatePageRequest request) {
         accessGuard.requireWorkspaceMember(currentUserId, workspaceId);
 
-        if (request.title() == null || request.title().isBlank()) {
-            throw new IllegalArgumentException("페이지 제목은 비어 있을 수 없습니다.");
-        }
+        // 빈 제목 허용(노션식): 미입력 시 빈 문자열로 저장 → 프론트가 placeholder("제목 없음") 표시.
+        String title = request.title() == null ? "" : request.title();
 
         if (request.parentPageId() != null) {
             Page parent = pageRepository.findById(request.parentPageId())
@@ -86,10 +85,11 @@ public class PageService {
             }
         }
 
+        // 타임스탬프는 Page의 @PrePersist가 persist 시점(in-memory)에 채운다(응답 DTO non-null 보장).
         Page saved = pageRepository.save(Page.builder()
                 .workspaceId(workspaceId)
                 .parentPageId(request.parentPageId())
-                .title(request.title())
+                .title(title)
                 .icon(request.icon())
                 .position(request.position())
                 .createdById(currentUserId)
@@ -114,11 +114,8 @@ public class PageService {
             throw new EntityNotFoundException("아카이브된 페이지는 수정할 수 없습니다.");
         }
 
-        // 부분 갱신: null 필드는 변경하지 않는다 (rename은 icon 보존, set-icon은 title 보존).
+        // 부분 갱신: null 필드는 변경하지 않는다. 빈 제목도 허용(노션식 — 사용자가 제목을 비울 수 있음).
         if (request.title() != null) {
-            if (request.title().isBlank()) {
-                throw new IllegalArgumentException("페이지 제목은 비어 있을 수 없습니다.");
-            }
             page.setTitle(request.title());
         }
         if (request.icon() != null) {

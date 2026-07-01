@@ -108,7 +108,7 @@ export default function Sidebar({ onNavigate }: Props = {}) {
     try {
       const created = await createPage(selectedWsId, {
         parentPageId: parentId,
-        title: '제목 없음',
+        title: '', // 빈 제목으로 생성 → 에디터/트리에서 "제목 없음" placeholder 표시
         position: nextPosition,
       });
       await loadTree(selectedWsId);

@@ -25,21 +25,27 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    CorsConfigurationSource corsConfigurationSource,
                                                    OAuth2SuccessHandler oAuth2SuccessHandler,
-                                                   JsonAuthenticationEntryPoint jsonAuthenticationEntryPoint) throws Exception {
+                                                   JsonAuthenticationEntryPoint jsonAuthenticationEntryPoint,
+                                                   org.springframework.core.env.Environment env) throws Exception {
+        // dev 프로파일에서만 개발 로그인 우회(/api/dev/**)를 허용한다. prod에서는 닫힌다.
+        boolean devProfile = java.util.Arrays.asList(env.getActiveProfiles()).contains("dev");
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource))
             .csrf(csrf -> csrf.disable())
             .exceptionHandling(e -> e.authenticationEntryPoint(jsonAuthenticationEntryPoint))
-            .authorizeHttpRequests(auth -> auth
-                .requestMatchers(
+            .authorizeHttpRequests(auth -> {
+                auth.requestMatchers(
                     "/api/health",
                     "/actuator/**",
                     "/ws/**",
                     "/login/**",
                     "/oauth2/**"
-                ).permitAll()
-                .anyRequest().authenticated()
-            )
+                ).permitAll();
+                if (devProfile) {
+                    auth.requestMatchers("/api/dev/**").permitAll();
+                }
+                auth.anyRequest().authenticated();
+            })
             .oauth2Login(oauth2 -> oauth2
                 .successHandler(oAuth2SuccessHandler)
                 .failureUrl(frontendUrl + "/login?error=true")
