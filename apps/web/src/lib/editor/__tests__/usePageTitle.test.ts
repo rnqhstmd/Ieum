@@ -31,7 +31,7 @@ describe('usePageTitle', () => {
       await result.current.saveTitle('새 제목');
     });
     expect(apiPatch).toHaveBeenCalledTimes(1);
-    const [calledPath, body] = vi.mocked(apiPatch).mock.calls[0];
+    const [calledPath, body] = vi.mocked(apiPatch).mock.calls[0]!;
     expect(calledPath).toBe(`/api/workspaces/${WS}/pages/${PAGE}`);
     // 본문은 title만 포함해야 하며 icon 키 자체가 없어야 한다(icon:null 전송은 버그).
     expect(body).toEqual({ title: '새 제목' });
@@ -47,7 +47,7 @@ describe('usePageTitle', () => {
       await result.current.saveTitle('새 제목');
     });
     expect(apiPatch).toHaveBeenCalledTimes(1);
-    const body = vi.mocked(apiPatch).mock.calls[0][1];
+    const body = vi.mocked(apiPatch).mock.calls[0]![1];
     expect(body).toEqual({ title: '새 제목' });
     expect('icon' in (body as object)).toBe(false);
   });
@@ -60,7 +60,7 @@ describe('usePageTitle', () => {
     await act(async () => {
       await result.current.saveTitle('제목만 변경');
     });
-    const body = vi.mocked(apiPatch).mock.calls[0][1];
+    const body = vi.mocked(apiPatch).mock.calls[0]![1];
     expect(Object.prototype.hasOwnProperty.call(body, 'icon')).toBe(false);
   });
 
