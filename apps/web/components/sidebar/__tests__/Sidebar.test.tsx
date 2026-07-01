@@ -3,7 +3,7 @@ import { render, screen, waitFor, act, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 
 const { pushMock } = vi.hoisted(() => ({ pushMock: vi.fn() }));
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push: pushMock }) }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: pushMock }), usePathname: () => '/' }));
 vi.mock('@/src/lib/workspaces', () => ({ listWorkspaces: vi.fn() }));
 vi.mock('@/src/lib/pages', () => ({
   getPageTree: vi.fn(),
@@ -33,12 +33,15 @@ beforeEach(() => {
 
 describe('Sidebar', () => {
   it('AC-5: 워크스페이스 2개를 모두 표시한다', async () => {
+    const user = userEvent.setup();
     vi.mocked(listWorkspaces).mockResolvedValue([
       ws({ id: 'w1', name: '내 워크스페이스', type: 'PERSONAL' }),
       ws({ id: 'w2', name: '이음 팀', type: 'SHARED' }),
     ]);
     render(<Sidebar />);
+    // 디자인: 현재 워크스페이스는 헤더, 나머지는 스위처 드롭다운에 표시된다.
     expect(await screen.findByText('내 워크스페이스')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /내 워크스페이스/ }));
     expect(screen.getByText('이음 팀')).toBeInTheDocument();
   });
 
@@ -59,7 +62,8 @@ describe('Sidebar', () => {
     await screen.findByText('내 워크스페이스');
     await waitFor(() => expect(getPageTree).toHaveBeenCalledWith('w1')); // 기본 PERSONAL
 
-    await user.click(screen.getByRole('button', { name: /이음 팀/ }));
+    await user.click(screen.getByRole('button', { name: /내 워크스페이스/ })); // 드롭다운 열기(트리거)
+    await user.click(screen.getByRole('menuitem', { name: /이음 팀/ }));        // 드롭다운 항목
     await waitFor(() => expect(getPageTree).toHaveBeenLastCalledWith('w2'));
   });
 
@@ -125,20 +129,22 @@ describe('Sidebar', () => {
     await waitFor(() => expect(getPageTree).toHaveBeenCalledTimes(2)); // 초기 + 재조회
   });
 
-  it('AC-F8: 아카이브는 confirm 승인 시에만 archivePage 호출 + 재조회한다', async () => {
+  it('AC-F8: 아카이브는 ConfirmDialog 확인 시에만 archivePage 호출 + 재조회한다', async () => {
     const user = userEvent.setup();
     vi.mocked(listWorkspaces).mockResolvedValue([ws({ id: 'w1', name: '내 워크스페이스', type: 'PERSONAL' })]);
     vi.mocked(getPageTree).mockResolvedValue([page({ id: 'a', title: 'A' })]);
     vi.mocked(archivePage).mockResolvedValue(undefined);
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
     render(<Sidebar />);
     await screen.findByText('A');
 
+    // 취소 시: ConfirmDialog 열린 뒤 '취소' → archivePage 미호출
     await user.click(screen.getByRole('button', { name: 'A 아카이브' }));
-    expect(archivePage).not.toHaveBeenCalled(); // confirm 취소
+    await user.click(screen.getByRole('button', { name: '취소' }));
+    expect(archivePage).not.toHaveBeenCalled();
 
-    confirmSpy.mockReturnValue(true);
+    // 확인 시: '아카이브' 확인 버튼 → archivePage 호출 + 재조회
     await user.click(screen.getByRole('button', { name: 'A 아카이브' }));
+    await user.click(screen.getByRole('button', { name: '아카이브' }));
     await waitFor(() => expect(archivePage).toHaveBeenCalledWith('w1', 'a'));
     await waitFor(() => expect(getPageTree).toHaveBeenCalledTimes(2));
   });
@@ -176,8 +182,10 @@ describe('Sidebar', () => {
     render(<Sidebar />);
     await screen.findByText('내 워크스페이스');
 
-    await user.click(screen.getByRole('button', { name: /WS2/ })); // 느린 w2 전환
-    await user.click(screen.getByRole('button', { name: /WS3/ })); // 빠른 w3 전환
+    await user.click(screen.getByRole('button', { name: /내 워크스페이스/ })); // 드롭다운 열기
+    await user.click(screen.getByRole('menuitem', { name: /WS2/ })); // 느린 w2 전환(드롭다운 닫힘, 헤더 WS2)
+    await user.click(screen.getByRole('button', { name: /WS2/ })); // 헤더 클릭 → 재오픈
+    await user.click(screen.getByRole('menuitem', { name: /WS3/ })); // 빠른 w3 전환
     await screen.findByText('P3-page');
 
     // w2가 뒤늦게 stale 데이터로 응답 — 무시되어야 함

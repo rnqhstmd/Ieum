@@ -13,11 +13,8 @@ interface PageEditorProps {
 export default async function PageEditor({ params }: PageEditorProps) {
   const { pageId } = await params;
 
-  return (
-    <div className="mx-auto max-w-3xl px-8 py-12">
-      {/* key={pageId}: 페이지 이동 시 EditorContainer를 remount하여 이전 페이지
-          상태(제목·블록)가 남지 않도록 강제한다. */}
-      <EditorContainer key={pageId} pageId={pageId} />
-    </div>
-  );
+  // key={pageId}: 페이지 이동 시 EditorContainer를 remount하여 이전 페이지
+  // 상태(제목·블록)가 남지 않도록 강제한다. 풀높이 레이아웃(탑바 풀폭 + 본문 중앙)은
+  // EditorContainer가 직접 제어하므로 바깥 패딩/센터링 래퍼를 제거한다.
+  return <EditorContainer key={pageId} pageId={pageId} />;
 }

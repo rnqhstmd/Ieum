@@ -40,3 +40,5 @@ Thumbs.db
 # Windows crash dumps
 *.stackdump
 .playwright-mcp/
+/landing-*.png
+/login-*.png
