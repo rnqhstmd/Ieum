@@ -4,12 +4,14 @@ import { useState } from 'react';
 import type { MemberRole } from '@/src/lib/types';
 
 interface Props {
-  /** 스텁 — createInvitation 연결 전까지 동작 없음 (이메일 발송 X) */
+  /** OWNER 전용 초대 입력 행. 이메일·역할을 onInvite 콜백으로 전달한다(실제 초대 발송). */
   onInvite: (email: string, role: MemberRole) => void;
+  /** 초대 발송 중 중복 제출 방지 */
+  disabled?: boolean;
 }
 
-/** OWNER 전용 초대 입력 행 — 이메일 + 역할 셀렉트 + 초대 버튼. 제출은 스텁. */
-export default function InviteRow({ onInvite }: Props) {
+/** OWNER 전용 초대 입력 행 — 이메일 + 역할 셀렉트 + 초대 버튼. */
+export default function InviteRow({ onInvite, disabled }: Props) {
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<MemberRole>('MEMBER');
 
@@ -48,7 +50,8 @@ export default function InviteRow({ onInvite }: Props) {
         </select>
         <button
           type="submit"
-          className="flex-none rounded-full border border-ink px-[22px] py-3 text-[12px] font-bold text-ink"
+          disabled={disabled}
+          className="flex-none rounded-full border border-ink px-[22px] py-3 text-[12px] font-bold text-ink disabled:opacity-50"
         >
           초대
         </button>

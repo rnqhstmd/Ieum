@@ -205,6 +205,33 @@ export default function Sidebar({ onNavigate }: Props = {}) {
       </div>
 
       <div className="mt-2 flex flex-col gap-2">
+        {/* 멤버 진입 — 공유(SHARED) 워크스페이스에서만 노출(개인은 멤버 관리 무의미) */}
+        {currentWs?.type === 'SHARED' && selectedWsId && (
+          <button
+            type="button"
+            onClick={() => {
+              onNavigate?.();
+              router.push(`/workspace/${selectedWsId}/members`);
+            }}
+            className="flex items-center gap-2 rounded-[7px] px-2.5 py-2 text-[13px] text-faint hover:bg-hover hover:text-body"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-4 w-4 flex-none"
+            >
+              <path d="M16 19v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M22 19v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
+            <span>멤버</span>
+          </button>
+        )}
         <NewPageButton onCreate={() => handleCreate(null)} />
         {/* 새 워크스페이스 — 시각 전용 텍스트 버튼(생성 모달 미배선, no-op) */}
         <button
