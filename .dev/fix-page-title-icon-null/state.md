@@ -1,5 +1,5 @@
 phase: complete
-status: in_progress
+status: completed
 vcs-type: git
 branch: fix/page-title-icon-null
 base: main
@@ -18,7 +18,8 @@ phases:
   setup: completed
   requirements: completed
   implement: completed
-  complete: in_progress
+  complete: completed
+pr: https://github.com/rnqhstmd/Ieum/pull/41
 steps:
   requirements:
     - 경량 PRD (G-W-T): pending
