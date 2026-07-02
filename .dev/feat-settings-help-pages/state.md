@@ -1,5 +1,5 @@
 phase: complete
-status: in_progress
+status: completed
 vcs-type: git
 branch: feat/settings-help-pages
 base: main
@@ -18,7 +18,10 @@ phases:
   implement: completed
 testability: 9/10 PASS
   review: completed
-  complete: in_progress
+  complete: completed
 execution-log:
   - phase: setup
     result: "브랜치 feat/settings-help-pages(off main). AccountArea handleSettings/handleHelp no-op 스텁 배선 대상, AccountMenu onSettings/onHelp props. 신규 /settings·/help 페이지 (app) 그룹."
+
+acceptance: ACCEPT (Must FR-1~7 + FR-8 + AC-1~9)
+pr: https://github.com/rnqhstmd/Ieum/pull/44
