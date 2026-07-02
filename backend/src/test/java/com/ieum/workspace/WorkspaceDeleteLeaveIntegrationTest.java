@@ -1,7 +1,9 @@
 package com.ieum.workspace;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ieum.collaboration.CrdtOp;
 import com.ieum.collaboration.CrdtOpRepository;
+import com.ieum.collaboration.OpType;
 import com.ieum.collaboration.Snapshot;
 import com.ieum.collaboration.SnapshotRepository;
 import com.ieum.invitation.Invitation;
@@ -59,7 +61,6 @@ class WorkspaceDeleteLeaveIntegrationTest extends AbstractIntegrationTest {
     @Autowired private CrdtOpRepository crdtOpRepository;
     @Autowired private SnapshotRepository snapshotRepository;
     @Autowired private InvitationRepository invitationRepository;
-    @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
     // WsRelayAdminClient mock — 실 HTTP 차단
     @MockitoBean
@@ -421,13 +422,11 @@ class WorkspaceDeleteLeaveIntegrationTest extends AbstractIntegrationTest {
                 .build());
         UUID archivedPageId = archivedPage.getId();
 
-        // 각 page에 crdt_op 1건 — V3 op_type CHECK는 소문자('insert')를 요구하므로
-        // JPA enum(@Enumerated STRING → 대문자) 우회: native SQL 직접 삽입
+        // 각 page에 crdt_op 1건
         for (UUID pid : java.util.List.of(activePageId, archivedPageId)) {
-            jdbcTemplate.update(
-                    "INSERT INTO crdt_ops (id, page_id, site_id, seq, op_type, payload) " +
-                    "VALUES (?::uuid, ?::uuid, ?, ?, 'insert', ?::jsonb)",
-                    UUID.randomUUID().toString(), pid.toString(), "site-cascade", 1, "{}");
+            crdtOpRepository.save(CrdtOp.builder()
+                    .pageId(pid).siteId("site-cascade").seq(1)
+                    .opType(OpType.INSERT).payload("{}").build());
         }
 
         // 각 page에 snapshot 1건

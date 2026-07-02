@@ -1,0 +1,17 @@
+ .dev/fix-crdt-optype-wire/codemap.md               |  22 +++
+ .dev/fix-crdt-optype-wire/design.md                | 117 +++++++++++++
+ .dev/fix-crdt-optype-wire/diff.txt                 |  15 ++
+ .dev/fix-crdt-optype-wire/prd.md                   |  93 ++++++++++
+ .dev/fix-crdt-optype-wire/state.md                 |  27 +++
+ .dev/fix-crdt-optype-wire/trust-ledger.md          |  27 +++
+ .../main/java/com/ieum/collaboration/CrdtOp.java   |   2 +-
+ .../main/java/com/ieum/collaboration/OpType.java   |  42 ++++-
+ .../com/ieum/collaboration/OpTypeConverter.java    |  25 +++
+ .../com/ieum/collaboration/dto/WsMessages.java     |   6 +-
+ .../CrdtOpPersistenceIntegrationTest.java          | 107 ++++++++++++
+ .../ieum/collaboration/OpTypeConverterTest.java    |  67 +++++++
+ .../java/com/ieum/collaboration/OpTypeTest.java    | 194 +++++++++++++++++++++
+ .../WorkspaceDeleteLeaveIntegrationTest.java       |  13 +-
+ 14 files changed, 743 insertions(+), 14 deletions(-)
+---
+위는 요약. 프로덕션 변경: backend/src/main/java/com/ieum/collaboration/{OpType.java,OpTypeConverter.java,CrdtOp.java,dto/WsMessages.java}. 테스트: OpTypeTest(Jackson2+3)/OpTypeConverterTest/CrdtOpPersistenceIntegrationTest/WorkspaceDeleteLeaveIntegrationTest. DB 마이그레이션 불변.

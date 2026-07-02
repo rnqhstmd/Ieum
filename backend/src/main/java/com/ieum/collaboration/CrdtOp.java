@@ -42,7 +42,7 @@ public class CrdtOp {
     @Column(insertable = false, updatable = false)
     private Long serverSeq;
 
-    @Enumerated(EnumType.STRING)
+    @Convert(converter = OpTypeConverter.class)
     @Column(nullable = false)
     private OpType opType;
 

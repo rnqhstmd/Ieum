@@ -29,14 +29,14 @@ public final class WsMessages {
 
     /**
      * CRDT 연산 메시지.
-     * opType: "INSERT" | "DELETE" (OpType enum 문자열)
-     * payload: INSERT={id,originId,value} / DELETE={targetId} — Jackson JsonNode로 수신 후 파싱.
+     * opType: "insert" | "delete" | "block-insert" | "block-delete" | "block-set-type" (wire opType, 소문자 — OpType.toWire())
+     * payload: insert={id,originId,value} / delete={targetId} / block-* op payload는 @ieum/crdt AnyOp 참조 — Jackson JsonNode로 수신 후 파싱.
      */
     @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
     public record OpMessage(
             String siteId,
             long seq,
-            String opType,       // "INSERT" | "DELETE"
+            String opType,       // wire opType(소문자 5종): "insert"|"delete"|"block-insert"|"block-delete"|"block-set-type"
             JsonNode payload     // 파싱은 OpService에서 처리
     ) {}
 
