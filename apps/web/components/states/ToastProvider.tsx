@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import ErrorToast from './ErrorToast';
@@ -60,7 +60,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   // 언마운트 시 살아있는 타이머 정리.
   useEffect(() => clearTimer, [clearTimer]);
 
-  const api: ToastApi = { showError, dismiss };
+  // context value를 메모이즈 — showError/dismiss가 안정적이라 참조가 고정되어, 토스트 변동 시
+  // useToast 소비자(EditorContainer 등)의 불필요한 재렌더를 막는다.
+  const api = useMemo<ToastApi>(() => ({ showError, dismiss }), [showError, dismiss]);
 
   return (
     <ToastContext.Provider value={api}>

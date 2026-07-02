@@ -1,7 +1,7 @@
 'use client';
 
 // ⌘K 커맨드 팔레트 — prop 주도 재사용형. 백드롭은 부모(absolute inset-0) 기준 스코프.
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ChangeEvent } from 'react';
 
 interface CommandItem {
   // 리스트 key 안정화용 고유 식별자. 미지정 시 title로 폴백(쇼케이스 하위호환).
@@ -51,9 +51,11 @@ export default function CommandPalette({
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  // 자동 포커스는 controlled(라이브 팔레트, onQueryChange 제공)일 때만 — 쇼케이스처럼 상시
+  // 인라인 렌더되는 데모에서 페이지 로드 시 포커스를 탈취하지 않도록 한다.
   useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+    if (onQueryChange) inputRef.current?.focus();
+  }, [onQueryChange]);
 
   // 방향키로 하이라이트가 뷰포트(max-h-[360px] overflow) 밖으로 나가면 보이도록 스크롤.
   // scrollIntoView는 브라우저에만 존재(jsdom 미구현)하므로 옵셔널 호출로 가드한다.
@@ -88,8 +90,11 @@ export default function CommandPalette({
             type="text"
             aria-label="명령 검색"
             placeholder="페이지 이동, 사람 찾기, 명령 실행…"
-            value={query ?? ''}
-            onChange={(e) => onQueryChange?.(e.target.value)}
+            // onQueryChange가 있을 때만 controlled로 배선한다. 없으면(쇼케이스 등) value/onChange를
+            // 걸지 않아 uncontrolled 로컬 타이핑이 정상 동작한다(재사용 계약 보존).
+            {...(onQueryChange
+              ? { value: query ?? '', onChange: (e: ChangeEvent<HTMLInputElement>) => onQueryChange(e.target.value) }
+              : {})}
             className="flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-dim"
           />
           <kbd className="flex-none rounded border border-hair-2 px-1.5 py-0.5 text-[10px] text-faint">ESC</kbd>
