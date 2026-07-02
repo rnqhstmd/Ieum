@@ -1,0 +1,15 @@
+ .dev/feat-settings-help-pages/codemap.md           | 22 +++++
+ .dev/feat-settings-help-pages/design.md            | 87 ++++++++++++++++++++
+ .dev/feat-settings-help-pages/prd.md               | 45 +++++++++++
+ .dev/feat-settings-help-pages/state.md             | 24 ++++++
+ apps/web/app/(app)/__tests__/help.test.tsx         | 56 +++++++++++++
+ apps/web/app/(app)/__tests__/settings.test.tsx     | 93 ++++++++++++++++++++++
+ apps/web/app/(app)/help/page.tsx                   | 52 ++++++++++++
+ apps/web/app/(app)/settings/page.tsx               | 76 ++++++++++++++++++
+ apps/web/components/sidebar/AccountArea.tsx        | 25 ++----
+ .../sidebar/__tests__/AccountArea.test.tsx         | 15 +++-
+ apps/web/src/lib/theme/__tests__/useTheme.test.ts  | 70 ++++++++++++++++
+ apps/web/src/lib/theme/useTheme.ts                 | 36 +++++++++
+ 12 files changed, 580 insertions(+), 21 deletions(-)
+---
+총 719줄. 변경 파일을 Read로 직접 확인하라.

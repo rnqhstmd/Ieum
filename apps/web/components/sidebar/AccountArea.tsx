@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getCurrentUser } from '@/src/lib/users';
 import { logout } from '@/src/lib/auth/logout';
+import { useTheme } from '@/src/lib/theme/useTheme';
 import AccountMenu from '@/components/overlays/AccountMenu';
 
 interface Props {
@@ -18,10 +19,10 @@ export default function AccountArea({ name = '내 계정', email }: Props) {
   const router = useRouter();
   const [account, setAccount] = useState<{ name: string; email?: string }>({ name, email });
   const [open, setOpen] = useState(false);
-  const [theme, setTheme] = useState<'다크' | '라이트'>('다크');
+  const { theme, toggleTheme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // 마운트 시 실데이터 조회(실패 시 기존 기본값 유지) + 현재 테마 동기화
+  // 마운트 시 실데이터 조회(실패 시 기존 기본값 유지)
   useEffect(() => {
     let active = true;
     (async () => {
@@ -33,7 +34,6 @@ export default function AccountArea({ name = '내 계정', email }: Props) {
         // 조회 실패 시 기본값 유지
       }
     })();
-    setTheme(document.documentElement.dataset.theme === 'light' ? '라이트' : '다크');
     return () => {
       active = false;
     };
@@ -68,21 +68,8 @@ export default function AccountArea({ name = '내 계정', email }: Props) {
     }
   };
 
-  const handleToggleTheme = () => {
-    const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
-    document.documentElement.dataset.theme = next;
-    try {
-      localStorage.setItem('ieum-theme', next);
-    } catch {
-      // 저장 실패 무시
-    }
-    setTheme(next === 'light' ? '라이트' : '다크');
-  };
-
-  // TODO: 설정 페이지 미구현 — 인프라 영역(후속)
-  const handleSettings = () => {};
-  // TODO: 도움말 페이지 미구현 — 인프라 영역(후속)
-  const handleHelp = () => {};
+  const handleSettings = () => router.push('/settings');
+  const handleHelp = () => router.push('/help');
 
   return (
     <div ref={containerRef} className="relative mt-2.5">
@@ -93,7 +80,7 @@ export default function AccountArea({ name = '내 계정', email }: Props) {
             email={account.email}
             theme={theme}
             onSettings={handleSettings}
-            onToggleTheme={handleToggleTheme}
+            onToggleTheme={toggleTheme}
             onHelp={handleHelp}
             onLogout={handleLogout}
           />
