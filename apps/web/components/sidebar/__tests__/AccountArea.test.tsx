@@ -76,7 +76,7 @@ describe('AccountArea', () => {
     expect(screen.getByText('라이트')).toBeInTheDocument();
   });
 
-  it('설정 클릭은 no-op 스텁이라 네비게이션이 없다', async () => {
+  it('설정 클릭 시 /settings로 이동한다', async () => {
     const user = userEvent.setup();
     render(<AccountArea />);
     await screen.findByText('김이음');
@@ -84,6 +84,17 @@ describe('AccountArea', () => {
     await user.click(screen.getByRole('button'));
     await user.click(screen.getByRole('menuitem', { name: /설정/ }));
 
-    expect(pushMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/settings'));
+  });
+
+  it('도움말 클릭 시 /help로 이동한다', async () => {
+    const user = userEvent.setup();
+    render(<AccountArea />);
+    await screen.findByText('김이음');
+
+    await user.click(screen.getByRole('button'));
+    await user.click(screen.getByRole('menuitem', { name: /도움말/ }));
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/help'));
   });
 });
