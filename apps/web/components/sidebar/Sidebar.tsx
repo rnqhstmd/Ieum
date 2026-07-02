@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { listWorkspaces } from '@/src/lib/workspaces';
 import { getPageTree, createPage, updatePage, archivePage } from '@/src/lib/pages';
-import { ApiError } from '@/src/lib/api';
+import { redirectOnAuthError } from '@/src/lib/auth/redirectOnAuthError';
 import type { Page, Workspace } from '@/src/lib/types';
 import ConfirmDialog from '@/components/overlays/ConfirmDialog';
 import CommandPaletteContainer from '@/components/overlays/CommandPaletteContainer';
@@ -47,10 +47,7 @@ export default function Sidebar({ onNavigate }: Props = {}) {
   const activeWsIdRef = useRef<string | null>(null);
 
   const handleError = (e: unknown) => {
-    if (e instanceof ApiError && e.status === 401) {
-      router.push('/login');
-      return;
-    }
+    if (redirectOnAuthError(e, router)) return;
     setStatus('error');
   };
 
