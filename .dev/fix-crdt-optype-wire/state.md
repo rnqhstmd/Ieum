@@ -1,5 +1,5 @@
 phase: complete
-status: in_progress
+status: completed
 mode: normal
 intent-source: user-selection
 vcs-type: git
@@ -13,7 +13,7 @@ started: 2026-07-02
 last-known-head: 98011502ab2ac78661d1e99a918e3c72e43d47c0
 auto-stashed: false
 config-setup-attempts: 0
-current-step: "review 통과(SPEC/QUALITY PASS, SEC MEDIUM3). 조치: AC-8 tools.jackson(Jackson3) 검증 테스트 추가. #1 Hibernate 래핑·#3 3자 가드는 인계 메모."
+current-step: "완료 — verify 통과(전체 backend test+build), 인수 ACCEPT, commit 6cab8ec(+pr-context 5b63180), PR #47. #1·#3 인계 메모."
 domain-context: context/collaboration
 phases:
   setup: completed
