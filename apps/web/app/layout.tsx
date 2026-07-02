@@ -12,10 +12,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="ko" data-theme="dark">
+    // suppressHydrationWarning — 아래 init 스크립트가 하이드레이션 전 dataset.theme을 저장값으로
+    // 바꾸므로(서버는 항상 'dark' 렌더), 라이트 저장 사용자의 <html> 속성 불일치 경고를 억제한다.
+    <html lang="ko" data-theme="dark" suppressHydrationWarning>
       <head>
         {/* 테마 복원 — 페인트 전에 저장된 테마(localStorage 'ieum-theme')를 dataset.theme에 반영해
-            새로고침 시 다크로 되돌아가는 FOUC를 막는다. useTheme 토글이 쓰는 키와 동일. */}
+            새로고침 시 다크로 되돌아가는 FOUC를 막는다. 사이드바 계정 메뉴의 테마 토글이 쓰는 키와 동일. */}
         <script
           dangerouslySetInnerHTML={{
             __html:
