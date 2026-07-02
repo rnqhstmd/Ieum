@@ -1,23 +1,26 @@
- .dev/feat-a3-infra-overlays/codemap.md             |  24 ++++
- .dev/feat-a3-infra-overlays/design.md              |  98 +++++++++++++
- .dev/feat-a3-infra-overlays/diff.txt               |  21 +++
- .dev/feat-a3-infra-overlays/prd.md                 |  68 +++++++++
+ .dev/feat-a3-infra-overlays/codemap.md             |  24 +++
+ .dev/feat-a3-infra-overlays/design.md              |  98 +++++++++++
+ .dev/feat-a3-infra-overlays/diff.txt               |  23 +++
+ .dev/feat-a3-infra-overlays/prd.md                 |  68 ++++++++
  .dev/feat-a3-infra-overlays/self-check.md          |  12 ++
- .dev/feat-a3-infra-overlays/state.md               |  23 ++++
+ .dev/feat-a3-infra-overlays/state.md               |  23 +++
+ .dev/feat-a3-infra-overlays/trust-ledger.md        |  19 +++
  apps/web/app/(app)/layout.tsx                      |   7 +-
- apps/web/components/editor/EditorContainer.tsx     |  55 +++++++-
- .../editor/__tests__/EditorContainer.test.tsx      | 153 ++++++++++++++++++++-
- apps/web/components/overlays/CommandPalette.tsx    |  33 ++++-
- .../overlays/CommandPaletteContainer.tsx           |  87 ++++++++++++
- .../__tests__/CommandPaletteContainer.test.tsx     | 150 ++++++++++++++++++++
- apps/web/components/sidebar/Sidebar.tsx            |  38 ++++-
- .../components/sidebar/__tests__/Sidebar.test.tsx  |  70 +++++++++-
- apps/web/components/states/ToastProvider.tsx       |  84 +++++++++++
- .../states/__tests__/ToastProvider.test.tsx        | 140 +++++++++++++++++++
+ apps/web/components/editor/EditorContainer.tsx     |  58 ++++++-
+ .../editor/__tests__/EditorContainer.test.tsx      | 180 ++++++++++++++++++++-
+ apps/web/components/overlays/CommandPalette.tsx    |  56 ++++++-
+ .../overlays/CommandPaletteContainer.tsx           | 108 +++++++++++++
+ .../__tests__/CommandPaletteContainer.test.tsx     | 174 ++++++++++++++++++++
+ apps/web/components/sidebar/Sidebar.tsx            |  60 +++++--
+ .../components/sidebar/__tests__/Sidebar.test.tsx  |  96 ++++++++++-
+ apps/web/components/states/ConnectionBanner.tsx    |   3 +-
+ apps/web/components/states/ErrorToast.tsx          |  17 +-
+ apps/web/components/states/ToastProvider.tsx       |  84 ++++++++++
+ .../states/__tests__/ToastProvider.test.tsx        | 148 +++++++++++++++++
  apps/web/src/lib/__tests__/pages.test.ts           |  45 +++++-
- .../lib/editor/__tests__/useCrdtDocument.test.tsx  |  78 ++++++++++-
+ .../lib/editor/__tests__/useCrdtDocument.test.tsx  |  78 ++++++++-
  apps/web/src/lib/editor/useCrdtDocument.ts         |  45 ++++++
  apps/web/src/lib/pages.ts                          |  14 ++
- 20 files changed, 1219 insertions(+), 26 deletions(-)
+ 23 files changed, 1399 insertions(+), 41 deletions(-)
 ---
-총 1570줄. 변경 파일을 Read로 직접 확인하라.
+총 1815줄. 변경 파일을 Read로 직접 확인하라.
