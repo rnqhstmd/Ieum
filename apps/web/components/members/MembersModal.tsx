@@ -7,12 +7,13 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ApiError } from '@/src/lib/api';
+import { redirectOnAuthError } from '@/src/lib/auth/redirectOnAuthError';
 import { getCurrentUser } from '@/src/lib/users';
 import { listMembers, updateMemberRole, removeMember } from '@/src/lib/members';
 import { listInvitations, createInvitation, revokeInvitation } from '@/src/lib/invitations';
 import type { CurrentUser, Invitation, MemberRole, Membership } from '@/src/lib/types';
 import ConfirmDialog from '@/components/overlays/ConfirmDialog';
+import { useToast } from '@/components/states/ToastProvider';
 import InviteRow from './InviteRow';
 import MemberRow from './MemberRow';
 import PendingInviteRow from './PendingInviteRow';
@@ -27,6 +28,7 @@ interface Props {
 
 export default function MembersModal({ workspaceId, workspaceName, onClose }: Props) {
   const router = useRouter();
+  const { showError } = useToast();
   const [status, setStatus] = useState<Status>('loading');
   const [me, setMe] = useState<CurrentUser | null>(null);
   const [members, setMembers] = useState<Membership[]>([]);
@@ -59,13 +61,10 @@ export default function MembersModal({ workspaceId, workspaceName, onClose }: Pr
     setInvitations(inviteList);
   };
 
-  /** 변경 액션 실패 처리 — 401이면 로그인 유도, 그 외 간단 알림. */
+  /** 변경 액션 실패 처리 — 401이면 로그인 유도, 그 외 전역 토스트로 알림. */
   const handleActionError = (e: unknown) => {
-    if (e instanceof ApiError && e.status === 401) {
-      router.push('/login');
-      return;
-    }
-    alert('작업을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+    if (redirectOnAuthError(e, router)) return;
+    showError('작업을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.');
   };
 
   // ── 마운트 시 조회 ──
@@ -83,10 +82,7 @@ export default function MembersModal({ workspaceId, workspaceName, onClose }: Pr
         setStatus('ready');
       } catch (e) {
         if (!active) return;
-        if (e instanceof ApiError && e.status === 401) {
-          router.push('/login');
-          return;
-        }
+        if (redirectOnAuthError(e, router)) return;
         setStatus('error');
       }
     })();

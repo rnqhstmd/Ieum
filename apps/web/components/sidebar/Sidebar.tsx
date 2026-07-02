@@ -6,9 +6,13 @@ import { useRouter } from 'next/navigation';
 import { listWorkspaces } from '@/src/lib/workspaces';
 import { getPageTree, createPage, updatePage, archivePage } from '@/src/lib/pages';
 import { redirectOnAuthError } from '@/src/lib/auth/redirectOnAuthError';
+import { logout } from '@/src/lib/auth/logout';
+import { useTheme } from '@/src/lib/theme/useTheme';
+import { usePaletteMembers } from '@/src/lib/palette/usePaletteMembers';
 import type { Page, Workspace } from '@/src/lib/types';
 import ConfirmDialog from '@/components/overlays/ConfirmDialog';
 import CommandPaletteContainer from '@/components/overlays/CommandPaletteContainer';
+import { useToast } from '@/components/states/ToastProvider';
 import WorkspaceSwitcher from './WorkspaceSwitcher';
 import PageTree from './PageTree';
 import NewPageButton from './NewPageButton';
@@ -35,6 +39,7 @@ interface Props {
 
 export default function Sidebar({ onNavigate }: Props = {}) {
   const router = useRouter();
+  const { showError } = useToast();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [selectedWsId, setSelectedWsId] = useState<string | null>(null);
   const [pages, setPages] = useState<Page[]>([]);
@@ -46,24 +51,49 @@ export default function Sidebar({ onNavigate }: Props = {}) {
   // 진행 중 트리 조회의 워크스페이스 ID — 빠른 전환/언마운트 시 stale 응답 무시용
   const activeWsIdRef = useRef<string | null>(null);
 
-  const handleError = (e: unknown) => {
-    if (redirectOnAuthError(e, router)) return;
-    setStatus('error');
-  };
+  // usePaletteMembers 인자로 필요해 훅 호출보다 위로 끌어올린다.
+  const currentWs = workspaces.find((w) => w.id === selectedWsId) ?? null;
 
-  const loadTree = async (wsId: string) => {
-    activeWsIdRef.current = wsId;
-    setStatus('loading');
-    try {
-      const tree = await getPageTree(wsId);
-      if (activeWsIdRef.current !== wsId) return; // 더 최신 전환이 있었으면 stale 응답 무시
-      setPages(tree);
-      setStatus('ready');
-    } catch (e) {
-      if (activeWsIdRef.current !== wsId) return;
-      handleError(e);
-    }
-  };
+  const { toggleTheme } = useTheme();
+  const paletteMembers = usePaletteMembers({ open: paletteOpen, workspace: currentWs });
+
+  // handleCreate 등에서 안정 참조로 재사용하기 위해 useCallback으로 고정한다.
+  const handleError = useCallback(
+    (e: unknown) => {
+      if (redirectOnAuthError(e, router)) return;
+      setStatus('error');
+    },
+    [router],
+  );
+
+  // mutation(생성/이름변경/아이콘/아카이브) 실패 전용 — 401은 로그인 이동, 그 외는 트리를 유지한 채
+  // 전역 토스트(+재시도)로 알린다(FR-B2/BR-B1/BR-B2). 초기/워크스페이스 전환 조회는 handleError를 그대로 쓴다.
+  // handleCreate 등에서 안정 참조로 재사용하기 위해 useCallback으로 고정한다.
+  const handleMutationError = useCallback(
+    (e: unknown, message: string, onRetry: () => void) => {
+      if (redirectOnAuthError(e, router)) return;
+      showError(message, { onRetry });
+    },
+    [router, showError],
+  );
+
+  // handleCreate 등에서 안정 참조로 재사용하기 위해 useCallback으로 고정한다.
+  const loadTree = useCallback(
+    async (wsId: string) => {
+      activeWsIdRef.current = wsId;
+      setStatus('loading');
+      try {
+        const tree = await getPageTree(wsId);
+        if (activeWsIdRef.current !== wsId) return; // 더 최신 전환이 있었으면 stale 응답 무시
+        setPages(tree);
+        setStatus('ready');
+      } catch (e) {
+        if (activeWsIdRef.current !== wsId) return;
+        handleError(e);
+      }
+    },
+    [handleError],
+  );
 
   useEffect(() => {
     let active = true;
@@ -124,23 +154,27 @@ export default function Sidebar({ onNavigate }: Props = {}) {
   // 팔레트 닫기 콜백도 안정 참조로 고정한다(인라인 화살표 함수 재생성 방지).
   const closePalette = useCallback(() => setPaletteOpen(false), []);
 
-  /** parentId=null → 최상위, 그 외 → 하위. position은 형제 최대값 + 1(없으면 0). */
-  const handleCreate = async (parentId: string | null = null) => {
-    if (!selectedWsId) return;
-    const siblings = parentId === null ? pages : (findNode(pages, parentId)?.children ?? []);
-    const nextPosition = siblings.length ? Math.max(...siblings.map((s) => s.position)) + 1 : 0;
-    try {
-      const created = await createPage(selectedWsId, {
-        parentPageId: parentId,
-        title: '', // 빈 제목으로 생성 → 에디터/트리에서 "제목 없음" placeholder 표시
-        position: nextPosition,
-      });
-      await loadTree(selectedWsId);
-      navigate(created.id);
-    } catch (e) {
-      handleError(e);
-    }
-  };
+  /** parentId=null → 최상위, 그 외 → 하위. position은 형제 최대값 + 1(없으면 0).
+   * onCreatePage(팔레트)에서 안정 참조로 재사용하기 위해 useCallback으로 고정한다. */
+  const handleCreate = useCallback(
+    async (parentId: string | null = null) => {
+      if (!selectedWsId) return;
+      const siblings = parentId === null ? pages : (findNode(pages, parentId)?.children ?? []);
+      const nextPosition = siblings.length ? Math.max(...siblings.map((s) => s.position)) + 1 : 0;
+      try {
+        const created = await createPage(selectedWsId, {
+          parentPageId: parentId,
+          title: '', // 빈 제목으로 생성 → 에디터/트리에서 "제목 없음" placeholder 표시
+          position: nextPosition,
+        });
+        await loadTree(selectedWsId);
+        navigate(created.id);
+      } catch (e) {
+        handleMutationError(e, '페이지를 만들지 못했습니다. 잠시 후 다시 시도해 주세요.', () => handleCreate(parentId));
+      }
+    },
+    [selectedWsId, pages, loadTree, navigate, handleMutationError],
+  );
 
   /** 페이지 이름 변경 → updatePage 후 트리 재조회 */
   const handleRename = async (id: string, title: string) => {
@@ -149,7 +183,7 @@ export default function Sidebar({ onNavigate }: Props = {}) {
       await updatePage(selectedWsId, id, { title });
       await loadTree(selectedWsId);
     } catch (e) {
-      handleError(e);
+      handleMutationError(e, '이름을 변경하지 못했습니다. 잠시 후 다시 시도해 주세요.', () => handleRename(id, title));
     }
   };
 
@@ -160,7 +194,7 @@ export default function Sidebar({ onNavigate }: Props = {}) {
       await updatePage(selectedWsId, id, { icon });
       await loadTree(selectedWsId);
     } catch (e) {
-      handleError(e);
+      handleMutationError(e, '아이콘을 변경하지 못했습니다. 잠시 후 다시 시도해 주세요.', () => handleSetIcon(id, icon));
     }
   };
 
@@ -169,20 +203,43 @@ export default function Sidebar({ onNavigate }: Props = {}) {
     setConfirmArchiveId(id);
   };
 
-  /** 아카이브 확인 → archivePage(재귀 soft delete) 후 트리 재조회. */
-  const handleConfirmArchive = async () => {
-    const id = confirmArchiveId;
-    setConfirmArchiveId(null);
-    if (!selectedWsId || !id) return;
+  /** 실제 아카이브 실행 — id를 캡처해 두어 재시도 시 confirmArchiveId(이미 null로 리셋됨)에 의존하지 않는다. */
+  const archiveById = async (id: string) => {
+    if (!selectedWsId) return;
     try {
       await archivePage(selectedWsId, id);
       await loadTree(selectedWsId);
     } catch (e) {
-      handleError(e);
+      handleMutationError(e, '페이지를 아카이브하지 못했습니다. 잠시 후 다시 시도해 주세요.', () => archiveById(id));
     }
   };
 
-  const currentWs = workspaces.find((w) => w.id === selectedWsId) ?? null;
+  /** 아카이브 확인 → 다이얼로그를 먼저 닫고(id 캡처) archiveById 실행. */
+  const handleConfirmArchive = () => {
+    const id = confirmArchiveId;
+    setConfirmArchiveId(null);
+    if (!id) return;
+    void archiveById(id);
+  };
+
+  // 팔레트 "새 페이지 만들기" 명령 — 기존 생성 흐름(handleCreate)을 그대로 재사용한다.
+  // handleCreate가 useCallback으로 안정화되어 있어(위 정의 참고), navigate/closePalette와
+  // 같은 관용으로 여기서도 useCallback으로 참조를 고정하면 selectedWsId/pages 등 실제
+  // 의존 값이 바뀔 때만 참조가 바뀐다(팔레트 rawGroups 불필요 재계산 방지).
+  const onCreatePage = useCallback(() => void handleCreate(null), [handleCreate]);
+  const goSettings = useCallback(() => router.push('/settings'), [router]);
+  const goHelp = useCallback(() => router.push('/help'), [router]);
+  const goMembers = useCallback(() => {
+    if (selectedWsId) router.push(`/workspace/${selectedWsId}/members`);
+  }, [selectedWsId, router]);
+  const doLogout = useCallback(async () => {
+    try {
+      await logout();
+      router.push('/login');
+    } catch {
+      // 로그아웃 실패 시 세션을 유지한다(조용히 무시)
+    }
+  }, [router]);
 
   return (
     <aside
@@ -289,6 +346,14 @@ export default function Sidebar({ onNavigate }: Props = {}) {
         pages={pages}
         onNavigate={navigate}
         loading={status === 'loading'}
+        workspace={currentWs}
+        members={paletteMembers}
+        onCreatePage={onCreatePage}
+        onOpenSettings={goSettings}
+        onOpenHelp={goHelp}
+        onToggleTheme={toggleTheme}
+        onOpenMembers={goMembers}
+        onLogout={doLogout}
       />
 
       {/* 아카이브 확인 — 사이드바 래퍼의 transform 컨테이닝 블록을 벗어나 전체화면을 덮도록

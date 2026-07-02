@@ -18,6 +18,9 @@ export interface ToastApi {
 interface ToastState {
   message: string;
   onRetry?: () => void;
+  // 논리적 토스트마다 증가하는 고유 id(내부용). ErrorToast의 key로 사용해 교체 시
+  // 새로 마운트되게 함으로써 retried 로컬 state 누수를 막는다.
+  id: number;
 }
 
 // Provider 밖에서 useToast를 호출해도 안전하도록 no-op 기본값을 둔다(하위 호환 — throw 금지).
@@ -31,6 +34,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [toast, setToast] = useState<ToastState | null>(null);
   // 자동 소멸 타이머 핸들 — showError/dismiss/언마운트 시 clear 대상.
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 토스트 고유 id 발급용 단조 증가 카운터(결정성 — Date.now/Math.random 미사용).
+  const seqRef = useRef(0);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current !== null) {
@@ -48,7 +53,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     (message: string, opts?: { onRetry?: () => void }) => {
       // 교체 방식 — 기존 타이머를 지우고 새 토스트로 덮어쓴 뒤 5초 재설정(AC-11/AC-13).
       clearTimer();
-      setToast({ message, onRetry: opts?.onRetry });
+      seqRef.current += 1;
+      setToast({ message, onRetry: opts?.onRetry, id: seqRef.current });
       timerRef.current = setTimeout(() => {
         timerRef.current = null;
         setToast(null);
@@ -72,7 +78,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {toast &&
         createPortal(
           <div className="fixed bottom-6 right-6 z-50">
-            <ErrorToast message={toast.message} onRetry={toast.onRetry} onDismiss={dismiss} />
+            <ErrorToast
+              key={toast.id}
+              message={toast.message}
+              onRetry={toast.onRetry}
+              onDismiss={dismiss}
+            />
           </div>,
           document.body,
         )}
