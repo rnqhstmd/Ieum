@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { getPageTree, createPage, updatePage, archivePage } from '@/src/lib/pages';
+import { getPageTree, createPage, updatePage, archivePage, flattenPageTree } from '@/src/lib/pages';
 
 const node = (over: Record<string, unknown>) => ({
   id: 'x',
@@ -90,5 +90,48 @@ describe('pages api', () => {
 
     const result = await getPageTree('w1');
     expect(result[0]?.children).toBeNull();
+  });
+});
+
+describe('flattenPageTree', () => {
+  it('중첩 트리(부모+자식+손자)를 전위 순회 순서로 평탄화한다', () => {
+    const tree = [
+      node({
+        id: 'a',
+        title: 'A',
+        children: [
+          node({
+            id: 'b',
+            parentPageId: 'a',
+            title: 'B',
+            children: [node({ id: 'c', parentPageId: 'b', title: 'C' })],
+          }),
+          node({ id: 'd', parentPageId: 'a', title: 'D' }),
+        ],
+      }),
+      node({ id: 'e', title: 'E' }),
+    ];
+
+    const flat = flattenPageTree(tree);
+
+    // 개수: a, b, c, d, e = 5
+    expect(flat).toHaveLength(5);
+    // 순서: 부모 → 자식(전위 순회) 보존
+    expect(flat.map((p) => p.id)).toEqual(['a', 'b', 'c', 'd', 'e']);
+  });
+
+  it('빈 배열은 빈 배열을 반환한다', () => {
+    expect(flattenPageTree([])).toEqual([]);
+  });
+
+  it('children이 null/빈 배열인 노드는 자기 자신만 포함한다', () => {
+    const tree = [
+      node({ id: 'a', title: 'A', children: null }),
+      node({ id: 'b', title: 'B', children: [] }),
+    ];
+
+    const flat = flattenPageTree(tree);
+
+    expect(flat.map((p) => p.id)).toEqual(['a', 'b']);
   });
 });

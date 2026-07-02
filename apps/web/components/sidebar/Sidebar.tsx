@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { listWorkspaces } from '@/src/lib/workspaces';
@@ -8,6 +8,7 @@ import { getPageTree, createPage, updatePage, archivePage } from '@/src/lib/page
 import { ApiError } from '@/src/lib/api';
 import type { Page, Workspace } from '@/src/lib/types';
 import ConfirmDialog from '@/components/overlays/ConfirmDialog';
+import CommandPaletteContainer from '@/components/overlays/CommandPaletteContainer';
 import WorkspaceSwitcher from './WorkspaceSwitcher';
 import PageTree from './PageTree';
 import NewPageButton from './NewPageButton';
@@ -40,6 +41,8 @@ export default function Sidebar({ onNavigate }: Props = {}) {
   const [status, setStatus] = useState<Status>('loading');
   // 아카이브 확인 대상 페이지 ID(파괴적). null이면 확인 다이얼로그 닫힘.
   const [confirmArchiveId, setConfirmArchiveId] = useState<string | null>(null);
+  // 명령 팔레트(⌘K) 열림 상태. 검색박스 클릭·전역 단축키로 열린다.
+  const [paletteOpen, setPaletteOpen] = useState(false);
   // 진행 중 트리 조회의 워크스페이스 ID — 빠른 전환/언마운트 시 stale 응답 무시용
   const activeWsIdRef = useRef<string | null>(null);
 
@@ -90,15 +93,39 @@ export default function Sidebar({ onNavigate }: Props = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 전역 ⌘K / Ctrl+K → 명령 팔레트 열기(AC-1).
+  // Sidebar는 AppShell을 통해 모든 (app) 화면에 상시 마운트되므로 "어디서든" 단축키가 성립한다.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      // 파괴적 확인 다이얼로그(아카이브)가 열려 있으면 팔레트를 열지 않는다 — 모달 배타성 보장
+      // (키보드로 확인 다이얼로그를 우회해 다른 화면으로 이동하는 것을 막는다).
+      if (confirmArchiveId != null) return;
+      // shift/alt 조합(예: Ctrl+Shift+K devtools 단축키)은 제외해 오매칭을 막는다.
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [confirmArchiveId]);
+
   const handleSelect = (id: string) => {
     setSelectedWsId(id);
     void loadTree(id);
   };
 
-  const navigate = (pageId: string) => {
-    onNavigate?.();
-    router.push(`/page/${pageId}`);
-  };
+  // 팔레트에 안정 참조로 전달하기 위해 useCallback으로 고정한다(불필요 리렌더/재계산 방지).
+  const navigate = useCallback(
+    (pageId: string) => {
+      onNavigate?.();
+      router.push(`/page/${pageId}`);
+    },
+    [onNavigate, router],
+  );
+
+  // 팔레트 닫기 콜백도 안정 참조로 고정한다(인라인 화살표 함수 재생성 방지).
+  const closePalette = useCallback(() => setPaletteOpen(false), []);
 
   /** parentId=null → 최상위, 그 외 → 하위. position은 형제 최대값 + 1(없으면 0). */
   const handleCreate = async (parentId: string | null = null) => {
@@ -167,10 +194,12 @@ export default function Sidebar({ onNavigate }: Props = {}) {
     >
       <WorkspaceSwitcher workspaces={workspaces} currentId={selectedWsId} onSelect={handleSelect} />
 
-      {/* 검색창 — 시각 전용 플레이스홀더(검색 미배선, 비기능) */}
-      <div
-        aria-hidden
-        className="mt-1.5 flex items-center gap-[9px] rounded-[7px] border border-hair-2 px-2.5 py-2 text-fainter"
+      {/* 검색박스 — 클릭 시 명령 팔레트(⌘K)를 연다. 시각 스타일은 유지하고 접근성 있는 버튼으로 노출. */}
+      <button
+        type="button"
+        aria-label="검색"
+        onClick={() => setPaletteOpen(true)}
+        className="mt-1.5 flex w-full items-center gap-[9px] rounded-[7px] border border-hair-2 px-2.5 py-2 text-left text-fainter"
       >
         <svg
           viewBox="0 0 24 24"
@@ -188,7 +217,7 @@ export default function Sidebar({ onNavigate }: Props = {}) {
         <kbd className="rounded-[4px] border border-hair-2 px-[5px] py-[3px] font-sans text-[10px] leading-none">
           ⌘K
         </kbd>
-      </div>
+      </button>
 
       <div className="mt-3 min-h-0 flex-1 overflow-auto">
         {currentWs && (
@@ -253,6 +282,17 @@ export default function Sidebar({ onNavigate }: Props = {}) {
         </button>
       </div>
       <AccountArea />
+
+      {/* 명령 팔레트(⌘K) — 현재 워크스페이스 페이지 트리(pages)를 후보로 전달한다.
+          navigate는 드로어 닫기 + router.push('/page/{id}')를 이미 수행하므로 재사용(AC-4).
+          Escape/바깥클릭 닫힘·자체 portal은 CommandPalette/컨테이너가 담당(AC-5). */}
+      <CommandPaletteContainer
+        open={paletteOpen}
+        onClose={closePalette}
+        pages={pages}
+        onNavigate={navigate}
+        loading={status === 'loading'}
+      />
 
       {/* 아카이브 확인 — 사이드바 래퍼의 transform 컨테이닝 블록을 벗어나 전체화면을 덮도록
           document.body로 포털한다. confirmArchiveId가 초기 null이라 SSR/하이드레이션엔 렌더되지 않음. */}

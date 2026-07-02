@@ -28,3 +28,17 @@ export async function updatePage(
 export async function archivePage(wsId: string, pageId: string): Promise<void> {
   await apiDelete<void>(`/api/workspaces/${wsId}/pages/${pageId}`);
 }
+
+/**
+ * 페이지 트리를 평탄한 배열로 전개한다(전위 순회).
+ * 각 노드를 방문한 뒤 children을 재귀적으로 이어붙여 부모→자식 순서를 보존한다.
+ * children이 null이거나 비어 있으면 해당 노드만 포함한다.
+ */
+export function flattenPageTree(pages: Page[]): Page[] {
+  const flat: Page[] = [];
+  for (const page of pages) {
+    flat.push(page);
+    if (page.children) flat.push(...flattenPageTree(page.children));
+  }
+  return flat;
+}

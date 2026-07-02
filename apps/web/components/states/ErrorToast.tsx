@@ -18,13 +18,16 @@ export default function ErrorToast({
     >
       <span aria-hidden className="h-[7px] w-[7px] flex-none rounded-full bg-danger" />
       <span className="flex-1 text-[13px] text-ink">{message}</span>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="flex-none text-xs font-bold text-danger transition hover:opacity-80"
-      >
-        다시 시도
-      </button>
+      {/* onRetry가 있을 때만 노출 — 재시도 대상이 없는 showError에는 버튼을 걸지 않는다. */}
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="flex-none text-xs font-bold text-danger transition hover:opacity-80"
+        >
+          다시 시도
+        </button>
+      )}
       <button
         type="button"
         onClick={onDismiss}
