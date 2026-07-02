@@ -1,5 +1,7 @@
 'use client';
 
+import { useState } from 'react';
+
 interface ErrorToastProps {
   message?: string;
   onRetry?: () => void;
@@ -11,6 +13,9 @@ export default function ErrorToast({
   onRetry,
   onDismiss,
 }: ErrorToastProps) {
+  // 보안 MEDIUM #1: "다시 시도"는 1회만 반응하도록 로컬 상태로 잠금
+  const [retried, setRetried] = useState(false);
+
   return (
     <div
       role="alert"
@@ -22,7 +27,12 @@ export default function ErrorToast({
       {onRetry && (
         <button
           type="button"
-          onClick={onRetry}
+          onClick={() => {
+            if (retried) return;
+            setRetried(true);
+            onRetry?.();
+          }}
+          disabled={retried}
           className="flex-none text-xs font-bold text-danger transition hover:opacity-80"
         >
           다시 시도

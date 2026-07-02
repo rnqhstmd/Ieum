@@ -1,0 +1,23 @@
+ .dev/feat-palette-search-global-toast/codemap.md   |  21 +
+ .dev/feat-palette-search-global-toast/design.md    | 182 ++++++++
+ .dev/feat-palette-search-global-toast/diff.txt     |  21 +
+ .dev/feat-palette-search-global-toast/prd.md       | 224 +++++++++
+ .dev/feat-palette-search-global-toast/state.md     |  45 ++
+ .../trust-ledger.md                                |  36 ++
+ apps/web/components/members/MembersModal.tsx       |  18 +-
+ .../members/__tests__/MembersModal.test.tsx        | 113 +++++
+ .../overlays/CommandPaletteContainer.tsx           | 117 +++--
+ .../__tests__/CommandPaletteContainer.test.tsx     | 498 ++++++++++++++++++++-
+ apps/web/components/sidebar/Sidebar.tsx            | 151 +++++--
+ .../components/sidebar/__tests__/Sidebar.test.tsx  | 398 +++++++++++++++-
+ apps/web/components/states/ErrorToast.tsx          |  12 +-
+ apps/web/components/states/ToastProvider.tsx       |  15 +-
+ .../states/__tests__/ErrorToast.test.tsx           |  42 ++
+ .../states/__tests__/ToastProvider.test.tsx        |  47 ++
+ apps/web/src/lib/palette/__tests__/groups.test.ts  | 242 ++++++++++
+ .../palette/__tests__/usePaletteMembers.test.tsx   | 118 +++++
+ apps/web/src/lib/palette/groups.ts                 |  84 ++++
+ apps/web/src/lib/palette/usePaletteMembers.ts      |  45 ++
+ 20 files changed, 2344 insertions(+), 85 deletions(-)
+---
+위는 요약입니다. 프로덕션 변경 파일을 Read로 직접 확인하라: apps/web/src/lib/palette/{groups.ts,usePaletteMembers.ts}, apps/web/components/overlays/CommandPaletteContainer.tsx, apps/web/components/sidebar/Sidebar.tsx, apps/web/components/members/MembersModal.tsx, apps/web/components/states/{ErrorToast.tsx,ToastProvider.tsx}

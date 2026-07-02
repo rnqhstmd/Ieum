@@ -124,6 +124,53 @@ describe('ToastProvider', () => {
     expect(screen.queryByRole('button', { name: '다시 시도' })).toBeNull();
   });
 
+  it('RESET-ON-REPLACE: 토스트 교체 시 새 토스트의 "다시 시도" 잠금이 초기화된다', () => {
+    // 결함 배경: ErrorToast의 로컬 retried state가 key 없는 재렌더로 파이버 간 누수됨.
+    // 논리적 토스트(오류 A→B 교체) 1건마다 재시도 잠금이 초기화되어야 한다.
+    const retryA = vi.fn();
+    const retryB = vi.fn();
+
+    function HarnessAB() {
+      const { showError } = useToast();
+      return (
+        <>
+          <button type="button" onClick={() => showError('오류 A', { onRetry: retryA })}>
+            show-a
+          </button>
+          <button type="button" onClick={() => showError('오류 B', { onRetry: retryB })}>
+            show-b
+          </button>
+        </>
+      );
+    }
+
+    render(
+      <ToastProvider>
+        <HarnessAB />
+      </ToastProvider>,
+    );
+
+    // 1. 오류 A 트리거 → "다시 시도" 버튼 노출.
+    fireEvent.click(screen.getByText('show-a'));
+    expect(screen.getByText('오류 A')).toBeInTheDocument();
+
+    // 2. "다시 시도" 클릭 → retryA 1회 호출, 버튼 disabled(M1 동작).
+    const retryButtonA = screen.getByRole('button', { name: '다시 시도' });
+    fireEvent.click(retryButtonA);
+    expect(retryA).toHaveBeenCalledTimes(1);
+    expect(retryButtonA).toBeDisabled();
+
+    // 3. 재실패로 showError가 새 토스트 B로 교체.
+    fireEvent.click(screen.getByText('show-b'));
+    expect(screen.getByText('오류 B')).toBeInTheDocument();
+
+    // 4. 토스트 B의 "다시 시도"는 enabled여야 한다(잠금이 A에서 누수되지 않아야 함).
+    const retryButtonB = screen.getByRole('button', { name: '다시 시도' });
+    expect(retryButtonB).not.toBeDisabled();
+    fireEvent.click(retryButtonB);
+    expect(retryB).toHaveBeenCalledTimes(1);
+  });
+
   it('Provider 밖 useToast는 no-op을 반환한다(하위 호환 — throw 없음)', () => {
     function Outside() {
       const { showError, dismiss } = useToast();
