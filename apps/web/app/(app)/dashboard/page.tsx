@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { listWorkspaces } from '@/src/lib/workspaces';
 import { createPage } from '@/src/lib/pages';
-import { ApiError } from '@/src/lib/api';
+import { redirectOnAuthError } from '@/src/lib/auth/redirectOnAuthError';
 import type { Workspace } from '@/src/lib/types';
 import EmptyState from '@/components/states/EmptyState';
 
@@ -19,10 +19,7 @@ export default function DashboardPage() {
   const [status, setStatus] = useState<Status>('loading');
 
   const handleError = (e: unknown) => {
-    if (e instanceof ApiError && e.status === 401) {
-      router.push('/login');
-      return;
-    }
+    if (redirectOnAuthError(e, router)) return;
     setStatus('error');
   };
 
