@@ -1,16 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, act, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, act, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const { pushMock } = vi.hoisted(() => ({ pushMock: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: pushMock }), usePathname: () => '/' }));
 vi.mock('@/src/lib/workspaces', () => ({ listWorkspaces: vi.fn() }));
-vi.mock('@/src/lib/pages', () => ({
-  getPageTree: vi.fn(),
-  createPage: vi.fn(),
-  updatePage: vi.fn(),
-  archivePage: vi.fn(),
-}));
+// API 호출만 목킹하고 flattenPageTree(순수 헬퍼)는 원본을 유지한다 — CommandPaletteContainer가 소비.
+vi.mock('@/src/lib/pages', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/src/lib/pages')>();
+  return {
+    ...actual,
+    getPageTree: vi.fn(),
+    createPage: vi.fn(),
+    updatePage: vi.fn(),
+    archivePage: vi.fn(),
+  };
+});
 
 import Sidebar from '@/components/sidebar/Sidebar';
 import { listWorkspaces } from '@/src/lib/workspaces';
@@ -194,5 +199,82 @@ describe('Sidebar', () => {
     });
     expect(screen.queryByText('P2-stale')).not.toBeInTheDocument();
     expect(screen.getByText('P3-page')).toBeInTheDocument();
+  });
+
+  it('AC-1: 전역 ⌘K(keydown)로 명령 팔레트를 연다', async () => {
+    vi.mocked(listWorkspaces).mockResolvedValue([ws({ id: 'w1', name: '내 워크스페이스', type: 'PERSONAL' })]);
+    vi.mocked(getPageTree).mockResolvedValue([page({ id: 'pA', title: '회의록' })]);
+    render(<Sidebar />);
+    await screen.findByText('회의록'); // 페이지 트리 로드 완료 후
+
+    fireEvent.keyDown(window, { key: 'k', metaKey: true });
+    expect(await screen.findByRole('dialog', { name: '명령 팔레트' })).toBeInTheDocument();
+  });
+
+  it('회귀(수정2): Ctrl+Shift+K로는 명령 팔레트가 열리지 않는다(devtools 단축키 오매칭 방지)', async () => {
+    vi.mocked(listWorkspaces).mockResolvedValue([ws({ id: 'w1', name: '내 워크스페이스', type: 'PERSONAL' })]);
+    vi.mocked(getPageTree).mockResolvedValue([page({ id: 'pA', title: '회의록' })]);
+    render(<Sidebar />);
+    await screen.findByText('회의록');
+
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true, shiftKey: true });
+    expect(screen.queryByRole('dialog', { name: '명령 팔레트' })).not.toBeInTheDocument();
+  });
+
+  it('회귀(수정2): 아카이브 확인 다이얼로그가 열려 있으면 ⌘K로 팔레트를 열지 않는다(모달 배타성)', async () => {
+    const user = userEvent.setup();
+    vi.mocked(listWorkspaces).mockResolvedValue([ws({ id: 'w1', name: '내 워크스페이스', type: 'PERSONAL' })]);
+    vi.mocked(getPageTree).mockResolvedValue([page({ id: 'a', title: 'A' })]);
+    render(<Sidebar />);
+    await screen.findByText('A');
+
+    // 파괴적 확인 다이얼로그 오픈 → confirmArchiveId 세팅
+    await user.click(screen.getByRole('button', { name: 'A 아카이브' }));
+    expect(await screen.findByRole('button', { name: '아카이브' })).toBeInTheDocument();
+
+    // 다이얼로그가 열린 상태에서 ⌘K → 명령 팔레트는 열리지 않아야 한다
+    fireEvent.keyDown(window, { key: 'k', metaKey: true });
+    expect(screen.queryByRole('dialog', { name: '명령 팔레트' })).not.toBeInTheDocument();
+  });
+
+  it('AC-2: 검색 버튼 클릭으로 명령 팔레트를 연다', async () => {
+    const user = userEvent.setup();
+    vi.mocked(listWorkspaces).mockResolvedValue([ws({ id: 'w1', name: '내 워크스페이스', type: 'PERSONAL' })]);
+    vi.mocked(getPageTree).mockResolvedValue([page({ id: 'pA', title: '회의록' })]);
+    render(<Sidebar />);
+    await screen.findByText('회의록');
+
+    await user.click(screen.getByRole('button', { name: '검색' }));
+    expect(await screen.findByRole('dialog', { name: '명령 팔레트' })).toBeInTheDocument();
+  });
+
+  it('AC-5: 팔레트가 열린 뒤 Escape로 닫힌다', async () => {
+    const user = userEvent.setup();
+    vi.mocked(listWorkspaces).mockResolvedValue([ws({ id: 'w1', name: '내 워크스페이스', type: 'PERSONAL' })]);
+    vi.mocked(getPageTree).mockResolvedValue([page({ id: 'pA', title: '회의록' })]);
+    render(<Sidebar />);
+    await screen.findByText('회의록');
+
+    await user.click(screen.getByRole('button', { name: '검색' }));
+    expect(await screen.findByRole('dialog', { name: '명령 팔레트' })).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: '명령 팔레트' })).not.toBeInTheDocument(),
+    );
+  });
+
+  it('AC-4: 팔레트에서 페이지 항목 클릭 시 해당 페이지로 이동한다', async () => {
+    const user = userEvent.setup();
+    vi.mocked(listWorkspaces).mockResolvedValue([ws({ id: 'w1', name: '내 워크스페이스', type: 'PERSONAL' })]);
+    vi.mocked(getPageTree).mockResolvedValue([page({ id: 'pA', title: '회의록' })]);
+    render(<Sidebar />);
+    await screen.findByText('회의록');
+
+    await user.click(screen.getByRole('button', { name: '검색' }));
+    const dialog = await screen.findByRole('dialog', { name: '명령 팔레트' });
+    // 트리의 동명 항목과 구분하기 위해 팔레트 dialog 스코프 내에서 항목 버튼을 찾는다.
+    await user.click(within(dialog).getByRole('button', { name: /회의록/ }));
+    expect(pushMock).toHaveBeenCalledWith('/page/pA');
   });
 });

@@ -22,7 +22,8 @@ export default function ConnectionBanner({ status }: ConnectionBannerProps) {
       className="inline-flex items-center gap-2.5 rounded-[10px] border border-hair-2 bg-deep px-4 py-2.5 text-[13px]"
     >
       <span aria-hidden className="h-[7px] w-[7px] flex-none rounded-full bg-ok" />
-      <span className="text-ok">다시 연결됨 · 모든 변경사항 저장됨</span>
+      {/* 재연결 시 missing-op 복원이 아직 미구현이므로 "모든 변경사항 저장됨" 단정(거짓 안심)을 제거한다. */}
+      <span className="text-ok">다시 연결됨</span>
     </div>
   );
 }

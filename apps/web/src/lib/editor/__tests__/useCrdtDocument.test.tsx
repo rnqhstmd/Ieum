@@ -8,7 +8,10 @@ import { createFakeTransport } from '@/src/lib/realtime/__tests__/fakeTransport'
 // T7 / AC-6,7: DocState를 진실 원천으로 보유하고 로컬/원격 op로 화면(blocks)을 갱신한다.
 const PAGE = 'pg_test001';
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers(); // A3 connectionStatus 테스트의 fake timers 복구(비-fake 테스트엔 no-op).
+});
 
 describe('useCrdtDocument', () => {
   it('AC-7: 초기 blocks는 genesis 블록(빈 paragraph) 1개다', () => {
@@ -414,5 +417,78 @@ describe('useCrdtDocument', () => {
       .filter((m) => m.type === 'join' && m.pageId === PAGE);
 
     expect(newJoins.length).toBeGreaterThanOrEqual(1);
+  });
+
+  // ── A3 연결 상태(connectionStatus) — ConnectionBanner 배선 ────────────
+  // transport onOpen/onClose 구독으로 파생하는 상태 머신(flapping 안전, offline 우선).
+
+  it('AC-16: 초기(연결 이벤트 없음) connectionStatus는 online이다', () => {
+    const fake = createFakeTransport();
+    const { result } = renderHook(() =>
+      useCrdtDocument(PAGE, { transportFactory: () => fake }),
+    );
+    expect(result.current.connectionStatus).toBe('online');
+  });
+
+  it('AC-14/15: connectionStatus가 online→offline→reconnected→(3초)→online으로 전이한다', async () => {
+    vi.useFakeTimers();
+    // onOpen 시 relay ready(fetchCurrentUser)가 발화하므로 fetch를 성공값으로 stub(상태 머신과 무관).
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, json: async () => ({ id: 'U1', token: 't' }) })),
+    );
+    const fake = createFakeTransport();
+    const { result } = renderHook(() =>
+      useCrdtDocument(PAGE, { transportFactory: () => fake }),
+    );
+
+    // 초기 → online(AC-16)
+    expect(result.current.connectionStatus).toBe('online');
+
+    // 끊김 → offline(AC-14)
+    act(() => fake.emitClose());
+    expect(result.current.connectionStatus).toBe('offline');
+
+    // 재연결(open) → reconnected. async act로 relay ready 체인을 flush.
+    await act(async () => {
+      fake.emitOpen();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.connectionStatus).toBe('reconnected');
+
+    // 3초 경과 → 자동 online 복귀(AC-15)
+    act(() => vi.advanceTimersByTime(3000));
+    expect(result.current.connectionStatus).toBe('online');
+  });
+
+  it('flapping(critic MUST-ADDRESS): reconnected 3초 내 재차단 시 online 승격 없이 offline을 유지한다', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, json: async () => ({ id: 'U1', token: 't' }) })),
+    );
+    const fake = createFakeTransport();
+    const { result } = renderHook(() =>
+      useCrdtDocument(PAGE, { transportFactory: () => fake }),
+    );
+
+    // offline → 재연결(reconnected, 3초 타이머 시작)
+    act(() => fake.emitClose());
+    await act(async () => {
+      fake.emitOpen();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.connectionStatus).toBe('reconnected');
+
+    // 3초 경과 전(1초 시점) 재차단 → 살아있던 타이머 clear + offline
+    act(() => vi.advanceTimersByTime(1000));
+    act(() => fake.emitClose());
+    expect(result.current.connectionStatus).toBe('offline');
+
+    // 원래 타이머가 fire됐을 시점(누적 3초+)을 지나도 offline 유지(타이머 clear 검증)
+    act(() => vi.advanceTimersByTime(3000));
+    expect(result.current.connectionStatus).toBe('offline');
   });
 });

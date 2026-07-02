@@ -29,6 +29,8 @@ import { useCursor } from '@/src/lib/realtime/useCursor';
 import type { PresenceInfo, CursorInfo } from '@/src/lib/realtime/protocol';
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? 'ws://localhost:3001';
+// A3: 재연결 성공 배너('reconnected') 자동 소멸 시간(ms). onOpen(재연결) 후 이 시간이 지나면 'online' 복귀.
+const RECONNECTED_BANNER_MS = 3000;
 
 export interface UseCrdtDocumentResult {
   blocks: EditorBlockView[];
@@ -53,6 +55,8 @@ export interface UseCrdtDocumentResult {
   restoreError: boolean;
   /** A: 복원 재시도 — ready(토큰 재발급) 후 join 재전송으로 loadByPage 재실행. */
   retryRestore: () => void;
+  /** A3: transport 연결 상태 — ConnectionBanner 소비(additive, 기존 소비자 무영향). */
+  connectionStatus: 'online' | 'offline' | 'reconnected';
 }
 
 // 탭별 고유 siteId. crypto.randomUUID(현대 브라우저 표준)를 우선 사용한다.
@@ -97,6 +101,12 @@ export function useCrdtDocument(
   const [, setVersion] = useState(0);
   const [connectedClients, setConnectedClients] = useState(0);
   const [localClientId, setLocalClientId] = useState<string | null>(null);
+  // A3: transport onOpen/onClose에서 파생하는 연결 상태(additive — EditorContainer의 ConnectionBanner만 소비).
+  const [connectionStatus, setConnectionStatus] = useState<'online' | 'offline' | 'reconnected'>('online');
+  // 직전에 offline이었는지 — onOpen 시 재연결('reconnected')/정상('online') 판정. ref라 이벤트 콜백에서 최신값 접근.
+  const wasOfflineRef = useRef(false);
+  // 'reconnected'→'online' 자동 복귀 타이머. flapping 안전을 위해 모든 전이 진입 시 먼저 clear한다.
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bump = useCallback(() => setVersion((v) => v + 1), []);
   // P6: presence(아바타)·cursor 상태는 DocState와 분리된 별도 훅 — op 경로에 영향 없음(AC-9).
   const presence = usePresence();
@@ -164,7 +174,41 @@ export function useCrdtDocument(
       { displayName, getUserId: () => userIdRef.current, getToken: () => tokenRef.current, ready: fetchAuth },
     );
     clientRef.current = client;
+
+    // A3: 연결 상태 머신(flapping 안전 — offline 우선).
+    // reconnectTimerRef에 보관한 3초 타이머를 모든 onClose·onOpen 전이 진입 시 먼저 clear한다.
+    // 이로써 offline→재연결(타이머 시작)→3초 내 재차단 시 살아있던 타이머가 clear되어 'offline'이 유지된다(AC-14).
+    const clearReconnectTimer = () => {
+      if (reconnectTimerRef.current !== null) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+    };
+    const unsubOpen = transport.onOpen(() => {
+      clearReconnectTimer();
+      if (wasOfflineRef.current) {
+        // offline→open: 재연결. RECONNECTED_BANNER_MS 동안 'reconnected' 표기 후 자동 'online' 복귀(AC-15).
+        setConnectionStatus('reconnected');
+        wasOfflineRef.current = false;
+        reconnectTimerRef.current = setTimeout(() => {
+          reconnectTimerRef.current = null;
+          setConnectionStatus('online');
+        }, RECONNECTED_BANNER_MS);
+      } else {
+        // 끊긴 적 없는 정상 open → 'online'(AC-16).
+        setConnectionStatus('online');
+      }
+    });
+    const unsubClose = transport.onClose(() => {
+      clearReconnectTimer();
+      setConnectionStatus('offline');
+      wasOfflineRef.current = true;
+    });
+
     return () => {
+      unsubOpen();
+      unsubClose();
+      clearReconnectTimer();
       client.dispose();
       clientRef.current = null;
     };
@@ -257,5 +301,6 @@ export function useCrdtDocument(
     authError,
     restoreError,
     retryRestore,
+    connectionStatus,
   };
 }
